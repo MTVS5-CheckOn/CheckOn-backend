@@ -1,4 +1,5 @@
 HELP.md
+AGENTS.md
 .gradle
 build/
 !gradle/wrapper/gradle-wrapper.jar
@@ -35,3 +36,10 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### 환경파일 ###
+.env
+.env.dev
+.env.prod
+.env.test
+!.env.example
