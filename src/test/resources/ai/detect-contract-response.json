@@ -1,0 +1,71 @@
+{
+  "data": {
+    "signals": [
+      {
+        "signal_id": "deccfc8f-1cce-5dbd-a577-3b0acdc02d19",
+        "student_ref": "st_10",
+        "class_ref": "cl_b2",
+        "rule_id": "R1",
+        "signal_type": "acc_drop",
+        "display_label": "정답률 하락",
+        "score": 1.0,
+        "rank": 1,
+        "lifecycle": "ongoing",
+        "brief": {
+          "text": "정답률이 평소보다 눈에 띄게 떨어진 상태가 이어지고 있어요.",
+          "gate_passed": true,
+          "fallback_used": false
+        },
+        "evidence": [
+          {
+            "source_table": "learning_event",
+            "record_id": "le_1053",
+            "summary": "acc_drop 근거 기록"
+          }
+        ]
+      },
+      {
+        "signal_id": "d040d2da-7d61-52e0-8c38-12edf09b0ef6",
+        "student_ref": "st_08",
+        "class_ref": "cl_b2",
+        "rule_id": "R5",
+        "signal_type": "return_care",
+        "display_label": "복귀 케어",
+        "score": 1.0,
+        "rank": 4,
+        "lifecycle": "new",
+        "brief": {
+          "text": "복귀 첫 주예요 — 적응을 한 번 살펴봐 주세요.",
+          "gate_passed": true,
+          "fallback_used": false
+        },
+        "evidence": [
+          {
+            "source_table": "learning_event",
+            "record_id": "le_869",
+            "summary": "return_care 근거 기록"
+          }
+        ]
+      }
+    ],
+    "stats": {
+      "students_evaluated": 9,
+      "signals_raised": 7,
+      "excluded_under_2w": 1,
+      "capped_out": 0,
+      "rules_skipped": []
+    }
+  },
+  "error": null,
+  "meta": {
+    "execution_id": "4a216cfb-f0b1-4efa-91a3-b8a34cd8e112",
+    "versions": {
+      "pipeline": "0.1.0",
+      "engine": "detection-rules-0.1",
+      "schema": "0.1",
+      "contract": "0.1",
+      "threshold": "default-v1",
+      "prompt": null
+    }
+  }
+}
