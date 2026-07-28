@@ -1,23 +1,29 @@
 package com.checkon;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
 @Testcontainers
+@Transactional
 class CheckOnApplicationTests {
 
 	@Container
@@ -56,6 +62,112 @@ class CheckOnApplicationTests {
 		);
 
 		assertThat(actual).isEqualTo(expected);
+	}
+
+	@Test
+	void flywayCreatesDetectionRunTables() {
+		String detectionRuns = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.detection_runs')::text",
+			String.class
+		);
+		String detectionAttempts = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.detection_request_attempts')::text",
+			String.class
+		);
+
+		assertThat(detectionRuns).isEqualTo("detection_runs");
+		assertThat(detectionAttempts).isEqualTo("detection_request_attempts");
+	}
+
+	@Test
+	void rejectsSecondDetectionRunForSameTeacherAndAnalysisDate() {
+		String insertSql = """
+			INSERT INTO detection_runs (
+			    id,
+			    teacher_id,
+			    analysis_date,
+			    week_start,
+			    idempotency_key,
+			    snapshot_hash,
+			    snapshot_payload
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+			""";
+		var teacherId = UUID.randomUUID();
+		var analysisDate = LocalDate.of(2026, 7, 28);
+		var weekStart = LocalDate.of(2026, 7, 20);
+		var snapshotHash =
+			"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+		jdbcTemplate.update(
+			insertSql,
+			UUID.randomUUID(),
+			teacherId,
+			analysisDate,
+			weekStart,
+			"tn_demo_teacher:2026-07-28",
+			snapshotHash,
+			"{\"snapshot_meta\":{}}"
+		);
+
+		assertThatThrownBy(() -> jdbcTemplate.update(
+			insertSql,
+			UUID.randomUUID(),
+			teacherId,
+			analysisDate,
+			weekStart,
+			"another-key",
+			snapshotHash,
+			"{\"snapshot_meta\":{}}"
+		))
+			.isInstanceOf(DataIntegrityViolationException.class);
+	}
+
+	@Test
+	void rejectsFailedAttemptWithoutErrorCode() {
+		var runId = UUID.randomUUID();
+		jdbcTemplate.update(
+			"""
+				INSERT INTO detection_runs (
+				    id,
+				    teacher_id,
+				    analysis_date,
+				    week_start,
+				    idempotency_key,
+				    snapshot_hash,
+				    snapshot_payload
+				)
+				VALUES (?, ?, ?, ?, ?, ?, ?)
+				""",
+			runId,
+			UUID.randomUUID(),
+			LocalDate.of(2026, 7, 28),
+			LocalDate.of(2026, 7, 20),
+			"tn_demo_teacher:2026-07-28",
+			"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			"{\"snapshot_meta\":{}}"
+		);
+
+		assertThatThrownBy(() -> jdbcTemplate.update(
+			"""
+				INSERT INTO detection_request_attempts (
+				    detection_run_id,
+				    request_id,
+				    attempt_number,
+				    status,
+				    requested_at,
+				    completed_at,
+				    http_status
+				)
+				VALUES (?, ?, ?, 'FAILED', ?, ?, 504)
+				""",
+			runId,
+			"request-1",
+			1,
+			java.time.OffsetDateTime.parse("2026-07-28T02:10:00+09:00"),
+			java.time.OffsetDateTime.parse("2026-07-28T02:10:30+09:00")
+		))
+			.isInstanceOf(DataIntegrityViolationException.class);
 	}
 
 }
