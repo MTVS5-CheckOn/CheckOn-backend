@@ -9,26 +9,74 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
+import jakarta.persistence.Table;
+
+@Entity
+@Table(name = "detection_runs")
 public class DetectionRun {
 
 	private static final Pattern SNAPSHOT_HASH_PATTERN =
 		Pattern.compile("sha256:[0-9a-f]{64}");
 
-	private final UUID id;
-	private final UUID teacherId;
-	private final LocalDate analysisDate;
-	private final LocalDate weekStart;
-	private final String idempotencyKey;
-	private final String snapshotHash;
-	private final String snapshotPayload;
-	private final Instant preparedAt;
-	private final List<DetectionRequestAttempt> attempts = new ArrayList<>();
+	@Id
+	private UUID id;
 
+	@Column(name = "teacher_id", nullable = false)
+	private UUID teacherId;
+
+	@Column(name = "analysis_date", nullable = false)
+	private LocalDate analysisDate;
+
+	@Column(name = "week_start", nullable = false)
+	private LocalDate weekStart;
+
+	@Column(name = "idempotency_key", nullable = false, length = 200)
+	private String idempotencyKey;
+
+	@Column(name = "snapshot_hash", nullable = false, length = 71)
+	private String snapshotHash;
+
+	@Column(name = "snapshot_payload", nullable = false, columnDefinition = "text")
+	private String snapshotPayload;
+
+	@Column(name = "prepared_at", nullable = false)
+	private Instant preparedAt;
+
+	@Enumerated(EnumType.STRING)
+	@Column(nullable = false, length = 20)
 	private DetectionRunStatus status;
+
+	@Column(name = "requested_at")
 	private Instant requestedAt;
+
+	@Column(name = "completed_at")
 	private Instant completedAt;
+
+	@Column(name = "ai_execution_id", length = 120)
 	private String aiExecutionId;
+
+	@Column(name = "error_code", length = 60)
 	private String errorCode;
+
+	@OneToMany(
+		mappedBy = "detectionRun",
+		cascade = {CascadeType.PERSIST, CascadeType.MERGE},
+		fetch = FetchType.LAZY
+	)
+	@OrderBy("attemptNumber ASC")
+	private List<DetectionRequestAttempt> attempts = new ArrayList<>();
+
+	protected DetectionRun() {
+	}
 
 	private DetectionRun(
 		UUID id,
@@ -86,7 +134,7 @@ public class DetectionRun {
 		}
 		DetectionRequestAttempt attempt = new DetectionRequestAttempt(
 			attemptId,
-			id,
+			this,
 			requestId,
 			attempts.size() + 1,
 			requestedAt

@@ -4,30 +4,63 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+
+@Entity
+@Table(name = "detection_request_attempts")
 public class DetectionRequestAttempt {
 
-	private final UUID id;
-	private final UUID detectionRunId;
-	private final String requestId;
-	private final int attemptNumber;
-	private final Instant requestedAt;
+	@Id
+	private UUID id;
 
+	@ManyToOne(fetch = FetchType.LAZY, optional = false)
+	@JoinColumn(name = "detection_run_id", nullable = false)
+	private DetectionRun detectionRun;
+
+	@Column(name = "request_id", nullable = false, length = 120)
+	private String requestId;
+
+	@Column(name = "attempt_number", nullable = false)
+	private int attemptNumber;
+
+	@Column(name = "requested_at", nullable = false)
+	private Instant requestedAt;
+
+	@Enumerated(EnumType.STRING)
+	@Column(nullable = false, length = 20)
 	private DetectionRequestAttemptStatus status;
+
+	@Column(name = "completed_at")
 	private Instant completedAt;
+
+	@Column(name = "http_status")
 	private Integer httpStatus;
+
+	@Column(name = "error_code", length = 60)
 	private String errorCode;
+
+	protected DetectionRequestAttempt() {
+	}
 
 	DetectionRequestAttempt(
 		UUID id,
-		UUID detectionRunId,
+		DetectionRun detectionRun,
 		String requestId,
 		int attemptNumber,
 		Instant requestedAt
 	) {
 		this.id = Objects.requireNonNull(id, "id must not be null");
-		this.detectionRunId = Objects.requireNonNull(
-			detectionRunId,
-			"detectionRunId must not be null"
+		this.detectionRun = Objects.requireNonNull(
+			detectionRun,
+			"detectionRun must not be null"
 		);
 		this.requestId = requireText(requestId, "requestId");
 		if (attemptNumber < 1) {
@@ -99,7 +132,7 @@ public class DetectionRequestAttempt {
 	}
 
 	public UUID detectionRunId() {
-		return detectionRunId;
+		return detectionRun.id();
 	}
 
 	public String requestId() {
