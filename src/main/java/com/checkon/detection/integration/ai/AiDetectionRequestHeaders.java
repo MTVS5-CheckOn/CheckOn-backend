@@ -1,15 +1,19 @@
 package com.checkon.detection.integration.ai;
 
+import com.checkon.detection.application.DetectionExecutionKey;
+
 public record AiDetectionRequestHeaders(
 	String tenantId,
 	String requestId,
-	String idempotencyKey
+	DetectionExecutionKey idempotencyKey
 ) {
 
 	public AiDetectionRequestHeaders {
 		requireText(tenantId, "tenantId");
 		requireText(requestId, "requestId");
-		requireText(idempotencyKey, "idempotencyKey");
+		if (idempotencyKey == null) {
+			throw new IllegalArgumentException("idempotencyKey must not be null");
+		}
 	}
 
 	private static void requireText(String value, String fieldName) {

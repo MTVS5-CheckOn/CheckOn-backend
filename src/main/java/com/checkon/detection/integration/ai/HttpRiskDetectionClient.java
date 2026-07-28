@@ -29,7 +29,7 @@ public class HttpRiskDetectionClient implements RiskDetectionClient {
 				.uri("/v1/detect")
 				.header(TENANT_ID_HEADER, headers.tenantId())
 				.header(REQUEST_ID_HEADER, headers.requestId())
-				.header(IDEMPOTENCY_KEY_HEADER, headers.idempotencyKey())
+				.header(IDEMPOTENCY_KEY_HEADER, headers.idempotencyKey().value())
 				.header(HttpHeaders.CONTENT_TYPE, "application/json")
 				.body(request)
 				.retrieve()

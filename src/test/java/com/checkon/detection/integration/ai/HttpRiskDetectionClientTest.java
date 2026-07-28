@@ -14,12 +14,14 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+import com.checkon.detection.application.DetectionExecutionKey;
 import com.checkon.detection.integration.ai.dto.AiDetectionRequest;
 
 import tools.jackson.databind.ObjectMapper;
@@ -50,7 +52,7 @@ class HttpRiskDetectionClientTest {
 			.andExpect(header(HttpRiskDetectionClient.REQUEST_ID_HEADER, "request-1"))
 			.andExpect(header(
 				HttpRiskDetectionClient.IDEMPOTENCY_KEY_HEADER,
-				"tn_demo_teacher:2026-07-20"
+				"tn_demo_teacher:2026-07-28"
 			))
 			.andRespond(withSuccess(
 				readFixture("ai/detect-contract-response.json"),
@@ -62,7 +64,10 @@ class HttpRiskDetectionClientTest {
 			new AiDetectionRequestHeaders(
 				"tn_demo_teacher",
 				"request-1",
-				"tn_demo_teacher:2026-07-20"
+				DetectionExecutionKey.daily(
+					"tn_demo_teacher",
+					LocalDate.of(2026, 7, 28)
+				)
 			)
 		);
 
@@ -100,7 +105,10 @@ class HttpRiskDetectionClientTest {
 			new AiDetectionRequestHeaders(
 				"tn_demo_teacher",
 				"request-2",
-				"tn_demo_teacher:2026-07-20"
+				DetectionExecutionKey.daily(
+					"tn_demo_teacher",
+					LocalDate.of(2026, 7, 28)
+				)
 			)
 		))
 			.isInstanceOf(RiskDetectionClientException.class)
