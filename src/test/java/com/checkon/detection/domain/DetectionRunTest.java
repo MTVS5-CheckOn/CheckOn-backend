@@ -32,15 +32,23 @@ class DetectionRunTest {
 		DetectionRun run = prepareRun();
 		Instant requestedAt = Instant.parse("2026-07-27T17:10:00Z");
 		Instant completedAt = Instant.parse("2026-07-27T17:10:03Z");
+		UUID attemptId = UUID.fromString("019846dc-7c00-7000-8000-000000000010");
 
-		run.markRequested(requestedAt);
-		run.markSucceeded("execution-1", completedAt);
+		DetectionRequestAttempt attempt = run.startAttempt(
+			attemptId,
+			"request-1",
+			requestedAt
+		);
+		run.markSucceeded(attemptId, "execution-1", 200, completedAt);
 
 		assertThat(run.status()).isEqualTo(DetectionRunStatus.SUCCEEDED);
 		assertThat(run.requestedAt()).isEqualTo(requestedAt);
 		assertThat(run.completedAt()).isEqualTo(completedAt);
 		assertThat(run.aiExecutionId()).isEqualTo("execution-1");
 		assertThat(run.errorCode()).isNull();
+		assertThat(attempt.status())
+			.isEqualTo(DetectionRequestAttemptStatus.SUCCEEDED);
+		assertThat(attempt.httpStatus()).isEqualTo(200);
 	}
 
 	@Test
@@ -48,7 +56,9 @@ class DetectionRunTest {
 		DetectionRun run = prepareRun();
 
 		assertThatThrownBy(() -> run.markSucceeded(
+			UUID.randomUUID(),
 			"execution-1",
+			200,
 			Instant.parse("2026-07-27T17:10:03Z")
 		))
 			.isInstanceOf(IllegalStateException.class)
@@ -58,13 +68,28 @@ class DetectionRunTest {
 	@Test
 	void retriesFailedRunWithoutChangingSnapshot() {
 		DetectionRun run = prepareRun();
-		run.markRequested(Instant.parse("2026-07-27T17:10:00Z"));
+		UUID firstAttemptId =
+			UUID.fromString("019846dc-7c00-7000-8000-000000000010");
+		UUID retryAttemptId =
+			UUID.fromString("019846dc-7c00-7000-8000-000000000011");
+
+		run.startAttempt(
+			firstAttemptId,
+			"request-1",
+			Instant.parse("2026-07-27T17:10:00Z")
+		);
 		run.markFailed(
+			firstAttemptId,
+			null,
 			"TIMEOUT",
 			Instant.parse("2026-07-27T17:10:30Z")
 		);
 
-		run.markRequested(Instant.parse("2026-07-27T17:11:00Z"));
+		run.startAttempt(
+			retryAttemptId,
+			"request-2",
+			Instant.parse("2026-07-27T17:11:00Z")
+		);
 
 		assertThat(run.status()).isEqualTo(DetectionRunStatus.REQUESTED);
 		assertThat(run.snapshotHash()).isEqualTo(SNAPSHOT_HASH);
@@ -72,6 +97,16 @@ class DetectionRunTest {
 		assertThat(run.idempotencyKey()).isEqualTo("tn_demo_teacher:2026-07-28");
 		assertThat(run.errorCode()).isNull();
 		assertThat(run.completedAt()).isNull();
+		assertThat(run.attempts()).hasSize(2);
+		assertThat(run.attempts())
+			.extracting(DetectionRequestAttempt::attemptNumber)
+			.containsExactly(1, 2);
+		assertThat(run.attempts().getFirst().status())
+			.isEqualTo(DetectionRequestAttemptStatus.FAILED);
+		assertThat(run.attempts().getFirst().errorCode()).isEqualTo("TIMEOUT");
+		assertThat(run.attempts().getFirst().httpStatus()).isNull();
+		assertThat(run.attempts().getLast().status())
+			.isEqualTo(DetectionRequestAttemptStatus.REQUESTED);
 	}
 
 	@Test

@@ -2,6 +2,9 @@ package com.checkon.detection.domain;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -19,6 +22,7 @@ public class DetectionRun {
 	private final String snapshotHash;
 	private final String snapshotPayload;
 	private final Instant preparedAt;
+	private final List<DetectionRequestAttempt> attempts = new ArrayList<>();
 
 	private DetectionRunStatus status;
 	private Instant requestedAt;
@@ -72,29 +76,45 @@ public class DetectionRun {
 		);
 	}
 
-	public void markRequested(Instant requestedAt) {
+	public DetectionRequestAttempt startAttempt(
+		UUID attemptId,
+		String requestId,
+		Instant requestedAt
+	) {
 		if (status != DetectionRunStatus.PREPARED && status != DetectionRunStatus.FAILED) {
 			throw invalidTransition(DetectionRunStatus.REQUESTED);
 		}
-		Instant requestTime = Objects.requireNonNull(
-			requestedAt,
-			"requestedAt must not be null"
+		DetectionRequestAttempt attempt = new DetectionRequestAttempt(
+			attemptId,
+			id,
+			requestId,
+			attempts.size() + 1,
+			requestedAt
 		);
 
 		this.status = DetectionRunStatus.REQUESTED;
-		this.requestedAt = requestTime;
+		this.requestedAt = attempt.requestedAt();
 		this.completedAt = null;
 		this.aiExecutionId = null;
 		this.errorCode = null;
+		this.attempts.add(attempt);
+		return attempt;
 	}
 
-	public void markSucceeded(String aiExecutionId, Instant completedAt) {
+	public void markSucceeded(
+		UUID attemptId,
+		String aiExecutionId,
+		int httpStatus,
+		Instant completedAt
+	) {
 		requireStatus(DetectionRunStatus.REQUESTED, DetectionRunStatus.SUCCEEDED);
+		DetectionRequestAttempt attempt = requireCurrentAttempt(attemptId);
 		String executionId = requireText(aiExecutionId, "aiExecutionId");
 		Instant completionTime = Objects.requireNonNull(
 			completedAt,
 			"completedAt must not be null"
 		);
+		attempt.markSucceeded(httpStatus, completionTime);
 
 		this.status = DetectionRunStatus.SUCCEEDED;
 		this.aiExecutionId = executionId;
@@ -102,18 +122,36 @@ public class DetectionRun {
 		this.errorCode = null;
 	}
 
-	public void markFailed(String errorCode, Instant completedAt) {
+	public void markFailed(
+		UUID attemptId,
+		Integer httpStatus,
+		String errorCode,
+		Instant completedAt
+	) {
 		requireStatus(DetectionRunStatus.REQUESTED, DetectionRunStatus.FAILED);
+		DetectionRequestAttempt attempt = requireCurrentAttempt(attemptId);
 		String failureCode = requireText(errorCode, "errorCode");
 		Instant completionTime = Objects.requireNonNull(
 			completedAt,
 			"completedAt must not be null"
 		);
+		attempt.markFailed(httpStatus, failureCode, completionTime);
 
 		this.status = DetectionRunStatus.FAILED;
 		this.errorCode = failureCode;
 		this.completedAt = completionTime;
 		this.aiExecutionId = null;
+	}
+
+	private DetectionRequestAttempt requireCurrentAttempt(UUID attemptId) {
+		Objects.requireNonNull(attemptId, "attemptId must not be null");
+		DetectionRequestAttempt current = attempts.getLast();
+		if (!current.id().equals(attemptId)) {
+			throw new IllegalArgumentException(
+				"attemptId must identify the current request attempt"
+			);
+		}
+		return current;
 	}
 
 	private void requireStatus(
@@ -198,5 +236,9 @@ public class DetectionRun {
 
 	public String errorCode() {
 		return errorCode;
+	}
+
+	public List<DetectionRequestAttempt> attempts() {
+		return Collections.unmodifiableList(attempts);
 	}
 }
