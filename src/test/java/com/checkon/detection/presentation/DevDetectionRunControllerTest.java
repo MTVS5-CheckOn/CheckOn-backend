@@ -1,6 +1,9 @@
 package com.checkon.detection.presentation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -18,6 +21,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -25,6 +29,10 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import com.checkon.detection.domain.DetectionRunStatus;
 import com.checkon.detection.infrastructure.persistence.DetectionRunRepository;
+import com.checkon.detection.infrastructure.persistence.DetectionSignalResultRepository;
+import com.checkon.detection.integration.ai.RiskDetectionClient;
+import com.checkon.detection.integration.ai.RiskDetectionClientException;
+import com.checkon.detection.integration.ai.dto.AiDetectionResponse;
 
 import tools.jackson.databind.ObjectMapper;
 
@@ -50,7 +58,13 @@ class DevDetectionRunControllerTest {
 	private DetectionRunRepository runRepository;
 
 	@Autowired
+	private DetectionSignalResultRepository signalResultRepository;
+
+	@Autowired
 	private ObjectMapper objectMapper;
+
+	@MockitoBean
+	private RiskDetectionClient riskDetectionClient;
 
 	@Test
 	void preparesRunAndReturnsExistingRunForTheSameSnapshot() throws Exception {
@@ -107,5 +121,114 @@ class DevDetectionRunControllerTest {
 				)))
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code").value("DETECTION_RUN_CONFLICT"));
+	}
+
+	@Test
+	void executesPreparedRunAndReturnsSucceeded() throws Exception {
+		LocalDate analysisDate = LocalDate.of(2026, 7, 30);
+		UUID runId = prepareRunThroughApi(TEACHER_ID, analysisDate);
+		when(riskDetectionClient.detect(any(), any()))
+			.thenReturn(readAiResponse());
+
+		mockMvc.perform(post(
+				"/api/dev/detection-runs/{runId}/execute",
+				runId
+			)
+				.header("X-Teacher-Id", TEACHER_ID)
+				.header("X-Tenant-Id", "tn_demo_teacher"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.runId").value(runId.toString()))
+			.andExpect(jsonPath("$.status").value("SUCCEEDED"));
+
+		assertThat(runRepository.findByIdAndTeacherId(runId, TEACHER_ID)
+			.orElseThrow().status())
+			.isEqualTo(DetectionRunStatus.SUCCEEDED);
+		assertThat(signalResultRepository
+			.findAllByDetectionRunIdOrderByClassRefAscRankAsc(runId))
+			.hasSize(2);
+
+		mockMvc.perform(post(
+				"/api/dev/detection-runs/{runId}/execute",
+				runId
+			)
+				.header("X-Teacher-Id", TEACHER_ID)
+				.header("X-Tenant-Id", "tn_demo_teacher"))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.code")
+				.value("DETECTION_RUN_STATE_CONFLICT"));
+	}
+
+	@Test
+	void returnsBadGatewayAndPreservesAiFailure() throws Exception {
+		LocalDate analysisDate = LocalDate.of(2026, 7, 31);
+		UUID runId = prepareRunThroughApi(TEACHER_ID, analysisDate);
+		when(riskDetectionClient.detect(any(), any()))
+			.thenThrow(RiskDetectionClientException.httpError(503, null));
+
+		mockMvc.perform(post(
+				"/api/dev/detection-runs/{runId}/execute",
+				runId
+			)
+				.header("X-Teacher-Id", TEACHER_ID)
+				.header("X-Tenant-Id", "tn_demo_teacher"))
+			.andExpect(status().isBadGateway())
+			.andExpect(jsonPath("$.code").value("HTTP_ERROR"));
+
+		var run = runRepository.findByIdAndTeacherId(runId, TEACHER_ID)
+			.orElseThrow();
+		assertThat(run.status()).isEqualTo(DetectionRunStatus.FAILED);
+		assertThat(run.errorCode()).isEqualTo("HTTP_ERROR");
+		assertThat(run.attempts()).singleElement().satisfies(attempt ->
+			assertThat(attempt.httpStatus()).isEqualTo(503)
+		);
+	}
+
+	@Test
+	void hidesRunFromAnotherTeacherBeforeCallingAi() throws Exception {
+		LocalDate analysisDate = LocalDate.of(2026, 8, 1);
+		UUID runId = prepareRunThroughApi(TEACHER_ID, analysisDate);
+		UUID anotherTeacherId =
+			UUID.fromString("019846dc-7c00-7000-8000-000000000499");
+
+		mockMvc.perform(post(
+				"/api/dev/detection-runs/{runId}/execute",
+				runId
+			)
+				.header("X-Teacher-Id", anotherTeacherId)
+				.header("X-Tenant-Id", "tn_demo_teacher"))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.code").value("RUN_NOT_FOUND"));
+
+		verifyNoInteractions(riskDetectionClient);
+	}
+
+	private UUID prepareRunThroughApi(
+		UUID teacherId,
+		LocalDate analysisDate
+	) throws Exception {
+		String requestBody = new ClassPathResource(
+			"ai/detect-contract-request.json"
+		).getContentAsString(StandardCharsets.UTF_8);
+		byte[] responseBytes = mockMvc.perform(post("/api/dev/detection-runs")
+				.header("X-Teacher-Id", teacherId)
+				.header("X-Tenant-Id", "tn_demo_teacher")
+				.queryParam("analysisDate", analysisDate.toString())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(requestBody))
+			.andExpect(status().isCreated())
+			.andReturn()
+			.getResponse()
+			.getContentAsByteArray();
+		return UUID.fromString(
+			objectMapper.readTree(responseBytes).get("runId").asText()
+		);
+	}
+
+	private AiDetectionResponse readAiResponse() throws Exception {
+		try (var input = new ClassPathResource(
+			"ai/detect-contract-response.json"
+		).getInputStream()) {
+			return objectMapper.readValue(input, AiDetectionResponse.class);
+		}
 	}
 }

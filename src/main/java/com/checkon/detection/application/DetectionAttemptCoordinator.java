@@ -26,10 +26,18 @@ public class DetectionAttemptCoordinator {
 	@Transactional
 	public StartedDetectionAttempt start(
 		UUID teacherId,
+		String tenantAlias,
 		UUID runId,
 		Instant requestedAt
 	) {
 		DetectionRun run = findRun(teacherId, runId);
+		String expectedKey = DetectionExecutionKey.daily(
+			tenantAlias,
+			run.analysisDate()
+		).value();
+		if (!run.idempotencyKey().equals(expectedKey)) {
+			throw DetectionExecutionException.tenantMismatch();
+		}
 		UUID attemptId = idGenerator.nextIds(1).getFirst();
 		String requestId = attemptId.toString();
 		run.startAttempt(attemptId, requestId, requestedAt);
@@ -57,9 +65,7 @@ public class DetectionAttemptCoordinator {
 
 	private DetectionRun findRun(UUID teacherId, UUID runId) {
 		return runRepository.findByIdAndTeacherId(runId, teacherId)
-			.orElseThrow(() -> new DetectionExecutionException(
-				"Detection run was not found inside the teacher boundary"
-			));
+			.orElseThrow(DetectionExecutionException::runNotFound);
 	}
 
 	public record StartedDetectionAttempt(

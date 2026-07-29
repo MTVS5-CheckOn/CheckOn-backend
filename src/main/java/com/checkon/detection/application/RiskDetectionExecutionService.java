@@ -49,7 +49,12 @@ public class RiskDetectionExecutionService {
 		}
 
 		DetectionAttemptCoordinator.StartedDetectionAttempt attempt =
-			attemptCoordinator.start(teacherId, runId, Instant.now(clock));
+			attemptCoordinator.start(
+				teacherId,
+				tenantAlias,
+				runId,
+				Instant.now(clock)
+			);
 
 		try {
 			AiDetectionRequest request = readRequest(attempt.snapshotPayload());
@@ -98,10 +103,7 @@ public class RiskDetectionExecutionService {
 				null,
 				"RESPONSE_PROCESSING_ERROR"
 			);
-			throw new DetectionExecutionException(
-				"AI detection response could not be processed",
-				exception
-			);
+			throw DetectionExecutionException.responseProcessing(exception);
 		}
 	}
 
@@ -110,10 +112,7 @@ public class RiskDetectionExecutionService {
 			return objectMapper.readValue(snapshotPayload, AiDetectionRequest.class);
 		}
 		catch (JacksonException exception) {
-			throw new DetectionExecutionException(
-				"Stored detection snapshot payload is invalid",
-				exception
-			);
+			throw DetectionExecutionException.invalidSnapshot(exception);
 		}
 	}
 
