@@ -39,13 +39,22 @@ class DetectionRunTest {
 			"request-1",
 			requestedAt
 		);
-		run.markSucceeded(attemptId, "execution-1", 200, completedAt);
+		run.markSucceeded(
+			attemptId,
+			"execution-1",
+			200,
+			completedAt,
+			"{\"contract\":\"0.1\"}",
+			"{\"signals_raised\":7}"
+		);
 
 		assertThat(run.status()).isEqualTo(DetectionRunStatus.SUCCEEDED);
 		assertThat(run.requestedAt()).isEqualTo(requestedAt);
 		assertThat(run.completedAt()).isEqualTo(completedAt);
 		assertThat(run.aiExecutionId()).isEqualTo("execution-1");
 		assertThat(run.errorCode()).isNull();
+		assertThat(run.aiVersionsPayload()).contains("\"contract\":\"0.1\"");
+		assertThat(run.responseStatsPayload()).contains("\"signals_raised\":7");
 		assertThat(attempt.status())
 			.isEqualTo(DetectionRequestAttemptStatus.SUCCEEDED);
 		assertThat(attempt.httpStatus()).isEqualTo(200);
@@ -59,7 +68,9 @@ class DetectionRunTest {
 			UUID.randomUUID(),
 			"execution-1",
 			200,
-			Instant.parse("2026-07-27T17:10:03Z")
+			Instant.parse("2026-07-27T17:10:03Z"),
+			"{\"contract\":\"0.1\"}",
+			"{\"signals_raised\":7}"
 		))
 			.isInstanceOf(IllegalStateException.class)
 			.hasMessage("Cannot transition detection run from PREPARED to SUCCEEDED");

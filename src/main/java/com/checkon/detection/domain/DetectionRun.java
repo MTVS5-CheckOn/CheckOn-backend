@@ -67,6 +67,12 @@ public class DetectionRun {
 	@Column(name = "error_code", length = 60)
 	private String errorCode;
 
+	@Column(name = "ai_versions_payload", columnDefinition = "text")
+	private String aiVersionsPayload;
+
+	@Column(name = "response_stats_payload", columnDefinition = "text")
+	private String responseStatsPayload;
+
 	@OneToMany(
 		mappedBy = "detectionRun",
 		cascade = {CascadeType.PERSIST, CascadeType.MERGE},
@@ -153,7 +159,9 @@ public class DetectionRun {
 		UUID attemptId,
 		String aiExecutionId,
 		int httpStatus,
-		Instant completedAt
+		Instant completedAt,
+		String aiVersionsPayload,
+		String responseStatsPayload
 	) {
 		requireStatus(DetectionRunStatus.REQUESTED, DetectionRunStatus.SUCCEEDED);
 		DetectionRequestAttempt attempt = requireCurrentAttempt(attemptId);
@@ -162,12 +170,22 @@ public class DetectionRun {
 			completedAt,
 			"completedAt must not be null"
 		);
+		String versionsPayload = requireText(
+			aiVersionsPayload,
+			"aiVersionsPayload"
+		);
+		String statsPayload = requireText(
+			responseStatsPayload,
+			"responseStatsPayload"
+		);
 		attempt.markSucceeded(httpStatus, completionTime);
 
 		this.status = DetectionRunStatus.SUCCEEDED;
 		this.aiExecutionId = executionId;
 		this.completedAt = completionTime;
 		this.errorCode = null;
+		this.aiVersionsPayload = versionsPayload;
+		this.responseStatsPayload = statsPayload;
 	}
 
 	public void markFailed(
@@ -189,6 +207,8 @@ public class DetectionRun {
 		this.errorCode = failureCode;
 		this.completedAt = completionTime;
 		this.aiExecutionId = null;
+		this.aiVersionsPayload = null;
+		this.responseStatsPayload = null;
 	}
 
 	private DetectionRequestAttempt requireCurrentAttempt(UUID attemptId) {
@@ -284,6 +304,14 @@ public class DetectionRun {
 
 	public String errorCode() {
 		return errorCode;
+	}
+
+	public String aiVersionsPayload() {
+		return aiVersionsPayload;
+	}
+
+	public String responseStatsPayload() {
+		return responseStatsPayload;
 	}
 
 	public List<DetectionRequestAttempt> attempts() {

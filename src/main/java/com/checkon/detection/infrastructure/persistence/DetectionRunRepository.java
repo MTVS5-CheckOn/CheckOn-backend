@@ -17,5 +17,6 @@ public interface DetectionRunRepository extends JpaRepository<DetectionRun, UUID
 		LocalDate analysisDate
 	);
 
+	@EntityGraph(attributePaths = "attempts")
 	Optional<DetectionRun> findByIdAndTeacherId(UUID id, UUID teacherId);
 }
