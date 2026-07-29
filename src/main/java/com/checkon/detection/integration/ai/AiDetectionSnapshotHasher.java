@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Objects;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.springframework.stereotype.Component;
 
 import com.checkon.detection.integration.ai.dto.AiDetectionRequest;
 
@@ -17,6 +18,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.SerializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
+@Component
 public class AiDetectionSnapshotHasher {
 
 	private static final String HASH_ALGORITHM = "SHA-256";
