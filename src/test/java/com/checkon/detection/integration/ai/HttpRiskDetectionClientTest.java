@@ -42,7 +42,43 @@ class HttpRiskDetectionClientTest {
 		RestClient.Builder builder = RestClient.builder()
 			.baseUrl("http://ai.example.test");
 		server = MockRestServiceServer.bindTo(builder).build();
-		client = new HttpRiskDetectionClient(builder.build());
+		client = new HttpRiskDetectionClient(builder.build(), "/v1/detect");
+	}
+
+	@Test
+	void usesConfiguredApidogMockPath() throws Exception {
+		RestClient.Builder builder = RestClient.builder()
+			.baseUrl("http://127.0.0.1:3658");
+		MockRestServiceServer apidogServer =
+			MockRestServiceServer.bindTo(builder).build();
+		HttpRiskDetectionClient apidogClient = new HttpRiskDetectionClient(
+			builder.build(),
+			"/m2/1340877-1342815-default/40459817"
+		);
+		apidogServer.expect(once(), requestTo(
+				"http://127.0.0.1:3658"
+					+ "/m2/1340877-1342815-default/40459817"
+			))
+			.andExpect(method(POST))
+			.andRespond(withSuccess(
+				readFixture("ai/detect-contract-response.json"),
+				APPLICATION_JSON
+			));
+
+		var response = apidogClient.detect(
+			readRequestFixture(),
+			new AiDetectionRequestHeaders(
+				"tn_demo_teacher",
+				"request-apidog",
+				DetectionExecutionKey.daily(
+					"tn_demo_teacher",
+					LocalDate.of(2026, 7, 30)
+				)
+			)
+		);
+
+		assertThat(response.meta().executionId()).isNotBlank();
+		apidogServer.verify();
 	}
 
 	@Test

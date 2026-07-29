@@ -15,9 +15,18 @@ public class HttpRiskDetectionClient implements RiskDetectionClient {
 	static final String IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
 
 	private final RestClient restClient;
+	private final String detectPath;
 
-	public HttpRiskDetectionClient(RestClient restClient) {
+	public HttpRiskDetectionClient(RestClient restClient, String detectPath) {
 		this.restClient = restClient;
+		if (detectPath == null
+			|| detectPath.isBlank()
+			|| !detectPath.startsWith("/")) {
+			throw new IllegalArgumentException(
+				"detectPath must start with '/'"
+			);
+		}
+		this.detectPath = detectPath;
 	}
 
 	@Override
@@ -27,7 +36,7 @@ public class HttpRiskDetectionClient implements RiskDetectionClient {
 	) {
 		try {
 			AiDetectionResponse response = restClient.post()
-				.uri("/v1/detect")
+				.uri(detectPath)
 				.header(TENANT_ID_HEADER, headers.tenantId())
 				.header(REQUEST_ID_HEADER, headers.requestId())
 				.header(IDEMPOTENCY_KEY_HEADER, headers.idempotencyKey().value())

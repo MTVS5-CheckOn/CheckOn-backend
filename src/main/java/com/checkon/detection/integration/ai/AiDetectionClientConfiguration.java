@@ -15,6 +15,7 @@ public class AiDetectionClientConfiguration {
 	@Bean
 	RiskDetectionClient riskDetectionClient(
 		@Value("${checkon.ai.base-url:http://localhost:8000}") String baseUrl,
+		@Value("${checkon.ai.detect-path:/v1/detect}") String detectPath,
 		@Value("${checkon.ai.connect-timeout:2s}") Duration connectTimeout,
 		@Value("${checkon.ai.read-timeout:10s}") Duration readTimeout
 	) {
@@ -29,7 +30,8 @@ public class AiDetectionClientConfiguration {
 			RestClient.builder()
 				.baseUrl(baseUrl)
 				.requestFactory(requestFactory)
-				.build()
+				.build(),
+			detectPath
 		);
 	}
 }
