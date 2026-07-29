@@ -43,6 +43,15 @@ public class RiskDetectionClientException extends RuntimeException {
 		);
 	}
 
+	public static RiskDetectionClientException networkError(Throwable cause) {
+		return new RiskDetectionClientException(
+			Reason.NETWORK_ERROR,
+			null,
+			"AI detection server could not be reached",
+			cause
+		);
+	}
+
 	public Reason reason() {
 		return reason;
 	}
@@ -54,6 +63,7 @@ public class RiskDetectionClientException extends RuntimeException {
 	public enum Reason {
 		IDEMPOTENCY_CONFLICT,
 		HTTP_ERROR,
-		EMPTY_RESPONSE
+		EMPTY_RESPONSE,
+		NETWORK_ERROR
 	}
 }

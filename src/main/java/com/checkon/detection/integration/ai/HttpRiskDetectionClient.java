@@ -2,6 +2,7 @@ package com.checkon.detection.integration.ai;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 import com.checkon.detection.integration.ai.dto.AiDetectionRequest;
@@ -46,6 +47,9 @@ public class HttpRiskDetectionClient implements RiskDetectionClient {
 				throw RiskDetectionClientException.idempotencyConflict(exception);
 			}
 			throw RiskDetectionClientException.httpError(status, exception);
+		}
+		catch (RestClientException exception) {
+			throw RiskDetectionClientException.networkError(exception);
 		}
 	}
 }

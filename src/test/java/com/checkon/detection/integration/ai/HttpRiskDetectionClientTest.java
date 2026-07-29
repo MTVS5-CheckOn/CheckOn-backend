@@ -9,6 +9,7 @@ import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
@@ -117,6 +118,34 @@ class HttpRiskDetectionClientTest {
 				assertThat(clientException.reason())
 					.isEqualTo(RiskDetectionClientException.Reason.IDEMPOTENCY_CONFLICT);
 				assertThat(clientException.httpStatus()).isEqualTo(409);
+			});
+
+		server.verify();
+	}
+
+	@Test
+	void mapsNetworkFailureWithoutHttpStatus() throws Exception {
+		server.expect(once(), requestTo("http://ai.example.test/v1/detect"))
+			.andExpect(method(POST))
+			.andRespond(withException(new IOException("connection refused")));
+
+		assertThatThrownBy(() -> client.detect(
+			readRequestFixture(),
+			new AiDetectionRequestHeaders(
+				"tn_demo_teacher",
+				"request-3",
+				DetectionExecutionKey.daily(
+					"tn_demo_teacher",
+					LocalDate.of(2026, 7, 28)
+				)
+			)
+		))
+			.isInstanceOf(RiskDetectionClientException.class)
+			.satisfies(exception -> {
+				var clientException = (RiskDetectionClientException)exception;
+				assertThat(clientException.reason())
+					.isEqualTo(RiskDetectionClientException.Reason.NETWORK_ERROR);
+				assertThat(clientException.httpStatus()).isNull();
 			});
 
 		server.verify();
