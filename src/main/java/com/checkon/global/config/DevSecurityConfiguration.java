@@ -12,7 +12,7 @@ import org.springframework.security.web.SecurityFilterChain;
 public class DevSecurityConfiguration {
 
 	@Bean
-	@Order(1)
+	@Order(2)
 	SecurityFilterChain devApiSecurityFilterChain(HttpSecurity http)
 		throws Exception {
 		return http
@@ -23,7 +23,7 @@ public class DevSecurityConfiguration {
 	}
 
 	@Bean
-	@Order(2)
+	@Order(3)
 	SecurityFilterChain remainingApiSecurityFilterChain(HttpSecurity http)
 		throws Exception {
 		return http
