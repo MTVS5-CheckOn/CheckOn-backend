@@ -13,6 +13,14 @@ spring:
     password: ${DB_PASSWORD}
 
 checkon:
+  auth:
+    jwt-secret: ${CHECKON_JWT_SECRET}
+    access-token-ttl: ${ACCESS_TOKEN_TTL:15m}
+    refresh-token-ttl: ${REFRESH_TOKEN_TTL:14d}
+    refresh-cookie-name: ${REFRESH_COOKIE_NAME:CHECKON_REFRESH}
+    refresh-cookie-secure: ${REFRESH_COOKIE_SECURE:true}
+    refresh-cookie-same-site: ${REFRESH_COOKIE_SAME_SITE:Lax}
+    allowed-origins: ${AUTH_ALLOWED_ORIGINS:}
   ai:
     base-url: ${AI_BASE_URL:http://localhost:8000}
     detect-path: ${AI_DETECT_PATH:/v1/detect}
