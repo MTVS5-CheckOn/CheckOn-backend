@@ -14,12 +14,14 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -33,6 +35,7 @@ import com.checkon.detection.infrastructure.persistence.DetectionSignalResultRep
 import com.checkon.detection.integration.ai.RiskDetectionClient;
 import com.checkon.detection.integration.ai.RiskDetectionClientException;
 import com.checkon.detection.integration.ai.dto.AiDetectionResponse;
+import com.checkon.support.RosterTestFixture;
 
 import tools.jackson.databind.ObjectMapper;
 
@@ -63,8 +66,16 @@ class DevDetectionRunControllerTest {
 	@Autowired
 	private ObjectMapper objectMapper;
 
+	@Autowired
+	private JdbcTemplate jdbcTemplate;
+
 	@MockitoBean
 	private RiskDetectionClient riskDetectionClient;
+
+	@BeforeEach
+	void createTeacherFixture() {
+		RosterTestFixture.insertTeacher(jdbcTemplate, TEACHER_ID);
+	}
 
 	@Test
 	void preparesRunAndReturnsExistingRunForTheSameSnapshot() throws Exception {

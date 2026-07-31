@@ -21,6 +21,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.checkon.support.RosterTestFixture;
+
 @SpringBootTest
 @Testcontainers
 @Transactional
@@ -74,9 +76,18 @@ class CheckOnApplicationTests {
 			"SELECT to_regclass('public.detection_request_attempts')::text",
 			String.class
 		);
+		String rosterRelationships = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.teacher_student_relationships')::text",
+			String.class
+		);
 
 		assertThat(detectionRuns).isEqualTo("detection_runs");
 		assertThat(detectionAttempts).isEqualTo("detection_request_attempts");
+		assertThat(rosterRelationships).isEqualTo("teacher_student_relationships");
+		assertThat(jdbcTemplate.queryForObject(
+			"SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1",
+			String.class
+		)).isEqualTo("6");
 	}
 
 	@Test
@@ -94,6 +105,7 @@ class CheckOnApplicationTests {
 			VALUES (?, ?, ?, ?, ?, ?, ?)
 			""";
 		var teacherId = UUID.randomUUID();
+		RosterTestFixture.insertTeacher(jdbcTemplate, teacherId);
 		var analysisDate = LocalDate.of(2026, 7, 28);
 		var weekStart = LocalDate.of(2026, 7, 20);
 		var snapshotHash =
@@ -126,6 +138,8 @@ class CheckOnApplicationTests {
 	@Test
 	void rejectsFailedAttemptWithoutErrorCode() {
 		var runId = UUID.randomUUID();
+		var teacherId = UUID.randomUUID();
+		RosterTestFixture.insertTeacher(jdbcTemplate, teacherId);
 		jdbcTemplate.update(
 			"""
 				INSERT INTO detection_runs (
@@ -140,7 +154,7 @@ class CheckOnApplicationTests {
 				VALUES (?, ?, ?, ?, ?, ?, ?)
 				""",
 			runId,
-			UUID.randomUUID(),
+			teacherId,
 			LocalDate.of(2026, 7, 28),
 			LocalDate.of(2026, 7, 20),
 			"tn_demo_teacher:2026-07-28",
