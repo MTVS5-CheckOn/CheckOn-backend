@@ -10,10 +10,12 @@ import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -26,6 +28,7 @@ import com.checkon.detection.domain.DetectionSignalResult;
 import com.checkon.detection.infrastructure.persistence.DetectionRunRepository;
 import com.checkon.detection.infrastructure.persistence.DetectionSignalResultRepository;
 import com.checkon.detection.integration.ai.dto.AiDetectionResponse;
+import com.checkon.support.RosterTestFixture;
 
 import tools.jackson.databind.ObjectMapper;
 
@@ -48,6 +51,7 @@ class DetectionResponseStorageServiceTest {
 	private final DetectionSignalResultRepository signalResultRepository;
 	private final ObjectMapper objectMapper;
 	private final TransactionTemplate transactionTemplate;
+	private final JdbcTemplate jdbcTemplate;
 
 	@Autowired
 	DetectionResponseStorageServiceTest(
@@ -55,13 +59,20 @@ class DetectionResponseStorageServiceTest {
 		DetectionRunRepository runRepository,
 		DetectionSignalResultRepository signalResultRepository,
 		ObjectMapper objectMapper,
-		TransactionTemplate transactionTemplate
+		TransactionTemplate transactionTemplate,
+		JdbcTemplate jdbcTemplate
 	) {
 		this.storageService = storageService;
 		this.runRepository = runRepository;
 		this.signalResultRepository = signalResultRepository;
 		this.objectMapper = objectMapper;
 		this.transactionTemplate = transactionTemplate;
+		this.jdbcTemplate = jdbcTemplate;
+	}
+
+	@BeforeEach
+	void createTeacherFixture() {
+		RosterTestFixture.insertTeacher(jdbcTemplate, TEACHER_ID);
 	}
 
 	@Test

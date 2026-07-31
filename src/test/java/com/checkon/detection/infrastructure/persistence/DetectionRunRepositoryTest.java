@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
@@ -22,6 +23,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import jakarta.persistence.EntityManager;
 
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.checkon.detection.domain.DetectionLifecycle;
 import com.checkon.detection.domain.DetectionResultEvidenceDraft;
@@ -29,6 +31,7 @@ import com.checkon.detection.domain.DetectionRequestAttemptStatus;
 import com.checkon.detection.domain.DetectionRun;
 import com.checkon.detection.domain.DetectionRunStatus;
 import com.checkon.detection.domain.DetectionSignalResult;
+import com.checkon.support.RosterTestFixture;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -54,16 +57,24 @@ class DetectionRunRepositoryTest {
 	private final DetectionRunRepository repository;
 	private final DetectionSignalResultRepository signalResultRepository;
 	private final EntityManager entityManager;
+	private final JdbcTemplate jdbcTemplate;
 
 	@Autowired
 	DetectionRunRepositoryTest(
 		DetectionRunRepository repository,
 		DetectionSignalResultRepository signalResultRepository,
-		EntityManager entityManager
+		EntityManager entityManager,
+		JdbcTemplate jdbcTemplate
 	) {
 		this.repository = repository;
 		this.signalResultRepository = signalResultRepository;
 		this.entityManager = entityManager;
+		this.jdbcTemplate = jdbcTemplate;
+	}
+
+	@BeforeEach
+	void createTeacherFixture() {
+		RosterTestFixture.insertTeacher(jdbcTemplate, TEACHER_ID);
 	}
 
 	@Test
@@ -164,6 +175,23 @@ class DetectionRunRepositoryTest {
 		);
 
 		assertThatThrownBy(() -> signalResultRepository.saveAndFlush(duplicate))
+			.isInstanceOf(DataIntegrityViolationException.class);
+	}
+
+	@Test
+	void detectionRunRequiresExistingTeacherProfile() {
+		DetectionRun run = DetectionRun.prepare(
+			UUID.fromString("019846dc-7c00-7000-8000-000000000090"),
+			UUID.fromString("019846dc-7c00-7000-8000-000000000099"),
+			LocalDate.of(2026, 7, 30),
+			LocalDate.of(2026, 7, 20),
+			"missing-teacher:2026-07-30",
+			SNAPSHOT_HASH,
+			"{\"snapshot_meta\":{}}",
+			Instant.parse("2026-07-29T17:00:00Z")
+		);
+
+		assertThatThrownBy(() -> repository.saveAndFlush(run))
 			.isInstanceOf(DataIntegrityViolationException.class);
 	}
 
