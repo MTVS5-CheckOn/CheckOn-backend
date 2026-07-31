@@ -1,6 +1,7 @@
 package com.checkon.account.infrastructure.persistence;
 
 import java.util.UUID;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -15,4 +16,6 @@ import com.checkon.account.domain.Account;
 public interface AccountRepository extends JpaRepository<Account, UUID> {
 
 	boolean existsByEmail(String email);
+
+	Optional<Account> findByEmail(String email);
 }

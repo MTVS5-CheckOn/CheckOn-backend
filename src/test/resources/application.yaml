@@ -1,0 +1,17 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+checkon:
+  auth:
+    # 자동화 테스트 전용 고정 키이며 운영 비밀값이 아니다.
+    jwt-secret: "dGVzdC1vbmx5LWtleS1tdXN0LW5ldmVyLWJlLXVzZWQtaW4tcHJvZA=="
+    access-token-ttl: 15m
+    refresh-token-ttl: 14d
+    refresh-cookie-name: CHECKON_REFRESH
+    refresh-cookie-secure: false
+    refresh-cookie-same-site: Lax
+    allowed-origins:
+      - "http://localhost:3000"

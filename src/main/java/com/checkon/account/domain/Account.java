@@ -88,4 +88,18 @@ public class Account {
 	public Instant createdAt() {
 		return createdAt;
 	}
+
+	public boolean isActive() {
+		return status == AccountStatus.ACTIVE;
+	}
+
+	public void recordSuccessfulLogin(Instant loggedInAt) {
+		if (!isActive()) {
+			throw new IllegalStateException("inactive account cannot log in");
+		}
+		this.lastLoginAt = Objects.requireNonNull(
+			loggedInAt,
+			"loggedInAt must not be null"
+		);
+	}
 }

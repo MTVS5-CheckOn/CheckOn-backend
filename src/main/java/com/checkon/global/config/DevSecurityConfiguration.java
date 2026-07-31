@@ -22,12 +22,4 @@ public class DevSecurityConfiguration {
 			.build();
 	}
 
-	@Bean
-	@Order(3)
-	SecurityFilterChain remainingApiSecurityFilterChain(HttpSecurity http)
-		throws Exception {
-		return http
-			.authorizeHttpRequests(authorize -> authorize.anyRequest().authenticated())
-			.build();
-	}
 }
