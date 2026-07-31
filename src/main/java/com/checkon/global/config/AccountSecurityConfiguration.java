@@ -31,8 +31,8 @@ import com.checkon.account.infrastructure.security.RefreshRequestOriginFilter;
  * 인증 API의 공개 범위, JWT 검증 필터, 비밀번호 인코더와 서명 키를 구성한다.
  *
  * <p>필터 체인은 순서가 중요하다. 1번 체인은 가입·로그인·갱신만 공개하고,
- * dev 전용 2번 체인은 {@link DevSecurityConfiguration}이 담당한다. 마지막 3번
- * 체인은 나머지 요청에 DB 상태까지 확인하는 JWT 인증을 요구한다.</p>
+ * 나머지 체인은 DB 상태까지 확인하는 JWT 인증을 요구하며, dev Detection API도
+ * 임의의 강사 헤더가 아니라 인증된 TEACHER 주체만 허용한다.</p>
  */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(AuthenticationProperties.class)
@@ -68,7 +68,7 @@ public class AccountSecurityConfiguration {
 	}
 
 	@Bean
-	@Order(3)
+	@Order(2)
 	SecurityFilterChain authenticatedApiSecurityFilterChain(
 		HttpSecurity http,
 		JwtDecoder jwtDecoder,
@@ -77,7 +77,10 @@ public class AccountSecurityConfiguration {
 		// 보호 API는 Authorization 헤더만 사용하므로 브라우저 쿠키 기반 CSRF
 		// 공격 대상이 아니다. JWT 필터가 서명과 현재 DB 세션을 모두 확인한다.
 		return http
-			.authorizeHttpRequests(authorize -> authorize.anyRequest().authenticated())
+			.authorizeHttpRequests(authorize -> authorize
+				.requestMatchers("/api/dev/**").hasRole("TEACHER")
+				.anyRequest().authenticated()
+			)
 			.csrf(csrf -> csrf.disable())
 			.exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(
 				new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)

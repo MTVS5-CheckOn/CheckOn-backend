@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
@@ -25,10 +26,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import com.checkon.account.domain.AccountRole;
+import com.checkon.account.infrastructure.security.AuthenticatedAccount;
 import com.checkon.detection.domain.DetectionRunStatus;
 import com.checkon.detection.infrastructure.persistence.DetectionRunRepository;
 import com.checkon.detection.infrastructure.persistence.DetectionSignalResultRepository;
@@ -84,7 +89,7 @@ class DevDetectionRunControllerTest {
 		).getContentAsString(StandardCharsets.UTF_8);
 
 		byte[] responseBytes = mockMvc.perform(post("/api/dev/detection-runs")
-				.header("X-Teacher-Id", TEACHER_ID)
+				.with(teacherAuthentication(TEACHER_ID))
 				.header("X-Tenant-Id", "tn_demo_teacher")
 				.queryParam("analysisDate", ANALYSIS_DATE.toString())
 				.contentType(MediaType.APPLICATION_JSON)
@@ -112,7 +117,7 @@ class DevDetectionRunControllerTest {
 			.isEqualTo(run.snapshotHash());
 
 		mockMvc.perform(post("/api/dev/detection-runs")
-				.header("X-Teacher-Id", TEACHER_ID)
+				.with(teacherAuthentication(TEACHER_ID))
 				.header("X-Tenant-Id", "tn_demo_teacher")
 				.queryParam("analysisDate", ANALYSIS_DATE.toString())
 				.contentType(MediaType.APPLICATION_JSON)
@@ -122,7 +127,7 @@ class DevDetectionRunControllerTest {
 			.andExpect(jsonPath("$.created").value(false));
 
 		mockMvc.perform(post("/api/dev/detection-runs")
-				.header("X-Teacher-Id", TEACHER_ID)
+				.with(teacherAuthentication(TEACHER_ID))
 				.header("X-Tenant-Id", "tn_demo_teacher")
 				.queryParam("analysisDate", ANALYSIS_DATE.toString())
 				.contentType(MediaType.APPLICATION_JSON)
@@ -145,7 +150,7 @@ class DevDetectionRunControllerTest {
 				"/api/dev/detection-runs/{runId}/execute",
 				runId
 			)
-				.header("X-Teacher-Id", TEACHER_ID)
+				.with(teacherAuthentication(TEACHER_ID))
 				.header("X-Tenant-Id", "tn_demo_teacher"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.runId").value(runId.toString()))
@@ -155,14 +160,17 @@ class DevDetectionRunControllerTest {
 			.orElseThrow().status())
 			.isEqualTo(DetectionRunStatus.SUCCEEDED);
 		assertThat(signalResultRepository
-			.findAllByDetectionRunIdOrderByClassRefAscRankAsc(runId))
+			.findAllByDetectionRunIdAndDetectionRunTeacherIdOrderByClassRefAscRankAsc(
+				runId,
+				TEACHER_ID
+			))
 			.hasSize(2);
 
 		mockMvc.perform(post(
 				"/api/dev/detection-runs/{runId}/execute",
 				runId
 			)
-				.header("X-Teacher-Id", TEACHER_ID)
+				.with(teacherAuthentication(TEACHER_ID))
 				.header("X-Tenant-Id", "tn_demo_teacher"))
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.code")
@@ -180,7 +188,7 @@ class DevDetectionRunControllerTest {
 				"/api/dev/detection-runs/{runId}/execute",
 				runId
 			)
-				.header("X-Teacher-Id", TEACHER_ID)
+				.with(teacherAuthentication(TEACHER_ID))
 				.header("X-Tenant-Id", "tn_demo_teacher"))
 			.andExpect(status().isBadGateway())
 			.andExpect(jsonPath("$.code").value("HTTP_ERROR"));
@@ -200,17 +208,39 @@ class DevDetectionRunControllerTest {
 		UUID runId = prepareRunThroughApi(TEACHER_ID, analysisDate);
 		UUID anotherTeacherId =
 			UUID.fromString("019846dc-7c00-7000-8000-000000000499");
+		RosterTestFixture.insertTeacher(jdbcTemplate, anotherTeacherId);
 
 		mockMvc.perform(post(
 				"/api/dev/detection-runs/{runId}/execute",
 				runId
 			)
-				.header("X-Teacher-Id", anotherTeacherId)
+				.with(teacherAuthentication(anotherTeacherId))
 				.header("X-Tenant-Id", "tn_demo_teacher"))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.code").value("RUN_NOT_FOUND"));
 
 		verifyNoInteractions(riskDetectionClient);
+	}
+
+	@Test
+	void rejectsUnauthenticatedAndNonTeacherCallersBeforeTenantUseCase() throws Exception {
+		mockMvc.perform(post("/api/dev/detection-runs"))
+			.andExpect(status().isUnauthorized());
+
+		AuthenticatedAccount parent = new AuthenticatedAccount(
+			UUID.randomUUID(),
+			AccountRole.PARENT,
+			null,
+			UUID.randomUUID()
+		);
+		var parentAuthentication = UsernamePasswordAuthenticationToken.authenticated(
+			parent,
+			null,
+			java.util.List.of(new SimpleGrantedAuthority("ROLE_PARENT"))
+		);
+		mockMvc.perform(post("/api/dev/detection-runs")
+				.with(authentication(parentAuthentication)))
+			.andExpect(status().isForbidden());
 	}
 
 	private UUID prepareRunThroughApi(
@@ -221,7 +251,7 @@ class DevDetectionRunControllerTest {
 			"ai/detect-contract-request.json"
 		).getContentAsString(StandardCharsets.UTF_8);
 		byte[] responseBytes = mockMvc.perform(post("/api/dev/detection-runs")
-				.header("X-Teacher-Id", teacherId)
+				.with(teacherAuthentication(teacherId))
 				.header("X-Tenant-Id", "tn_demo_teacher")
 				.queryParam("analysisDate", analysisDate.toString())
 				.contentType(MediaType.APPLICATION_JSON)
@@ -233,6 +263,21 @@ class DevDetectionRunControllerTest {
 		return UUID.fromString(
 			objectMapper.readTree(responseBytes).get("runId").asText()
 		);
+	}
+
+	private org.springframework.test.web.servlet.request.RequestPostProcessor
+	teacherAuthentication(UUID teacherId) {
+		AuthenticatedAccount principal = new AuthenticatedAccount(
+			UUID.randomUUID(),
+			AccountRole.TEACHER,
+			teacherId,
+			UUID.randomUUID()
+		);
+		return authentication(UsernamePasswordAuthenticationToken.authenticated(
+			principal,
+			null,
+			java.util.List.of(new SimpleGrantedAuthority("ROLE_TEACHER"))
+		));
 	}
 
 	private AiDetectionResponse readAiResponse() throws Exception {

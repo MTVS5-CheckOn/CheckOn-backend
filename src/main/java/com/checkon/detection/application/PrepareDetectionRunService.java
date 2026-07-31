@@ -14,6 +14,7 @@ import com.checkon.detection.domain.DetectionRunStatus;
 import com.checkon.detection.infrastructure.persistence.DetectionRunRepository;
 import com.checkon.detection.integration.ai.AiDetectionSnapshotHasher;
 import com.checkon.detection.integration.ai.dto.AiDetectionRequest;
+import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
@@ -26,19 +27,22 @@ public class PrepareDetectionRunService {
 	private final AiDetectionSnapshotHasher snapshotHasher;
 	private final ObjectMapper objectMapper;
 	private final Clock clock;
+	private final TeacherTenantDatabaseContext tenantDatabaseContext;
 
 	public PrepareDetectionRunService(
 		DetectionRunRepository runRepository,
 		DetectionIdGenerator idGenerator,
 		AiDetectionSnapshotHasher snapshotHasher,
 		ObjectMapper objectMapper,
-		Clock clock
+		Clock clock,
+		TeacherTenantDatabaseContext tenantDatabaseContext
 	) {
 		this.runRepository = runRepository;
 		this.idGenerator = idGenerator;
 		this.snapshotHasher = snapshotHasher;
 		this.objectMapper = objectMapper;
 		this.clock = clock;
+		this.tenantDatabaseContext = tenantDatabaseContext;
 	}
 
 	@Transactional
@@ -51,6 +55,7 @@ public class PrepareDetectionRunService {
 		Objects.requireNonNull(teacherId, "teacherId must not be null");
 		Objects.requireNonNull(analysisDate, "analysisDate must not be null");
 		Objects.requireNonNull(request, "request must not be null");
+		tenantDatabaseContext.setCurrentTeacher(teacherId);
 		if (tenantAlias == null || tenantAlias.isBlank()) {
 			throw new IllegalArgumentException("tenantAlias must not be blank");
 		}
