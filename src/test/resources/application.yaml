@@ -5,6 +5,10 @@ spring:
     open-in-view: false
 
 checkon:
+  tenant:
+    # Testcontainers의 관리자 연결은 fixture와 migration 준비에만 사용한다.
+    # 실제 RLS 차단은 별도의 제한된 비소유 역할 통합 테스트가 검증한다.
+    verify-database-role: false
   auth:
     # 자동화 테스트 전용 고정 키이며 운영 비밀값이 아니다.
     jwt-secret: "dGVzdC1vbmx5LWtleS1tdXN0LW5ldmVyLWJlLXVzZWQtaW4tcHJvZA=="

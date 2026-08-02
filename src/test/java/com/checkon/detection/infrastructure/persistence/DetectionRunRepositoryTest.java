@@ -136,8 +136,10 @@ class DetectionRunRepositoryTest {
 		entityManager.clear();
 
 		List<DetectionSignalResult> reloaded =
-			signalResultRepository.findAllByDetectionRunIdOrderByClassRefAscRankAsc(
-				RUN_ID
+			signalResultRepository
+				.findAllByDetectionRunIdAndDetectionRunTeacherIdOrderByClassRefAscRankAsc(
+				RUN_ID,
+				TEACHER_ID
 			);
 
 		assertThat(reloaded).hasSize(7);

@@ -8,19 +8,23 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.checkon.detection.domain.DetectionRun;
 import com.checkon.detection.infrastructure.persistence.DetectionRunRepository;
+import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 
 @Service
 public class DetectionAttemptCoordinator {
 
 	private final DetectionRunRepository runRepository;
 	private final DetectionIdGenerator idGenerator;
+	private final TeacherTenantDatabaseContext tenantDatabaseContext;
 
 	public DetectionAttemptCoordinator(
 		DetectionRunRepository runRepository,
-		DetectionIdGenerator idGenerator
+		DetectionIdGenerator idGenerator,
+		TeacherTenantDatabaseContext tenantDatabaseContext
 	) {
 		this.runRepository = runRepository;
 		this.idGenerator = idGenerator;
+		this.tenantDatabaseContext = tenantDatabaseContext;
 	}
 
 	@Transactional
@@ -30,6 +34,7 @@ public class DetectionAttemptCoordinator {
 		UUID runId,
 		Instant requestedAt
 	) {
+		tenantDatabaseContext.setCurrentTeacher(teacherId);
 		DetectionRun run = findRun(teacherId, runId);
 		String expectedKey = DetectionExecutionKey.daily(
 			tenantAlias,
@@ -59,6 +64,7 @@ public class DetectionAttemptCoordinator {
 		String errorCode,
 		Instant completedAt
 	) {
+		tenantDatabaseContext.setCurrentTeacher(teacherId);
 		DetectionRun run = findRun(teacherId, runId);
 		run.markFailed(attemptId, httpStatus, errorCode, completedAt);
 	}

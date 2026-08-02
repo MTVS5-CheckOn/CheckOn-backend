@@ -223,6 +223,44 @@ class RosterPersistenceIntegrationTest {
 		)).isInstanceOf(DataIntegrityViolationException.class);
 	}
 
+	@Test
+	void requiresTeacherBoundaryForClassRelationshipAndEnrollmentLookup() {
+		UUID teacherA = insertTeacher("tenant-a@example.com", "강사 A");
+		UUID teacherB = insertTeacher("tenant-b@example.com", "강사 B");
+		UUID studentId = insertStudentWithGrade(1);
+		UUID relationshipId = insertRelationship(teacherA, studentId, "ACTIVE");
+		UUID classId = insertClass(teacherA, "A 소유 반");
+		UUID enrollmentId = insertEnrollment(
+			classId,
+			teacherA,
+			studentId,
+			"ACTIVE"
+		);
+
+		// 명시적 teacherId 조회는 이해하기 쉬운 소유권 경계이며, V7 RLS는
+		// 누락된 조건이나 직접 SQL을 막는 별도의 최종 방어다.
+		assertThat(classGroupRepository.findByIdAndTeacherId(classId, teacherA))
+			.isPresent();
+		assertThat(classGroupRepository.findByIdAndTeacherId(classId, teacherB))
+			.isEmpty();
+		assertThat(relationshipRepository.findByIdAndTeacherId(
+			relationshipId,
+			teacherA
+		)).isPresent();
+		assertThat(relationshipRepository.findByIdAndTeacherId(
+			relationshipId,
+			teacherB
+		)).isEmpty();
+		assertThat(enrollmentRepository.findByIdAndTeacherId(
+			enrollmentId,
+			teacherA
+		)).isPresent();
+		assertThat(enrollmentRepository.findByIdAndTeacherId(
+			enrollmentId,
+			teacherB
+		)).isEmpty();
+	}
+
 	private UUID insertTeacher(String email, String displayName) {
 		UUID accountId = UUID.randomUUID();
 		UUID teacherId = UUID.randomUUID();

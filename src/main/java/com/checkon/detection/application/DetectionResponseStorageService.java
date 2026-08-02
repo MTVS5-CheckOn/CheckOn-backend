@@ -19,6 +19,7 @@ import com.checkon.detection.domain.DetectionSignalResult;
 import com.checkon.detection.infrastructure.persistence.DetectionRunRepository;
 import com.checkon.detection.infrastructure.persistence.DetectionSignalResultRepository;
 import com.checkon.detection.integration.ai.dto.AiDetectionResponse;
+import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
@@ -30,17 +31,20 @@ public class DetectionResponseStorageService {
 	private final DetectionSignalResultRepository signalResultRepository;
 	private final DetectionIdGenerator idGenerator;
 	private final ObjectMapper objectMapper;
+	private final TeacherTenantDatabaseContext tenantDatabaseContext;
 
 	public DetectionResponseStorageService(
 		DetectionRunRepository runRepository,
 		DetectionSignalResultRepository signalResultRepository,
 		DetectionIdGenerator idGenerator,
-		ObjectMapper objectMapper
+		ObjectMapper objectMapper,
+		TeacherTenantDatabaseContext tenantDatabaseContext
 	) {
 		this.runRepository = runRepository;
 		this.signalResultRepository = signalResultRepository;
 		this.idGenerator = idGenerator;
 		this.objectMapper = objectMapper;
+		this.tenantDatabaseContext = tenantDatabaseContext;
 	}
 
 	@Transactional
@@ -57,6 +61,7 @@ public class DetectionResponseStorageService {
 		Objects.requireNonNull(attemptId, "attemptId must not be null");
 		Objects.requireNonNull(response, "response must not be null");
 		Objects.requireNonNull(completedAt, "completedAt must not be null");
+		tenantDatabaseContext.setCurrentTeacher(teacherId);
 
 		validateSuccessfulResponse(response);
 		DetectionRun run = runRepository.findByIdAndTeacherId(runId, teacherId)

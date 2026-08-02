@@ -93,8 +93,10 @@ class DetectionResponseStorageServiceTest {
 		DetectionRun reloaded = runRepository.findByIdAndTeacherId(runId, TEACHER_ID)
 			.orElseThrow();
 		List<DetectionSignalResult> results =
-			signalResultRepository.findAllByDetectionRunIdOrderByClassRefAscRankAsc(
-				runId
+			signalResultRepository
+				.findAllByDetectionRunIdAndDetectionRunTeacherIdOrderByClassRefAscRankAsc(
+				runId,
+				TEACHER_ID
 			);
 
 		assertThat(reloaded.status()).isEqualTo(DetectionRunStatus.SUCCEEDED);
@@ -133,7 +135,10 @@ class DetectionResponseStorageServiceTest {
 		)).isInstanceOf(IllegalArgumentException.class);
 
 		assertThat(signalResultRepository
-			.findAllByDetectionRunIdOrderByClassRefAscRankAsc(runId))
+			.findAllByDetectionRunIdAndDetectionRunTeacherIdOrderByClassRefAscRankAsc(
+				runId,
+				TEACHER_ID
+			))
 			.isEmpty();
 		DetectionRun reloaded = runRepository.findByIdAndTeacherId(runId, TEACHER_ID)
 			.orElseThrow();

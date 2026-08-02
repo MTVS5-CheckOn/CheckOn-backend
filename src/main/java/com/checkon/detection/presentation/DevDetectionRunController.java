@@ -13,7 +13,9 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
+import com.checkon.account.infrastructure.security.AuthenticatedAccount;
 import com.checkon.detection.application.PrepareDetectionRunService;
 import com.checkon.detection.application.PrepareDetectionRunService.PreparedDetectionRun;
 import com.checkon.detection.application.RiskDetectionExecutionService;
@@ -38,13 +40,13 @@ public class DevDetectionRunController {
 
 	@PostMapping
 	public ResponseEntity<PreparedDetectionRun> prepare(
-		@RequestHeader("X-Teacher-Id") UUID teacherId,
+		@AuthenticationPrincipal AuthenticatedAccount authenticatedAccount,
 		@RequestHeader("X-Tenant-Id") String tenantAlias,
 		@RequestParam LocalDate analysisDate,
 		@RequestBody AiDetectionRequest request
 	) {
 		PreparedDetectionRun result = prepareDetectionRunService.prepare(
-			teacherId,
+			authenticatedAccount.teacherProfileId(),
 			tenantAlias,
 			analysisDate,
 			request
@@ -59,11 +61,15 @@ public class DevDetectionRunController {
 
 	@PostMapping("/{runId}/execute")
 	public ExecuteDetectionRunResponse execute(
-		@RequestHeader("X-Teacher-Id") UUID teacherId,
+		@AuthenticationPrincipal AuthenticatedAccount authenticatedAccount,
 		@RequestHeader("X-Tenant-Id") String tenantAlias,
 		@PathVariable UUID runId
 	) {
-		executionService.execute(teacherId, tenantAlias, runId);
+		executionService.execute(
+			authenticatedAccount.teacherProfileId(),
+			tenantAlias,
+			runId
+		);
 		return new ExecuteDetectionRunResponse(
 			runId,
 			DetectionRunStatus.SUCCEEDED

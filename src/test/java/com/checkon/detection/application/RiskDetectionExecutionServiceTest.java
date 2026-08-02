@@ -99,7 +99,10 @@ class RiskDetectionExecutionServiceTest {
 				.isEqualTo(DetectionRequestAttemptStatus.SUCCEEDED)
 		);
 		assertThat(signalResultRepository
-			.findAllByDetectionRunIdOrderByClassRefAscRankAsc(runId))
+			.findAllByDetectionRunIdAndDetectionRunTeacherIdOrderByClassRefAscRankAsc(
+				runId,
+				TEACHER_ID
+			))
 			.hasSize(2);
 	}
 
@@ -125,7 +128,10 @@ class RiskDetectionExecutionServiceTest {
 			assertThat(attempt.errorCode()).isEqualTo("HTTP_ERROR");
 		});
 		assertThat(signalResultRepository
-			.findAllByDetectionRunIdOrderByClassRefAscRankAsc(runId))
+			.findAllByDetectionRunIdAndDetectionRunTeacherIdOrderByClassRefAscRankAsc(
+				runId,
+				TEACHER_ID
+			))
 			.isEmpty();
 	}
 
