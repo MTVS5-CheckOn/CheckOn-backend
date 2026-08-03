@@ -107,8 +107,12 @@ public class ClassEnrollment {
 		return id;
 	}
 
+	public UUID classGroupId() { return classGroupId; }
+	public UUID teacherId() { return teacherId; }
+	public UUID studentId() { return studentId; }
+	public Instant enrolledAt() { return enrolledAt; }
+
 	public RelationshipStatus status() {
 		return status;
 	}
 }
-

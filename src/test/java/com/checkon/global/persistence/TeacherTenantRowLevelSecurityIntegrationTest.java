@@ -62,6 +62,14 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 		UUID.fromString("019846dc-7c00-7000-8000-000000001061");
 	private static final UUID SIGNAL_B =
 		UUID.fromString("019846dc-7c00-7000-8000-000000001062");
+	private static final UUID LEARNING_A =
+		UUID.fromString("019846dc-7c00-7000-8000-000000001071");
+	private static final UUID LEARNING_B =
+		UUID.fromString("019846dc-7c00-7000-8000-000000001072");
+	private static final UUID AI_ALIAS_A =
+		UUID.fromString("019846dc-7c00-7000-8000-000000001081");
+	private static final UUID AI_ALIAS_B =
+		UUID.fromString("019846dc-7c00-7000-8000-000000001082");
 	private static final String RESTRICTED_ROLE = "checkon_rls_test_runtime";
 
 	@Container
@@ -93,7 +101,9 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			   detection_runs,
 			   detection_request_attempts,
 			   detection_signal_results,
-			   detection_result_evidence
+			   detection_result_evidence,
+			   learning_records,
+			   ai_student_aliases
 			TO checkon_rls_test_runtime
 			""");
 		administrator.execute("""
@@ -150,11 +160,13 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'detection_runs',
 				    'detection_request_attempts',
 				    'detection_signal_results',
-				    'detection_result_evidence'
+				    'detection_result_evidence',
+				    'learning_records',
+				    'ai_student_aliases'
 				  )
 				  AND table_metadata.relrowsecurity
 				  AND table_metadata.relforcerowsecurity
-				""")).isEqualTo(7);
+				""")).isEqualTo(9);
 			assertThat(queryInt(statement, """
 				SELECT count(*) FROM pg_policies
 				WHERE schemaname = 'public'
@@ -165,9 +177,11 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'detection_runs',
 				    'detection_request_attempts',
 				    'detection_signal_results',
-				    'detection_result_evidence'
+				    'detection_result_evidence',
+				    'learning_records',
+				    'ai_student_aliases'
 				  )
-				""")).isEqualTo(28);
+				""")).isEqualTo(36);
 			assertThat(queryInt(statement, """
 				SELECT count(*)
 				FROM pg_class table_metadata
@@ -187,6 +201,8 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 		try (Connection connection = restrictedDataSource.getConnection()) {
 			assertThat(count(connection, "class_groups")).isZero();
 			assertThat(count(connection, "detection_request_attempts")).isZero();
+			assertThat(count(connection, "learning_records")).isZero();
+			assertThat(count(connection, "ai_student_aliases")).isZero();
 			assertThat(update(connection,
 				"UPDATE class_groups SET name = 'blocked' WHERE id = ?", CLASS_A
 			)).isZero();
@@ -211,6 +227,8 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				.containsExactly(ATTEMPT_A);
 			assertThat(ids(connection, "detection_signal_results"))
 				.containsExactly(SIGNAL_A);
+			assertThat(ids(connection, "learning_records")).containsExactly(LEARNING_A);
+			assertThat(ids(connection, "ai_student_aliases")).containsExactly(AI_ALIAS_A);
 			assertThat(count(connection, "detection_result_evidence")).isEqualTo(1);
 			UUID ownClass = UUID.randomUUID();
 			insertClass(connection, ownClass, TEACHER_A, "allowed own class");
@@ -229,6 +247,18 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThat(update(connection,
 				"DELETE FROM detection_signal_results WHERE id = ?", SIGNAL_B
 			)).isZero();
+			assertThat(update(connection,
+				"UPDATE learning_records SET source_type = 'blocked' WHERE id = ?", LEARNING_B
+			)).isZero();
+			assertThat(update(connection,
+				"DELETE FROM ai_student_aliases WHERE id = ?", AI_ALIAS_B
+			)).isZero();
+			insertLearningRecord(connection, UUID.randomUUID(), TEACHER_A, STUDENT_A);
+			assertThatThrownBy(() -> insertLearningRecord(
+				connection, UUID.randomUUID(), TEACHER_B, STUDENT_B))
+				.isInstanceOf(SQLException.class).hasMessageContaining("row-level security");
+			connection.rollback();
+			setTeacher(connection, TEACHER_A);
 			assertThatThrownBy(() -> insertClass(
 				connection,
 				UUID.randomUUID(),
@@ -317,6 +347,24 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 		insertRun(RUN_B, TEACHER_B, "rls-b:2026-07-31");
 		insertDetectionChildren(RUN_A, ATTEMPT_A, SIGNAL_A, "request-a");
 		insertDetectionChildren(RUN_B, ATTEMPT_B, SIGNAL_B, "request-b");
+		insertLearningFixture(LEARNING_A, AI_ALIAS_A, TEACHER_A, STUDENT_A,
+			"st_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+		insertLearningFixture(LEARNING_B, AI_ALIAS_B, TEACHER_B, STUDENT_B,
+			"st_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+	}
+
+	private void insertLearningFixture(UUID recordId, UUID aliasId, UUID teacherId,
+		UUID studentId, String alias) {
+		administrator.update("""
+			INSERT INTO learning_records
+			(id, teacher_id, student_id, record_type, occurred_at, source_type,
+			 created_at, updated_at)
+			VALUES (?, ?, ?, 'SOLVE', now(), 'fixture', now(), now())
+			""", recordId, teacherId, studentId);
+		administrator.update("""
+			INSERT INTO ai_student_aliases (id, teacher_id, student_id, alias, created_at)
+			VALUES (?, ?, ?, ?, now())
+			""", aliasId, teacherId, studentId, alias);
 	}
 
 	private void insertRun(UUID runId, UUID teacherId, String idempotencyKey) {
@@ -462,6 +510,21 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			statement.setObject(1, evidenceId);
 			statement.setObject(2, signalId);
 			statement.setString(3, "record-" + evidenceId);
+			statement.executeUpdate();
+		}
+	}
+
+	private void insertLearningRecord(Connection connection, UUID id,
+		UUID teacherId, UUID studentId) throws SQLException {
+		try (PreparedStatement statement = connection.prepareStatement("""
+			INSERT INTO learning_records
+			(id, teacher_id, student_id, record_type, occurred_at, source_type,
+			 created_at, updated_at)
+			VALUES (?, ?, ?, 'SUBMIT', now(), 'rls-test', now(), now())
+			""")) {
+			statement.setObject(1, id);
+			statement.setObject(2, teacherId);
+			statement.setObject(3, studentId);
 			statement.executeUpdate();
 		}
 	}

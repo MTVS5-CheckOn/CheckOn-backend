@@ -67,7 +67,7 @@ class CheckOnApplicationTests {
 	}
 
 	@Test
-	void flywayCreatesDetectionRunTables() {
+	void flywayCreatesCurrentApplicationTables() {
 		String detectionRuns = jdbcTemplate.queryForObject(
 			"SELECT to_regclass('public.detection_runs')::text",
 			String.class
@@ -87,7 +87,7 @@ class CheckOnApplicationTests {
 		assertThat(jdbcTemplate.queryForObject(
 			"SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1",
 			String.class
-		)).isEqualTo("7");
+		)).isEqualTo("8");
 	}
 
 	@Test
