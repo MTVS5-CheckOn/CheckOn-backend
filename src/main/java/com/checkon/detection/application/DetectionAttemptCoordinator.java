@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.checkon.detection.domain.DetectionRun;
+import com.checkon.detection.domain.DetectionRequestAttempt;
 import com.checkon.detection.infrastructure.persistence.DetectionRunRepository;
 import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 
@@ -45,11 +46,16 @@ public class DetectionAttemptCoordinator {
 		}
 		UUID attemptId = idGenerator.nextIds(1).getFirst();
 		String requestId = attemptId.toString();
-		run.startAttempt(attemptId, requestId, requestedAt);
+		DetectionRequestAttempt attempt = run.startAttempt(
+			attemptId,
+			requestId,
+			requestedAt
+		);
 
 		return new StartedDetectionAttempt(
 			attemptId,
 			requestId,
+			attempt.attemptNumber(),
 			run.idempotencyKey(),
 			run.snapshotPayload()
 		);
@@ -77,6 +83,7 @@ public class DetectionAttemptCoordinator {
 	public record StartedDetectionAttempt(
 		UUID attemptId,
 		String requestId,
+		int attemptNumber,
 		String idempotencyKey,
 		String snapshotPayload
 	) {

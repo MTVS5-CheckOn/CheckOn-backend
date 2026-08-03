@@ -26,7 +26,7 @@
       },
       {
         "signal_id": "d040d2da-7d61-52e0-8c38-12edf09b0ef6",
-        "student_ref": "st_08",
+        "student_ref": "st_10",
         "class_ref": "cl_b2",
         "rule_id": "R5",
         "signal_type": "return_care",
@@ -42,7 +42,7 @@
         "evidence": [
           {
             "source_table": "learning_event",
-            "record_id": "le_869",
+            "record_id": "le_1054",
             "summary": "return_care 근거 기록"
           }
         ]

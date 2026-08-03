@@ -41,7 +41,7 @@ public class RiskDetectionExecutionService {
 		this.clock = clock;
 	}
 
-	public void execute(UUID teacherId, String tenantAlias, UUID runId) {
+	public ExecutedDetectionRun execute(UUID teacherId, String tenantAlias, UUID runId) {
 		Objects.requireNonNull(teacherId, "teacherId must not be null");
 		Objects.requireNonNull(runId, "runId must not be null");
 		if (tenantAlias == null || tenantAlias.isBlank()) {
@@ -74,6 +74,7 @@ public class RiskDetectionExecutionService {
 				response,
 				Instant.now(clock)
 			);
+			return new ExecutedDetectionRun(runId, attempt.attemptNumber());
 		}
 		catch (RiskDetectionClientException exception) {
 			markFailed(
@@ -105,6 +106,9 @@ public class RiskDetectionExecutionService {
 			);
 			throw DetectionExecutionException.responseProcessing(exception);
 		}
+	}
+
+	public record ExecutedDetectionRun(UUID runId, int attemptNumber) {
 	}
 
 	private AiDetectionRequest readRequest(String snapshotPayload) {

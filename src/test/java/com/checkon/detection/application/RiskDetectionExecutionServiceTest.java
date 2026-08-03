@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -135,6 +136,48 @@ class RiskDetectionExecutionServiceTest {
 			.isEmpty();
 	}
 
+	@Test
+	void rejectsTheWholeAiResponseAndRecordsFailureWhenOneSignalHasNoEvidence()
+		throws IOException {
+		UUID runId = UUID.fromString("019846dc-7c00-7000-8000-000000000331");
+		prepareRun(runId, LocalDate.of(2026, 7, 30));
+		AiDetectionResponse response = readResponse();
+		AiDetectionResponse.Signal valid = response.data().signals().getFirst();
+		AiDetectionResponse.Signal invalid = copyWithEvidence(valid, List.of());
+		when(riskDetectionClient.detect(any(), any())).thenReturn(
+			new AiDetectionResponse(
+				new AiDetectionResponse.Data(
+					List.of(valid, invalid),
+					response.data().stats()
+				),
+				response.error(),
+				response.meta()
+			)
+		);
+
+		// signal을 하나씩 저장하면 첫 결과만 남을 수 있다. 이 테스트는 응답 전체
+		// 검증과 저장 트랜잭션이 부분 위험 신호를 만들지 못하게 막는지 확인한다.
+		assertThatThrownBy(() ->
+			executionService.execute(TEACHER_ID, "tn_demo_teacher", runId)
+		).isInstanceOf(DetectionExecutionException.class);
+
+		DetectionRun run = runRepository.findByIdAndTeacherId(runId, TEACHER_ID)
+			.orElseThrow();
+		assertThat(run.status()).isEqualTo(DetectionRunStatus.FAILED);
+		assertThat(run.errorCode()).isEqualTo("RESPONSE_PROCESSING_ERROR");
+		assertThat(run.attempts()).singleElement().satisfies(attempt -> {
+			assertThat(attempt.status())
+				.isEqualTo(DetectionRequestAttemptStatus.FAILED);
+			assertThat(attempt.errorCode()).isEqualTo("RESPONSE_PROCESSING_ERROR");
+		});
+		assertThat(signalResultRepository
+			.findAllByDetectionRunIdAndDetectionRunTeacherIdOrderByClassRefAscRankAsc(
+				runId,
+				TEACHER_ID
+			))
+			.isEmpty();
+	}
+
 	private void prepareRun(UUID runId, LocalDate analysisDate) throws IOException {
 		DetectionRun run = DetectionRun.prepare(
 			runId,
@@ -156,6 +199,25 @@ class RiskDetectionExecutionServiceTest {
 		).getInputStream()) {
 			return objectMapper.readValue(input, AiDetectionResponse.class);
 		}
+	}
+
+	private AiDetectionResponse.Signal copyWithEvidence(
+		AiDetectionResponse.Signal signal,
+		List<AiDetectionResponse.Evidence> evidence
+	) {
+		return new AiDetectionResponse.Signal(
+			signal.signalId(),
+			signal.studentRef(),
+			signal.classRef(),
+			signal.ruleId(),
+			signal.signalType(),
+			signal.displayLabel(),
+			signal.score(),
+			signal.rank(),
+			signal.lifecycle(),
+			signal.brief(),
+			evidence
+		);
 	}
 
 	private String readResource(String path) throws IOException {

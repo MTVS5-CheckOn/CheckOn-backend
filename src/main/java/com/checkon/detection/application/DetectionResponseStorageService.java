@@ -3,10 +3,13 @@ package com.checkon.detection.application;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -18,6 +21,7 @@ import com.checkon.detection.domain.DetectionRun;
 import com.checkon.detection.domain.DetectionSignalResult;
 import com.checkon.detection.infrastructure.persistence.DetectionRunRepository;
 import com.checkon.detection.infrastructure.persistence.DetectionSignalResultRepository;
+import com.checkon.detection.integration.ai.dto.AiDetectionRequest;
 import com.checkon.detection.integration.ai.dto.AiDetectionResponse;
 import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 
@@ -63,11 +67,16 @@ public class DetectionResponseStorageService {
 		Objects.requireNonNull(completedAt, "completedAt must not be null");
 		tenantDatabaseContext.setCurrentTeacher(teacherId);
 
-		validateSuccessfulResponse(response);
 		DetectionRun run = runRepository.findByIdAndTeacherId(runId, teacherId)
 			.orElseThrow(() -> new DetectionResponseStorageException(
 				"Detection run was not found inside the teacher boundary"
 			));
+		AiDetectionRequest request = readRequest(run.snapshotPayload());
+
+		// AI 결과를 행 단위로 저장하면서 검증하면 뒤쪽 signal의 오류 때문에
+		// 앞쪽 결과만 남을 수 있다. 요청 snapshot과 응답 전체를 먼저 대조한 뒤
+		// 하나의 트랜잭션에서만 저장해 근거 없는 위험 신호를 차단한다.
+		validateSuccessfulResponse(response, request);
 
 		int evidenceCount = response.data().signals().stream()
 			.mapToInt(signal -> signal.evidence().size())
@@ -127,7 +136,10 @@ public class DetectionResponseStorageService {
 		);
 	}
 
-	private void validateSuccessfulResponse(AiDetectionResponse response) {
+	private void validateSuccessfulResponse(
+		AiDetectionResponse response,
+		AiDetectionRequest request
+	) {
 		if (response.error() != null) {
 			throw new DetectionResponseStorageException(
 				"Successful AI response must not contain an error"
@@ -153,12 +165,102 @@ public class DetectionResponseStorageService {
 				"Successful AI response must contain versions"
 			);
 		}
+		Map<String, String> requestedStudentClasses = request.students().stream()
+			.collect(java.util.stream.Collectors.toUnmodifiableMap(
+				AiDetectionRequest.StudentSnapshot::studentRef,
+				AiDetectionRequest.StudentSnapshot::classRef
+			));
+		Set<String> requestedRecords = request.learningEvents().stream()
+			.map(AiDetectionRequest.LearningEventSnapshot::recordId)
+			.collect(java.util.stream.Collectors.toUnmodifiableSet());
+		Set<String> signalIds = new HashSet<>();
 		for (AiDetectionResponse.Signal signal : response.data().signals()) {
 			if (signal == null || signal.brief() == null || signal.evidence() == null) {
 				throw new DetectionResponseStorageException(
 					"Every AI signal must contain brief and evidence"
 				);
 			}
+			if (signal.evidence().isEmpty()) {
+				throw new DetectionResponseStorageException(
+					"Every AI signal must contain at least one evidence"
+				);
+			}
+			if (isBlank(signal.signalId()) || !signalIds.add(signal.signalId())) {
+				throw new DetectionResponseStorageException(
+					"AI signal_id must be present and unique inside a response"
+				);
+			}
+			if (isBlank(signal.studentRef())
+				|| !requestedStudentClasses.containsKey(signal.studentRef())) {
+				throw new DetectionResponseStorageException(
+					"AI signal student_ref must belong to the request snapshot"
+				);
+			}
+			if (!Objects.equals(
+				requestedStudentClasses.get(signal.studentRef()),
+				signal.classRef()
+			)) {
+				throw new DetectionResponseStorageException(
+					"AI signal class_ref must match the requested student snapshot"
+				);
+			}
+			if (isBlank(signal.brief().text())) {
+				throw new DetectionResponseStorageException(
+					"AI signal brief text must not be blank"
+				);
+			}
+			if (!Double.isFinite(signal.score())
+				|| signal.score() < 0 || signal.score() > 1) {
+				throw new DetectionResponseStorageException(
+					"AI signal score must be between 0 and 1"
+				);
+			}
+			if (signal.rank() < 1) {
+				throw new DetectionResponseStorageException(
+					"AI signal rank must be at least 1"
+				);
+			}
+			toLifecycle(signal.lifecycle());
+			Set<String> evidenceRecordIds = new HashSet<>();
+			for (AiDetectionResponse.Evidence evidence : signal.evidence()) {
+				if (evidence == null || isBlank(evidence.recordId())
+					|| !requestedRecords.contains(evidence.recordId())) {
+					throw new DetectionResponseStorageException(
+						"AI evidence record_id must belong to the request snapshot"
+					);
+				}
+				if (!evidenceRecordIds.add(evidence.recordId())) {
+					throw new DetectionResponseStorageException(
+						"AI evidence record_id must be unique inside a signal"
+					);
+				}
+				if (isBlank(evidence.sourceTable()) || isBlank(evidence.summary())) {
+					throw new DetectionResponseStorageException(
+						"AI evidence source and summary must not be blank"
+					);
+				}
+			}
+		}
+	}
+
+	private AiDetectionRequest readRequest(String snapshotPayload) {
+		try {
+			AiDetectionRequest request = objectMapper.readValue(
+				snapshotPayload,
+				AiDetectionRequest.class
+			);
+			if (request.students() == null || request.learningEvents() == null) {
+				throw new DetectionResponseStorageException(
+					"Stored detection snapshot is missing students or learning events"
+				);
+			}
+			return request;
+		}
+		catch (JacksonException exception) {
+			throw new DetectionResponseStorageException(
+				"Stored detection snapshot could not be read",
+				exception
+			);
 		}
 	}
 
