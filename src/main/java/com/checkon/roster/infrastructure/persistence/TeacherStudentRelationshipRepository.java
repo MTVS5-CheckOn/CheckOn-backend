@@ -15,6 +15,12 @@ public interface TeacherStudentRelationshipRepository
 		com.checkon.roster.domain.RelationshipStatus status
 	);
 
+	boolean existsByTeacherIdAndStudentIdAndStatus(
+		UUID teacherId,
+		UUID studentId,
+		com.checkon.roster.domain.RelationshipStatus status
+	);
+
 	Optional<TeacherStudentRelationship> findByIdAndTeacherId(
 		UUID id,
 		UUID teacherId
