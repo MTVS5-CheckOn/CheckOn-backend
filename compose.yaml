@@ -1,6 +1,10 @@
 services:
   postgres:
     image: 'postgres:18'
+    labels:
+      # Flyway 관리자(POSTGRES_USER)와 런타임 역할(DB_USERNAME)을 분리하므로
+      # Spring Boot가 컨테이너 관리자 계정을 DataSource에 자동 주입하면 안 된다.
+      org.springframework.boot.ignore: true
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
