@@ -50,7 +50,7 @@ class AiDetectionContractTest {
 			assertThat(signal.evidence()).isNotEmpty();
 		});
 		assertThat(response.data().signals())
-			.filteredOn(signal -> signal.studentRef().equals("st_10"))
+			.filteredOn(signal -> signal.signalType().equals("acc_drop"))
 			.singleElement()
 			.extracting(AiDetectionResponse.Signal::lifecycle)
 			.isEqualTo("ongoing");

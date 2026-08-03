@@ -180,6 +180,30 @@ class LearningRecordPersistenceIntegrationTest {
 		} finally { pool.shutdownNow(); }
 	}
 
+	@Test
+	void keepsTeacherOwnedHistoricalRecordsAfterTheStudentRelationshipEnds() {
+		saveService.save(TEACHER, draft(null, FROM.plusSeconds(10), true));
+		jdbc.update("""
+			UPDATE teacher_student_relationships
+			SET status = 'ENDED', ended_at = ?
+			WHERE teacher_id = ? AND student_id = ?
+			""", FROM.plusSeconds(20).atOffset(ZoneOffset.UTC), TEACHER, STUDENT);
+
+		var snapshot = snapshotService.build(
+			TEACHER,
+			LocalDate.parse("2026-07-27"),
+			"normal",
+			FROM,
+			FROM.plusSeconds(100)
+		);
+
+		assertThat(snapshot.learningEvents()).hasSize(1);
+		assertThat(snapshot.students()).singleElement().satisfies(student -> {
+			assertThat(student.status()).isEqualTo("recorded");
+			assertThat(student.enrolledWeeks()).isZero();
+		});
+	}
+
 	private LearningRecord.Draft draft(String external, Instant occurredAt, Boolean correct) {
 		return new LearningRecord.Draft(TEACHER, STUDENT, null, LearningRecordType.SOLVE,
 			occurredAt, "trackB", external, correct, 180, 800, "reading", "common",

@@ -149,11 +149,116 @@ class DetectionResponseStorageServiceTest {
 		);
 	}
 
+	@Test
+	void rejectsStudentAndEvidenceReferencesOutsideTheStoredSnapshot()
+		throws IOException {
+		UUID unknownStudentRun =
+			UUID.fromString("019846dc-7c00-7000-8000-000000000211");
+		UUID unknownStudentAttempt =
+			UUID.fromString("019846dc-7c00-7000-8000-000000000212");
+		prepareRequestedRun(
+			unknownStudentRun,
+			unknownStudentAttempt,
+			LocalDate.of(2026, 7, 30)
+		);
+		AiDetectionResponse response = readDemoResponse();
+		AiDetectionResponse.Signal first = response.data().signals().getFirst();
+		AiDetectionResponse unknownStudent = withSignals(
+			response,
+			List.of(copySignal(first, "st_not_requested", first.evidence()))
+		);
+
+		assertRejectedWithoutPartialRows(
+			unknownStudentRun,
+			unknownStudentAttempt,
+			unknownStudent
+		);
+
+		UUID unknownRecordRun =
+			UUID.fromString("019846dc-7c00-7000-8000-000000000221");
+		UUID unknownRecordAttempt =
+			UUID.fromString("019846dc-7c00-7000-8000-000000000222");
+		prepareRequestedRun(
+			unknownRecordRun,
+			unknownRecordAttempt,
+			LocalDate.of(2026, 7, 31)
+		);
+		AiDetectionResponse.Evidence evidence = first.evidence().getFirst();
+		AiDetectionResponse unknownRecord = withSignals(
+			response,
+			List.of(copySignal(
+				first,
+				first.studentRef(),
+				List.of(new AiDetectionResponse.Evidence(
+					evidence.sourceTable(),
+					"le_not_requested",
+					evidence.summary()
+				))
+			))
+		);
+
+		assertRejectedWithoutPartialRows(
+			unknownRecordRun,
+			unknownRecordAttempt,
+			unknownRecord
+		);
+	}
+
+	@Test
+	void rejectsDuplicateSignalAndEvidenceIdentifiersBeforeSaving()
+		throws IOException {
+		UUID duplicateSignalRun =
+			UUID.fromString("019846dc-7c00-7000-8000-000000000231");
+		UUID duplicateSignalAttempt =
+			UUID.fromString("019846dc-7c00-7000-8000-000000000232");
+		prepareRequestedRun(
+			duplicateSignalRun,
+			duplicateSignalAttempt,
+			LocalDate.of(2026, 8, 1)
+		);
+		AiDetectionResponse response = readDemoResponse();
+		AiDetectionResponse.Signal first = response.data().signals().getFirst();
+
+		assertRejectedWithoutPartialRows(
+			duplicateSignalRun,
+			duplicateSignalAttempt,
+			withSignals(response, List.of(first, first))
+		);
+
+		UUID duplicateEvidenceRun =
+			UUID.fromString("019846dc-7c00-7000-8000-000000000241");
+		UUID duplicateEvidenceAttempt =
+			UUID.fromString("019846dc-7c00-7000-8000-000000000242");
+		prepareRequestedRun(
+			duplicateEvidenceRun,
+			duplicateEvidenceAttempt,
+			LocalDate.of(2026, 8, 2)
+		);
+		AiDetectionResponse.Evidence evidence = first.evidence().getFirst();
+		AiDetectionResponse duplicateEvidence = withSignals(
+			response,
+			List.of(copySignal(
+				first,
+				first.studentRef(),
+				List.of(evidence, evidence)
+			))
+		);
+
+		assertRejectedWithoutPartialRows(
+			duplicateEvidenceRun,
+			duplicateEvidenceAttempt,
+			duplicateEvidence
+		);
+	}
+
 	private void prepareRequestedRun(
 		UUID runId,
 		UUID attemptId,
 		LocalDate analysisDate
-	) {
+	) throws IOException {
+		String snapshotPayload = new ClassPathResource(
+			"ai/detect-contract-request.json"
+		).getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
 		transactionTemplate.executeWithoutResult(status -> {
 			DetectionRun run = DetectionRun.prepare(
 				runId,
@@ -162,7 +267,7 @@ class DetectionResponseStorageServiceTest {
 				LocalDate.of(2026, 7, 20),
 				"tn_demo_teacher:" + runId,
 				SNAPSHOT_HASH,
-				"{\"snapshot_meta\":{\"week_start\":\"2026-07-20\"}}",
+				snapshotPayload,
 				Instant.parse("2026-07-27T17:09:59Z")
 			);
 			run.startAttempt(
@@ -180,5 +285,65 @@ class DetectionResponseStorageServiceTest {
 		).getInputStream()) {
 			return objectMapper.readValue(input, AiDetectionResponse.class);
 		}
+	}
+
+	private void assertRejectedWithoutPartialRows(
+		UUID runId,
+		UUID attemptId,
+		AiDetectionResponse response
+	) {
+		assertThatThrownBy(() -> storageService.storeSuccessfulResponse(
+			TEACHER_ID,
+			runId,
+			attemptId,
+			200,
+			response,
+			Instant.parse("2026-07-27T17:10:03Z")
+		)).isInstanceOf(DetectionResponseStorageException.class);
+
+		assertThat(signalResultRepository
+			.findAllByDetectionRunIdAndDetectionRunTeacherIdOrderByClassRefAscRankAsc(
+				runId,
+				TEACHER_ID
+			))
+			.isEmpty();
+		DetectionRun run = runRepository.findByIdAndTeacherId(runId, TEACHER_ID)
+			.orElseThrow();
+		assertThat(run.status()).isEqualTo(DetectionRunStatus.REQUESTED);
+		assertThat(run.attempts()).singleElement().satisfies(attempt ->
+			assertThat(attempt.status())
+				.isEqualTo(DetectionRequestAttemptStatus.REQUESTED)
+		);
+	}
+
+	private AiDetectionResponse withSignals(
+		AiDetectionResponse response,
+		List<AiDetectionResponse.Signal> signals
+	) {
+		return new AiDetectionResponse(
+			new AiDetectionResponse.Data(signals, response.data().stats()),
+			response.error(),
+			response.meta()
+		);
+	}
+
+	private AiDetectionResponse.Signal copySignal(
+		AiDetectionResponse.Signal signal,
+		String studentRef,
+		List<AiDetectionResponse.Evidence> evidence
+	) {
+		return new AiDetectionResponse.Signal(
+			signal.signalId(),
+			studentRef,
+			signal.classRef(),
+			signal.ruleId(),
+			signal.signalType(),
+			signal.displayLabel(),
+			signal.score(),
+			signal.rank(),
+			signal.lifecycle(),
+			signal.brief(),
+			evidence
+		);
 	}
 }

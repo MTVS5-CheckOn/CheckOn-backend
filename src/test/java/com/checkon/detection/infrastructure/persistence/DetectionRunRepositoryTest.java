@@ -181,6 +181,33 @@ class DetectionRunRepositoryTest {
 	}
 
 	@Test
+	void rejectsDuplicateAiRequestIdWhilePreservingAttemptNumbers() {
+		DetectionRun run = prepareRun();
+		run.startAttempt(
+			FIRST_ATTEMPT_ID,
+			"duplicate-request-id",
+			Instant.parse("2026-07-27T17:10:00Z")
+		);
+		run.markFailed(
+			FIRST_ATTEMPT_ID,
+			null,
+			"NETWORK_ERROR",
+			Instant.parse("2026-07-27T17:10:30Z")
+		);
+		run.startAttempt(
+			SECOND_ATTEMPT_ID,
+			"duplicate-request-id",
+			Instant.parse("2026-07-27T17:11:00Z")
+		);
+
+		assertThat(run.attempts())
+			.extracting(attempt -> attempt.attemptNumber())
+			.containsExactly(1, 2);
+		assertThatThrownBy(() -> repository.saveAndFlush(run))
+			.isInstanceOf(DataIntegrityViolationException.class);
+	}
+
+	@Test
 	void detectionRunRequiresExistingTeacherProfile() {
 		DetectionRun run = DetectionRun.prepare(
 			UUID.fromString("019846dc-7c00-7000-8000-000000000090"),
