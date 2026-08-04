@@ -1,49 +1,40 @@
 package com.checkon.learning.application;
 
-import java.time.Clock;
-import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 import com.checkon.learning.domain.LearningRecord;
-import com.checkon.learning.infrastructure.persistence.LearningRecordRepository;
-import com.checkon.roster.domain.RelationshipStatus;
-import com.checkon.roster.infrastructure.persistence.ClassGroupRepository;
-import com.checkon.roster.infrastructure.persistence.TeacherStudentRelationshipRepository;
 
+/**
+ * 기존 Detection 및 테스트 호출자를 새 등록 유스케이스에 연결하는 호환 어댑터다.
+ *
+ * <p>기존 호출자가 엔티티 초안을 곧바로 전달하는 계약을 한 번에 깨지 않으면서도,
+ * 테넌트 설정과 소유권 검증은 {@link RegisterLearningRecordService} 한 곳만 통과하게
+ * 한다. 신규 HTTP 등록은 이 어댑터가 아니라 command 경계를 사용한다.</p>
+ */
 @Service
 public class SaveLearningRecordService {
-	private final LearningRecordRepository records;
-	private final TeacherStudentRelationshipRepository relationships;
-	private final ClassGroupRepository classes;
-	private final TeacherTenantDatabaseContext tenantContext;
-	private final Clock clock;
-	public SaveLearningRecordService(LearningRecordRepository records,
-		TeacherStudentRelationshipRepository relationships, ClassGroupRepository classes,
-		TeacherTenantDatabaseContext tenantContext, Clock clock) {
-		this.records = records; this.relationships = relationships; this.classes = classes;
-		this.tenantContext = tenantContext; this.clock = clock;
+	private final RegisterLearningRecordService registrationService;
+
+	public SaveLearningRecordService(RegisterLearningRecordService registrationService) {
+		this.registrationService = registrationService;
 	}
 
-	@Transactional
 	public LearningRecord save(UUID authenticatedTeacherId, LearningRecord.Draft draft) {
 		Objects.requireNonNull(authenticatedTeacherId, "authenticatedTeacherId must not be null");
 		Objects.requireNonNull(draft, "draft must not be null");
+		// 호환 호출자가 가진 teacherId도 인증 주체와 다르면 새 유스케이스에
+		// 진입시키지 않는다. 신규 API의 요청 본문에는 teacherId 자체가 없다.
 		if (!authenticatedTeacherId.equals(draft.teacherId()))
 			throw new IllegalArgumentException("teacherId must match authenticated teacher");
-		// Tenant context must be set inside this transaction so pooled connections
-		// clear it automatically on commit or rollback.
-		tenantContext.setCurrentTeacher(authenticatedTeacherId);
-		if (!relationships.existsByTeacherIdAndStudentIdAndStatus(
-			authenticatedTeacherId, draft.studentId(), RelationshipStatus.ACTIVE))
-			throw new IllegalArgumentException("student is not active for this teacher");
-		if (draft.classGroupId() != null &&
-			classes.findByIdAndTeacherId(draft.classGroupId(), authenticatedTeacherId).isEmpty())
-			throw new IllegalArgumentException("class does not belong to this teacher");
-		return records.save(LearningRecord.create(draft, Instant.now(clock)));
+		return registrationService.registerRecord(authenticatedTeacherId,
+			new RegisterLearningRecordCommand(
+				draft.studentId(), draft.classGroupId(), draft.recordType(), draft.occurredAt(),
+				draft.sourceType(), draft.externalRecordRef(), draft.correct(), draft.durationSec(),
+				draft.passageWordCount(), draft.areaTag(), draft.subjectTrack(), draft.typeTag(),
+				draft.itemFormat(), draft.assignmentTitleText()
+				));
 	}
 }
