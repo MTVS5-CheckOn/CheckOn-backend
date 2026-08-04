@@ -147,7 +147,7 @@ class LearningRecordPersistenceIntegrationTest {
 			jdbc.update("""
 				UPDATE learning_records SET duration_sec = 999, updated_at = ?
 				WHERE id = ? AND teacher_id = ?
-				""", Instant.parse("2026-08-04T00:00:00Z").atOffset(ZoneOffset.UTC),
+				""", Instant.parse("2026-08-05T00:00:00Z").atOffset(ZoneOffset.UTC),
 				record.id(), TEACHER);
 		});
 		var changed = snapshotService.build(TEACHER, LocalDate.parse("2026-07-27"),
