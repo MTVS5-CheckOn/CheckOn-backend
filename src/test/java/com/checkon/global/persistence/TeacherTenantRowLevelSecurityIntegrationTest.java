@@ -242,6 +242,12 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThat(ids(connection, "learning_records")).containsExactly(LEARNING_A);
 			assertThat(ids(connection, "ai_student_aliases")).containsExactly(AI_ALIAS_A);
 			assertThat(ids(connection, "engagement_alerts")).containsExactly(ALERT_A);
+			assertThat(calendarAlertCount(
+				connection, TEACHER_A, "2026-07-28", "2026-08-03"
+			)).isEqualTo(1);
+			assertThat(calendarAlertCount(
+				connection, TEACHER_B, "2026-07-28", "2026-08-03"
+			)).isZero();
 			assertThat(ids(connection, "interventions")).containsExactly(INTERVENTION_A);
 			assertThat(ids(connection, "intervention_reminders")).containsExactly(REMINDER_A);
 			assertThat(count(connection, "detection_result_evidence")).isEqualTo(1);
@@ -571,6 +577,33 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 		try (ResultSet result = statement.executeQuery(sql)) {
 			result.next();
 			return result.getInt(1);
+		}
+	}
+
+	private int calendarAlertCount(
+		Connection connection,
+		UUID teacherId,
+		String startedAt,
+		String endedAt
+	) throws SQLException {
+		try (PreparedStatement statement = connection.prepareStatement("""
+			SELECT count(alert.id)
+			FROM engagement_alerts alert
+			JOIN detection_signal_results signal
+			  ON signal.id = alert.detection_signal_result_id
+			JOIN detection_runs run ON run.id = signal.detection_run_id
+			WHERE alert.teacher_id = ?
+			  AND run.teacher_id = ?
+			  AND run.analysis_date BETWEEN ?::date AND ?::date
+			""")) {
+			statement.setObject(1, teacherId);
+			statement.setObject(2, teacherId);
+			statement.setString(3, startedAt);
+			statement.setString(4, endedAt);
+			try (ResultSet result = statement.executeQuery()) {
+				result.next();
+				return result.getInt(1);
+			}
 		}
 	}
 }

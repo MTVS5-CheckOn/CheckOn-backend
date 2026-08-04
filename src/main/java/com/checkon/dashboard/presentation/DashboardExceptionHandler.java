@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import com.checkon.dashboard.application.FutureBriefingDateException;
+import com.checkon.dashboard.application.InvalidDashboardCalendarRangeException;
 
 @RestControllerAdvice(assignableTypes = DashboardController.class)
 public class DashboardExceptionHandler {
@@ -18,14 +19,27 @@ public class DashboardExceptionHandler {
 		));
 	}
 
-	@ExceptionHandler({
-		MissingServletRequestParameterException.class,
-		MethodArgumentTypeMismatchException.class
-	})
-	ResponseEntity<ErrorResponse> invalidDate() {
+	@ExceptionHandler(MissingServletRequestParameterException.class)
+	ResponseEntity<ErrorResponse> missingParameter() {
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
-			new ErrorResponse("INVALID_REQUEST", "요청 값을 확인해 주세요.")
+			new ErrorResponse("MISSING_REQUEST_PARAMETER", "필수 요청 파라미터를 확인해 주세요.")
 		);
+	}
+
+	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
+	ResponseEntity<ErrorResponse> invalidDateFormat() {
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
+			new ErrorResponse("INVALID_DATE_FORMAT", "날짜는 yyyy-MM-dd 형식이어야 합니다.")
+		);
+	}
+
+	@ExceptionHandler(InvalidDashboardCalendarRangeException.class)
+	ResponseEntity<ErrorResponse> invalidCalendarRange(
+		InvalidDashboardCalendarRangeException exception
+	) {
+		return ResponseEntity.badRequest().body(new ErrorResponse(
+			"INVALID_CALENDAR_RANGE", exception.getMessage()
+		));
 	}
 
 	public record ErrorResponse(String code, String message) {

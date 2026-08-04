@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.UUID;
 
@@ -44,6 +45,10 @@ class DashboardControllerIntegrationTest {
 	private static final UUID OTHER_STUDENT = UUID.fromString("0198f000-0000-7000-8000-000000000004");
 	private static final LocalDate TODAY = LocalDate.now(ZoneId.of("Asia/Seoul"));
 	private static final Instant NOW = Instant.parse("2026-08-05T00:00:00Z");
+	private static final LocalDate WEEK_START = TODAY.with(
+		TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)
+	);
+	private static final LocalDate WEEK_END = WEEK_START.plusDays(6);
 
 	@Autowired MockMvc mvc;
 	@Autowired JdbcTemplate jdbc;
@@ -129,6 +134,108 @@ class DashboardControllerIntegrationTest {
 		mvc.perform(get("/api/v1/dashboard/briefing").param("date", TODAY.toString()))
 			.andExpect(status().isUnauthorized());
 		mvc.perform(get("/api/v1/dashboard/briefing").param("date", TODAY.toString())
+				.with(parentAuthentication()))
+			.andExpect(status().isForbidden());
+	}
+
+	@Test
+	void teacherCanQuerySevenOrderedDaysIncludingEmptyDatesAndAllAlertStatuses() throws Exception {
+		mvc.perform(get("/api/v1/dashboard/calendar")
+				.param("startedAt", WEEK_START.toString())
+				.param("endedAt", WEEK_END.toString())
+				.with(teacherAuthentication(TEACHER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.startedAt").value(WEEK_START.toString()))
+			.andExpect(jsonPath("$.endedAt").value(WEEK_END.toString()))
+			.andExpect(jsonPath("$.items.length()").value(7))
+			.andExpect(jsonPath("$.items[0].date").value(WEEK_START.toString()))
+			.andExpect(jsonPath("$.items[0].eventCount").value(3))
+			.andExpect(jsonPath("$.items[1].eventCount").value(0))
+			.andExpect(jsonPath("$.items[2].date").value(TODAY.toString()))
+			.andExpect(jsonPath("$.items[2].eventCount").value(3))
+			.andExpect(jsonPath("$.items[6].date").value(WEEK_END.toString()))
+			.andExpect(jsonPath("$.items[6].eventCount").value(0));
+	}
+
+	@Test
+	void calendarUsesAnalysisDateEvenWhenAlertInstantFallsOnAnotherUtcDate() throws Exception {
+		jdbc.update("""
+			UPDATE engagement_alerts
+			SET created_at = TIMESTAMPTZ '2026-08-02 15:30:00+00',
+			    updated_at = TIMESTAMPTZ '2026-08-02 15:30:00+00'
+			WHERE teacher_id = ? AND id IN (
+				SELECT alert.id FROM engagement_alerts alert
+				JOIN detection_signal_results signal ON signal.id = alert.detection_signal_result_id
+				JOIN detection_runs run ON run.id = signal.detection_run_id
+				WHERE run.analysis_date = ?
+			)
+			""", TEACHER, WEEK_START);
+
+		mvc.perform(get("/api/v1/dashboard/calendar")
+				.param("startedAt", WEEK_START.toString())
+				.param("endedAt", WEEK_END.toString())
+				.with(teacherAuthentication(TEACHER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items[0].date").value(WEEK_START.toString()))
+			.andExpect(jsonPath("$.items[0].eventCount").value(3));
+	}
+
+	@Test
+	void calendarAllowsFutureWeeksAndKeepsTheEmptyResponseShape() throws Exception {
+		LocalDate futureStart = WEEK_START.plusWeeks(4);
+		mvc.perform(get("/api/v1/dashboard/calendar")
+				.param("startedAt", futureStart.toString())
+				.param("endedAt", futureStart.plusDays(6).toString())
+				.with(teacherAuthentication(TEACHER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items.length()").value(7))
+			.andExpect(jsonPath("$.items[0].eventCount").value(0))
+			.andExpect(jsonPath("$.items[6].eventCount").value(0));
+	}
+
+	@Test
+	void calendarRejectsMissingMalformedAndInvalidRanges() throws Exception {
+		mvc.perform(get("/api/v1/dashboard/calendar")
+				.param("startedAt", WEEK_START.toString())
+				.with(teacherAuthentication(TEACHER)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("MISSING_REQUEST_PARAMETER"));
+		mvc.perform(get("/api/v1/dashboard/calendar")
+				.param("startedAt", "2026/08/03")
+				.param("endedAt", WEEK_END.toString())
+				.with(teacherAuthentication(TEACHER)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVALID_DATE_FORMAT"));
+		mvc.perform(get("/api/v1/dashboard/calendar")
+				.param("startedAt", WEEK_START.toString())
+				.param("endedAt", WEEK_START.minusDays(1).toString())
+				.with(teacherAuthentication(TEACHER)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVALID_CALENDAR_RANGE"));
+		mvc.perform(get("/api/v1/dashboard/calendar")
+				.param("startedAt", WEEK_START.toString())
+				.param("endedAt", WEEK_END.plusDays(7).toString())
+				.with(teacherAuthentication(TEACHER)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("INVALID_CALENDAR_RANGE"));
+	}
+
+	@Test
+	void calendarUsesOnlyPrincipalTenantAndRequiresTeacherAuthentication() throws Exception {
+		mvc.perform(get("/api/v1/dashboard/calendar")
+				.param("startedAt", WEEK_START.toString())
+				.param("endedAt", WEEK_END.toString())
+				.param("teacherId", OTHER_TEACHER.toString())
+				.with(teacherAuthentication(TEACHER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items[2].eventCount").value(3));
+		mvc.perform(get("/api/v1/dashboard/calendar")
+				.param("startedAt", WEEK_START.toString())
+				.param("endedAt", WEEK_END.toString()))
+			.andExpect(status().isUnauthorized());
+		mvc.perform(get("/api/v1/dashboard/calendar")
+				.param("startedAt", WEEK_START.toString())
+				.param("endedAt", WEEK_END.toString())
 				.with(parentAuthentication()))
 			.andExpect(status().isForbidden());
 	}
