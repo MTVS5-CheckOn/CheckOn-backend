@@ -43,3 +43,6 @@ out/
 .env.prod
 .env.test
 !.env.example
+
+### Local documentation ###
+docs/
