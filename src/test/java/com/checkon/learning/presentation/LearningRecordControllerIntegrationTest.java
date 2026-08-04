@@ -67,6 +67,8 @@ class LearningRecordControllerIntegrationTest {
 		insertRoster(TEACHER, STUDENT, CLASS_GROUP, "ACTIVE");
 		insertRoster(OTHER_TEACHER, OTHER_STUDENT, OTHER_CLASS, "ACTIVE");
 		insertStudentRelationship(TEACHER, INACTIVE_STUDENT, "ENDED");
+		insertEnrollment(TEACHER, STUDENT, CLASS_GROUP,
+			OCCURRED_AT.minusSeconds(60), null);
 	}
 
 	@Test
@@ -145,6 +147,45 @@ class LearningRecordControllerIntegrationTest {
 	}
 
 	@Test
+	void validatesClassEnrollmentAtTheRecordOccurrenceTime() throws Exception {
+		jdbc.update("DELETE FROM class_enrollments WHERE teacher_id = ?", TEACHER);
+
+		// 입반 시각은 포함한다.
+		insertEnrollment(TEACHER, STUDENT, CLASS_GROUP, OCCURRED_AT, null);
+		mockMvc.perform(post("/api/v1/learning-records")
+				.with(teacherAuthentication(TEACHER)).contentType(MediaType.APPLICATION_JSON)
+				.content(validRequest(STUDENT, CLASS_GROUP, null)))
+			.andExpect(status().isCreated());
+
+		jdbc.update("DELETE FROM learning_records");
+		jdbc.update("DELETE FROM class_enrollments WHERE teacher_id = ?", TEACHER);
+		insertEnrollment(TEACHER, STUDENT, CLASS_GROUP,
+			OCCURRED_AT.minusSeconds(60), OCCURRED_AT.plusSeconds(1));
+		mockMvc.perform(post("/api/v1/learning-records")
+				.with(teacherAuthentication(TEACHER)).contentType(MediaType.APPLICATION_JSON)
+				.content(validRequest(STUDENT, CLASS_GROUP, null)))
+			.andExpect(status().isCreated());
+	}
+
+	@Test
+	void rejectsClassEnrollmentOutsideTheRecordOccurrenceTime() throws Exception {
+		for (Instant[] interval : List.of(
+			new Instant[]{OCCURRED_AT.plusSeconds(1), null},
+			new Instant[]{OCCURRED_AT.minusSeconds(60), OCCURRED_AT}
+		)) {
+			jdbc.update("DELETE FROM class_enrollments WHERE teacher_id = ?", TEACHER);
+			insertEnrollment(TEACHER, STUDENT, CLASS_GROUP, interval[0], interval[1]);
+			mockMvc.perform(post("/api/v1/learning-records")
+					.with(teacherAuthentication(TEACHER)).contentType(MediaType.APPLICATION_JSON)
+					.content(validRequest(STUDENT, CLASS_GROUP, null)))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("LEARNING_RECORD_TARGET_NOT_FOUND"));
+		}
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM learning_records", Integer.class))
+			.isZero();
+	}
+
+	@Test
 	void requiresAuthenticationAndValidTeacherProfile() throws Exception {
 		mockMvc.perform(post("/api/v1/learning-records")
 				.contentType(MediaType.APPLICATION_JSON).content(validRequest(STUDENT, null, null)))
@@ -208,6 +249,25 @@ class LearningRecordControllerIntegrationTest {
 			""", teacherId, studentId, status, now.atOffset(ZoneOffset.UTC),
 			"ENDED".equals(status) ? now.plusSeconds(1).atOffset(ZoneOffset.UTC) : null,
 			now.atOffset(ZoneOffset.UTC));
+	}
+
+	private void insertEnrollment(
+		UUID teacherId,
+		UUID studentId,
+		UUID classGroupId,
+		Instant enrolledAt,
+		Instant endedAt
+	) {
+		String status = endedAt == null ? "ACTIVE" : "ENDED";
+		jdbc.update("""
+			INSERT INTO class_enrollments
+			(id, class_group_id, teacher_id, student_id, status,
+			 enrolled_at, ended_at, created_at)
+			VALUES (uuidv7(), ?, ?, ?, ?, ?, ?, ?)
+			""", classGroupId, teacherId, studentId, status,
+			enrolledAt.atOffset(ZoneOffset.UTC),
+			endedAt == null ? null : endedAt.atOffset(ZoneOffset.UTC),
+			enrolledAt.atOffset(ZoneOffset.UTC));
 	}
 
 	private org.springframework.test.web.servlet.request.RequestPostProcessor teacherAuthentication(
