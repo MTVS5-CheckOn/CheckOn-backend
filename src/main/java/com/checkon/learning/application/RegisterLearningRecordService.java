@@ -12,6 +12,7 @@ import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 import com.checkon.learning.domain.LearningRecord;
 import com.checkon.learning.infrastructure.persistence.LearningRecordRepository;
 import com.checkon.roster.domain.RelationshipStatus;
+import com.checkon.roster.infrastructure.persistence.ClassEnrollmentRepository;
 import com.checkon.roster.infrastructure.persistence.ClassGroupRepository;
 import com.checkon.roster.infrastructure.persistence.TeacherStudentRelationshipRepository;
 
@@ -20,6 +21,7 @@ public class RegisterLearningRecordService {
 	private final LearningRecordRepository records;
 	private final TeacherStudentRelationshipRepository relationships;
 	private final ClassGroupRepository classes;
+	private final ClassEnrollmentRepository enrollments;
 	private final TeacherTenantDatabaseContext tenantContext;
 	private final Clock clock;
 
@@ -27,12 +29,14 @@ public class RegisterLearningRecordService {
 		LearningRecordRepository records,
 		TeacherStudentRelationshipRepository relationships,
 		ClassGroupRepository classes,
+		ClassEnrollmentRepository enrollments,
 		TeacherTenantDatabaseContext tenantContext,
 		Clock clock
 	) {
 		this.records = records;
 		this.relationships = relationships;
 		this.classes = classes;
+		this.enrollments = enrollments;
 		this.tenantContext = tenantContext;
 		this.clock = clock;
 	}
@@ -63,11 +67,23 @@ public class RegisterLearningRecordService {
 			// 테넌트 밖에 노출하지 않는다.
 			throw LearningRecordRegistrationException.inaccessibleStudent();
 		}
-		if (command.classGroupId() != null &&
-			classes.findByIdAndTeacherId(command.classGroupId(), authenticatedTeacherId).isEmpty()) {
-			// 반도 소유권 실패와 존재하지 않음을 구분하지 않는다. 현재 확정 정책은
-			// 반의 강사 소유권까지이며 학생의 활성 반 소속은 등록 조건으로 확정되지 않았다.
-			throw LearningRecordRegistrationException.inaccessibleClassGroup();
+		if (command.classGroupId() != null) {
+			if (classes.findByIdAndTeacherId(
+				command.classGroupId(), authenticatedTeacherId
+			).isEmpty()) {
+				// 반도 다른 강사의 소유인지 존재하지 않는지 구분하지 않는다.
+				throw LearningRecordRegistrationException.inaccessibleClassGroup();
+			}
+			if (!enrollments.existsAt(
+				command.classGroupId(),
+				authenticatedTeacherId,
+				command.studentId(),
+				command.occurredAt()
+			)) {
+				// 소속 이력의 존재 여부 역시 동일한 404 응답으로 감춰 다른 학생의
+				// 반 이동 이력이 테넌트 밖으로 드러나지 않게 한다.
+				throw LearningRecordRegistrationException.inaccessibleClassEnrollment();
+			}
 		}
 		try {
 			LearningRecord record = LearningRecord.create(new LearningRecord.Draft(

@@ -29,6 +29,13 @@ public class LearningRecordRegistrationException extends RuntimeException {
 		);
 	}
 
+	public static LearningRecordRegistrationException inaccessibleClassEnrollment() {
+		return new LearningRecordRegistrationException(
+			Reason.INACCESSIBLE_CLASS_ENROLLMENT,
+			"Student was not enrolled in the class group when the record occurred"
+		);
+	}
+
 	public static LearningRecordRegistrationException invalidRecord(
 		IllegalArgumentException cause
 	) {
@@ -49,6 +56,7 @@ public class LearningRecordRegistrationException extends RuntimeException {
 		INVALID_TEACHER_PRINCIPAL,
 		INACCESSIBLE_STUDENT,
 		INACCESSIBLE_CLASS_GROUP,
+		INACCESSIBLE_CLASS_ENROLLMENT,
 		INVALID_RECORD
 	}
 }

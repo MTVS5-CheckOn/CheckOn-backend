@@ -26,7 +26,8 @@ public class LearningRecordExceptionHandler {
 				"INVALID_TEACHER_PRINCIPAL",
 				"유효한 강사 인증 정보가 필요합니다."
 			);
-			case INACCESSIBLE_STUDENT, INACCESSIBLE_CLASS_GROUP -> error(
+			case INACCESSIBLE_STUDENT, INACCESSIBLE_CLASS_GROUP,
+				INACCESSIBLE_CLASS_ENROLLMENT -> error(
 				HttpStatus.NOT_FOUND,
 				"LEARNING_RECORD_TARGET_NOT_FOUND",
 				"등록 대상 학생 또는 반을 찾을 수 없습니다."
