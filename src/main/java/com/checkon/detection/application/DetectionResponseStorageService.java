@@ -24,6 +24,7 @@ import com.checkon.detection.infrastructure.persistence.DetectionSignalResultRep
 import com.checkon.detection.integration.ai.dto.AiDetectionRequest;
 import com.checkon.detection.integration.ai.dto.AiDetectionResponse;
 import com.checkon.global.persistence.TeacherTenantDatabaseContext;
+import com.checkon.engagement.application.EngagementCandidateService;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
@@ -36,19 +37,22 @@ public class DetectionResponseStorageService {
 	private final DetectionIdGenerator idGenerator;
 	private final ObjectMapper objectMapper;
 	private final TeacherTenantDatabaseContext tenantDatabaseContext;
+	private final EngagementCandidateService engagementCandidateService;
 
 	public DetectionResponseStorageService(
 		DetectionRunRepository runRepository,
 		DetectionSignalResultRepository signalResultRepository,
 		DetectionIdGenerator idGenerator,
 		ObjectMapper objectMapper,
-		TeacherTenantDatabaseContext tenantDatabaseContext
+		TeacherTenantDatabaseContext tenantDatabaseContext,
+		EngagementCandidateService engagementCandidateService
 	) {
 		this.runRepository = runRepository;
 		this.signalResultRepository = signalResultRepository;
 		this.idGenerator = idGenerator;
 		this.objectMapper = objectMapper;
 		this.tenantDatabaseContext = tenantDatabaseContext;
+		this.engagementCandidateService = engagementCandidateService;
 	}
 
 	@Transactional
@@ -88,7 +92,8 @@ public class DetectionResponseStorageService {
 		List<DetectionSignalResult> results = response.data().signals().stream()
 			.map(signal -> toDomain(runId, signal, ids, completedAt))
 			.toList();
-		signalResultRepository.saveAll(results);
+		signalResultRepository.saveAllAndFlush(results);
+		engagementCandidateService.createPendingAlerts(teacherId, runId, completedAt);
 
 		run.markSucceeded(
 			attemptId,

@@ -137,6 +137,35 @@
 - 금지 사항: 별도 결정 없이 enum, 컬럼, 상태 전이 또는 API 계약을 추가하지 않는다.
 - 마지막 검증일: 2026-08-04
 
+### Engagement
+
+#### ENG-001 근거 기반 강사 검토
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
+- 정책: 검증된 Detection signal과 하나 이상의 Evidence만 경보 후보가 된다. AI 결과는 `PENDING_REVIEW`이며 인증된 강사가 `APPROVED` 또는 `REJECTED`로 최종 판단한다. 같은 판단의 재요청은 멱등 처리하고 반대 판단으로 변경하지 않는다.
+- 코드 근거: `V9__create_engagement_review_flow.sql`, `EngagementAlert`, `EngagementCandidateService`
+- 마지막 검증일: 2026-08-04
+
+#### ENG-002 승인 경보 기반 개입과 리마인드
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
+- 정책: 이 수직 단위의 개입은 승인된 경보에서 새 이력으로 생성한다. 개입 한 건당 활성 리마인드는 최대 하나이며 완료·취소 뒤에는 새 리마인드를 만들 수 있다.
+- 코드 근거: `V9__create_engagement_review_flow.sql`, `Intervention`, `InterventionReminder`
+- 마지막 검증일: 2026-08-04
+
+#### ENG-003 후속 운영 정책
+
+- 결정 상태: `OPEN`
+- 구현 상태: `NOT_IMPLEMENTED`
+- 근거 수준: `CONVERSATION_ONLY`
+- 결정 필요: 리마인드 실제 발송 채널·스케줄러, 경보 보존/소멸 및 재발·쿨다운, 일반 상담 기록 생성, 개입 유형 표준 enum, 재예약의 단일 API 의미.
+- 현재 범위: 리마인드 DB 저장과 활성·완료·취소 상태 관리까지만 제공한다.
+- 마지막 검증일: 2026-08-04
+
 ### Learning Record·Import
 
 #### LR-001 external_record_ref 처리

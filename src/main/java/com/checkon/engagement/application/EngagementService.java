@@ -1,0 +1,306 @@
+package com.checkon.engagement.application;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.checkon.engagement.domain.AlertStatus;
+import com.checkon.engagement.domain.EngagementAlert;
+import com.checkon.engagement.domain.Intervention;
+import com.checkon.engagement.domain.InterventionReminder;
+import com.checkon.engagement.domain.InterventionStatus;
+import com.checkon.engagement.domain.ReminderStatus;
+import com.checkon.engagement.infrastructure.persistence.EngagementAlertRepository;
+import com.checkon.engagement.infrastructure.persistence.InterventionReminderRepository;
+import com.checkon.engagement.infrastructure.persistence.InterventionRepository;
+import com.checkon.global.persistence.TeacherTenantDatabaseContext;
+
+@Service
+public class EngagementService {
+	private final EngagementAlertRepository alerts;
+	private final InterventionRepository interventions;
+	private final InterventionReminderRepository reminders;
+	private final TeacherTenantDatabaseContext tenantContext;
+	private final JdbcTemplate jdbcTemplate;
+	private final Clock clock;
+
+	public EngagementService(
+		EngagementAlertRepository alerts,
+		InterventionRepository interventions,
+		InterventionReminderRepository reminders,
+		TeacherTenantDatabaseContext tenantContext,
+		JdbcTemplate jdbcTemplate,
+		Clock clock
+	) {
+		this.alerts = alerts;
+		this.interventions = interventions;
+		this.reminders = reminders;
+		this.tenantContext = tenantContext;
+		this.jdbcTemplate = jdbcTemplate;
+		this.clock = clock;
+	}
+
+	@Transactional(readOnly = true)
+	public List<AlertView> list(UUID teacherId, AlertStatus status) {
+		setTenantScope(teacherId);
+		return alerts.findAllByTeacherIdAndStatusOrderByCreatedAtAscIdAsc(
+			teacherId, status
+		).stream().map(this::alertView).toList();
+	}
+
+	@Transactional(readOnly = true)
+	public AlertDetail detail(UUID teacherId, UUID alertId) {
+		setTenantScope(teacherId);
+		EngagementAlert alert = requireAlert(alertId, teacherId);
+		List<EvidenceView> evidence = jdbcTemplate.query("""
+			SELECT id, source_hint, record_id, summary
+			FROM detection_result_evidence
+			WHERE detection_signal_result_id = ?
+			ORDER BY created_at, id
+			""", (resultSet, rowNumber) -> new EvidenceView(
+			resultSet.getObject("id", UUID.class),
+			resultSet.getString("source_hint"),
+			resultSet.getString("record_id"),
+			resultSet.getString("summary")
+		), alert.detectionSignalResultId());
+		return new AlertDetail(alertView(alert), evidence);
+	}
+
+	@Transactional
+	public AlertView approve(UUID teacherId, UUID alertId) {
+		setTenantScope(teacherId);
+		EngagementAlert alert = requireAlert(alertId, teacherId);
+		try {
+			alert.approve(Instant.now(clock));
+		}
+		catch (IllegalStateException exception) {
+			throw invalidState();
+		}
+		return alertView(alert);
+	}
+
+	@Transactional
+	public AlertView reject(UUID teacherId, UUID alertId, String note) {
+		setTenantScope(teacherId);
+		EngagementAlert alert = requireAlert(alertId, teacherId);
+		try {
+			alert.reject(note, Instant.now(clock));
+		}
+		catch (IllegalArgumentException exception) {
+			throw EngagementException.of(
+				EngagementException.Reason.INVALID_REQUEST,
+				"invalid rejection"
+			);
+		}
+		catch (IllegalStateException exception) {
+			throw invalidState();
+		}
+		return alertView(alert);
+	}
+
+	@Transactional
+	public InterventionView createIntervention(
+		UUID teacherId,
+		UUID alertId,
+		String type,
+		String content
+	) {
+		setTenantScope(teacherId);
+		EngagementAlert alert = requireAlert(alertId, teacherId);
+		if (alert.status() != AlertStatus.APPROVED) {
+			throw invalidState();
+		}
+		try {
+			// 과거 상담 이력을 덮어쓰지 않는다. 추가 조치는 항상 새 개입 행이다.
+			return interventionView(interventions.saveAndFlush(Intervention.create(
+				teacherId, alert.studentId(), alert.id(), type, content, Instant.now(clock)
+			)));
+		}
+		catch (IllegalArgumentException exception) {
+			throw EngagementException.of(
+				EngagementException.Reason.INVALID_REQUEST,
+				"invalid intervention"
+			);
+		}
+	}
+
+	@Transactional
+	public InterventionView finishIntervention(
+		UUID teacherId,
+		UUID interventionId,
+		boolean complete
+	) {
+		setTenantScope(teacherId);
+		Intervention intervention = interventions.findByIdAndTeacherId(
+			interventionId, teacherId
+		).orElseThrow(EngagementService::notFound);
+		try {
+			if (complete) {
+				intervention.complete(Instant.now(clock));
+			}
+			else {
+				intervention.cancel(Instant.now(clock));
+			}
+		}
+		catch (IllegalStateException exception) {
+			throw invalidState();
+		}
+		return interventionView(intervention);
+	}
+
+	@Transactional
+	public ReminderView createReminder(
+		UUID teacherId,
+		UUID interventionId,
+		Instant scheduledAt
+	) {
+		setTenantScope(teacherId);
+		Intervention intervention = interventions.findByIdAndTeacherId(
+			interventionId, teacherId
+		).orElseThrow(EngagementService::notFound);
+		if (intervention.status() != InterventionStatus.OPEN) {
+			throw invalidState();
+		}
+		if (reminders.existsByTeacherIdAndInterventionIdAndStatus(
+			teacherId, interventionId, ReminderStatus.ACTIVE
+		)) {
+			throw activeReminderExists();
+		}
+		try {
+			return reminderView(reminders.saveAndFlush(InterventionReminder.create(
+				teacherId, interventionId, scheduledAt, Instant.now(clock)
+			)));
+		}
+		catch (DataIntegrityViolationException exception) {
+			// 사전 조회 뒤 동시에 들어온 요청도 partial unique index가 막는다.
+			throw activeReminderExists();
+		}
+	}
+
+	@Transactional
+	public ReminderView finishReminder(
+		UUID teacherId,
+		UUID reminderId,
+		boolean complete
+	) {
+		setTenantScope(teacherId);
+		InterventionReminder reminder = reminders.findByIdAndTeacherId(
+			reminderId, teacherId
+		).orElseThrow(EngagementService::notFound);
+		try {
+			if (complete) {
+				reminder.complete(Instant.now(clock));
+			}
+			else {
+				reminder.cancel(Instant.now(clock));
+			}
+		}
+		catch (IllegalStateException exception) {
+			throw invalidState();
+		}
+		return reminderView(reminder);
+	}
+
+	private void setTenantScope(UUID teacherId) {
+		if (teacherId == null) {
+			throw EngagementException.of(
+				EngagementException.Reason.INVALID_PRINCIPAL,
+				"teacher principal required"
+			);
+		}
+		// set_config(..., true)는 트랜잭션 종료 시 자동 해제된다. 반드시 현재
+		// @Transactional 메서드 안에서 설정해야 연결 풀의 다음 요청에 남지 않는다.
+		tenantContext.setCurrentTeacher(teacherId);
+	}
+
+	private EngagementAlert requireAlert(UUID alertId, UUID teacherId) {
+		// 다른 테넌트의 존재 여부를 노출하지 않도록 없음과 접근 불가를 같은 404로 처리한다.
+		return alerts.findByIdAndTeacherId(alertId, teacherId)
+			.orElseThrow(EngagementService::notFound);
+	}
+
+	private AlertView alertView(EngagementAlert alert) {
+		return new AlertView(
+			alert.id(), alert.studentId(), alert.detectionSignalResultId(),
+			alert.status(), alert.decisionNote(), alert.decidedAt(), alert.createdAt()
+		);
+	}
+
+	private InterventionView interventionView(Intervention intervention) {
+		return new InterventionView(
+			intervention.id(), intervention.alertId(), intervention.studentId(),
+			intervention.type(), intervention.content(), intervention.status(),
+			intervention.createdAt()
+		);
+	}
+
+	private ReminderView reminderView(InterventionReminder reminder) {
+		return new ReminderView(
+			reminder.id(), reminder.interventionId(), reminder.scheduledAt(),
+			reminder.status()
+		);
+	}
+
+	private static EngagementException notFound() {
+		return EngagementException.of(
+			EngagementException.Reason.NOT_FOUND,
+			"resource not found"
+		);
+	}
+
+	private static EngagementException invalidState() {
+		return EngagementException.of(
+			EngagementException.Reason.INVALID_STATE,
+			"invalid state transition"
+		);
+	}
+
+	private static EngagementException activeReminderExists() {
+		return EngagementException.of(
+			EngagementException.Reason.ACTIVE_REMINDER_EXISTS,
+			"active reminder already exists"
+		);
+	}
+
+	public record AlertView(
+		UUID id,
+		UUID studentId,
+		UUID detectionSignalResultId,
+		AlertStatus status,
+		String decisionNote,
+		Instant decidedAt,
+		Instant createdAt
+	) {
+	}
+
+	public record EvidenceView(UUID id, String sourceHint, String recordId, String summary) {
+	}
+
+	public record AlertDetail(AlertView alert, List<EvidenceView> evidence) {
+	}
+
+	public record InterventionView(
+		UUID id,
+		UUID alertId,
+		UUID studentId,
+		String type,
+		String content,
+		InterventionStatus status,
+		Instant createdAt
+	) {
+	}
+
+	public record ReminderView(
+		UUID id,
+		UUID interventionId,
+		Instant scheduledAt,
+		ReminderStatus status
+	) {
+	}
+}
