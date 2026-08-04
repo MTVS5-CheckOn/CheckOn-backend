@@ -70,6 +70,12 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 		UUID.fromString("019846dc-7c00-7000-8000-000000001081");
 	private static final UUID AI_ALIAS_B =
 		UUID.fromString("019846dc-7c00-7000-8000-000000001082");
+	private static final UUID ALERT_A = UUID.fromString("019846dc-7c00-7000-8000-000000001091");
+	private static final UUID ALERT_B = UUID.fromString("019846dc-7c00-7000-8000-000000001092");
+	private static final UUID INTERVENTION_A = UUID.fromString("019846dc-7c00-7000-8000-0000000010a1");
+	private static final UUID INTERVENTION_B = UUID.fromString("019846dc-7c00-7000-8000-0000000010a2");
+	private static final UUID REMINDER_A = UUID.fromString("019846dc-7c00-7000-8000-0000000010b1");
+	private static final UUID REMINDER_B = UUID.fromString("019846dc-7c00-7000-8000-0000000010b2");
 	private static final String RESTRICTED_ROLE = "checkon_rls_test_runtime";
 
 	@Container
@@ -103,7 +109,10 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			   detection_signal_results,
 			   detection_result_evidence,
 			   learning_records,
-			   ai_student_aliases
+			   ai_student_aliases,
+			   engagement_alerts,
+			   interventions,
+			   intervention_reminders
 			TO checkon_rls_test_runtime
 			""");
 		administrator.execute("""
@@ -162,11 +171,12 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'detection_signal_results',
 				    'detection_result_evidence',
 				    'learning_records',
-				    'ai_student_aliases'
+				    'ai_student_aliases',
+				    'engagement_alerts','interventions','intervention_reminders'
 				  )
 				  AND table_metadata.relrowsecurity
 				  AND table_metadata.relforcerowsecurity
-				""")).isEqualTo(9);
+				""")).isEqualTo(12);
 			assertThat(queryInt(statement, """
 				SELECT count(*) FROM pg_policies
 				WHERE schemaname = 'public'
@@ -179,9 +189,10 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'detection_signal_results',
 				    'detection_result_evidence',
 				    'learning_records',
-				    'ai_student_aliases'
+				    'ai_student_aliases',
+				    'engagement_alerts','interventions','intervention_reminders'
 				  )
-				""")).isEqualTo(36);
+				""")).isEqualTo(48);
 			assertThat(queryInt(statement, """
 				SELECT count(*)
 				FROM pg_class table_metadata
@@ -203,6 +214,7 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThat(count(connection, "detection_request_attempts")).isZero();
 			assertThat(count(connection, "learning_records")).isZero();
 			assertThat(count(connection, "ai_student_aliases")).isZero();
+			assertThat(count(connection, "engagement_alerts")).isZero();
 			assertThat(update(connection,
 				"UPDATE class_groups SET name = 'blocked' WHERE id = ?", CLASS_A
 			)).isZero();
@@ -229,6 +241,9 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				.containsExactly(SIGNAL_A);
 			assertThat(ids(connection, "learning_records")).containsExactly(LEARNING_A);
 			assertThat(ids(connection, "ai_student_aliases")).containsExactly(AI_ALIAS_A);
+			assertThat(ids(connection, "engagement_alerts")).containsExactly(ALERT_A);
+			assertThat(ids(connection, "interventions")).containsExactly(INTERVENTION_A);
+			assertThat(ids(connection, "intervention_reminders")).containsExactly(REMINDER_A);
 			assertThat(count(connection, "detection_result_evidence")).isEqualTo(1);
 			UUID ownClass = UUID.randomUUID();
 			insertClass(connection, ownClass, TEACHER_A, "allowed own class");
@@ -253,6 +268,9 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThat(update(connection,
 				"DELETE FROM ai_student_aliases WHERE id = ?", AI_ALIAS_B
 			)).isZero();
+			assertThat(update(connection,"UPDATE engagement_alerts SET updated_at=now() WHERE id=?",ALERT_B)).isZero();
+			assertThat(update(connection,"DELETE FROM interventions WHERE id=?",INTERVENTION_B)).isZero();
+			assertThat(update(connection,"UPDATE intervention_reminders SET scheduled_at=now() WHERE id=?",REMINDER_B)).isZero();
 			insertLearningRecord(connection, UUID.randomUUID(), TEACHER_A, STUDENT_A);
 			assertThatThrownBy(() -> insertLearningRecord(
 				connection, UUID.randomUUID(), TEACHER_B, STUDENT_B))
@@ -345,12 +363,23 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			RELATIONSHIP_B, TEACHER_B, STUDENT_B, now, now);
 		insertRun(RUN_A, TEACHER_A, "rls-a:2026-07-31");
 		insertRun(RUN_B, TEACHER_B, "rls-b:2026-07-31");
-		insertDetectionChildren(RUN_A, ATTEMPT_A, SIGNAL_A, "request-a");
-		insertDetectionChildren(RUN_B, ATTEMPT_B, SIGNAL_B, "request-b");
+		insertDetectionChildren(RUN_A, ATTEMPT_A, SIGNAL_A, "request-a",
+			"st_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+		insertDetectionChildren(RUN_B, ATTEMPT_B, SIGNAL_B, "request-b",
+			"st_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
 		insertLearningFixture(LEARNING_A, AI_ALIAS_A, TEACHER_A, STUDENT_A,
 			"st_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 		insertLearningFixture(LEARNING_B, AI_ALIAS_B, TEACHER_B, STUDENT_B,
 			"st_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+		insertEngagementFixture(ALERT_A, INTERVENTION_A, REMINDER_A, TEACHER_A, STUDENT_A, SIGNAL_A);
+		insertEngagementFixture(ALERT_B, INTERVENTION_B, REMINDER_B, TEACHER_B, STUDENT_B, SIGNAL_B);
+	}
+
+	private void insertEngagementFixture(UUID alert, UUID intervention, UUID reminder,
+		UUID teacher, UUID student, UUID signal) {
+		administrator.update("INSERT INTO engagement_alerts(id,teacher_id,student_id,detection_signal_result_id,status,decided_at,created_at,updated_at) VALUES(?,?,?,?,'APPROVED',now(),now(),now())", alert,teacher,student,signal);
+		administrator.update("INSERT INTO interventions(id,teacher_id,student_id,alert_id,type,content,status,created_at,updated_at) VALUES(?,?,?,?, 'CALL','fixture','OPEN',now(),now())", intervention,teacher,student,alert);
+		administrator.update("INSERT INTO intervention_reminders(id,teacher_id,intervention_id,scheduled_at,status,created_at,updated_at) VALUES(?,?,?,now(),'ACTIVE',now(),now())", reminder,teacher,intervention);
 	}
 
 	private void insertLearningFixture(UUID recordId, UUID aliasId, UUID teacherId,
@@ -386,7 +415,8 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 		UUID runId,
 		UUID attemptId,
 		UUID signalId,
-		String requestId
+		String requestId,
+		String studentRef
 	) {
 		administrator.update("""
 			INSERT INTO detection_request_attempts
@@ -399,9 +429,9 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			    rule_id, signal_type, display_label, score, rank, lifecycle,
 			    brief_text, gate_passed, fallback_used
 			)
-			VALUES (?, ?, ?, 'student', 'class', 'R1', 'risk', 'Risk',
+			VALUES (?, ?, ?, ?, 'class', 'R1', 'risk', 'Risk',
 			        0.5, 1, 'NEW', 'brief', true, false)
-			""", signalId, runId, "external-" + signalId);
+			""", signalId, runId, "external-" + signalId, studentRef);
 		administrator.update("""
 			INSERT INTO detection_result_evidence
 			    (id, detection_signal_result_id, source_hint, record_id, summary)
