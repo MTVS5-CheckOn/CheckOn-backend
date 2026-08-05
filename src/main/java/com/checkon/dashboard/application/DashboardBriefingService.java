@@ -5,6 +5,7 @@ import java.sql.SQLException;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,6 +19,8 @@ import com.checkon.dashboard.application.DashboardBriefing.Alert;
 import com.checkon.dashboard.application.DashboardBriefing.Evidence;
 import com.checkon.dashboard.application.DashboardBriefing.Ref;
 import com.checkon.dashboard.application.DashboardBriefing.Todo;
+import com.checkon.dashboard.application.DashboardBriefing.Reminder;
+import com.checkon.dashboard.application.DashboardBriefing.LatestIntervention;
 import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 
 @Service
@@ -89,7 +92,48 @@ public class DashboardBriefingService {
 			new Ref(resultSet.getObject("alert_id", UUID.class), "alert_detail"),
 			resultSet.getObject("due_date", LocalDate.class), false
 		), teacherProfileId, date);
-		return new DashboardBriefing(date, List.copyOf(alerts), List.copyOf(todos));
+		Instant endExclusive = date.plusDays(1).atStartOfDay(SERVICE_ZONE).toInstant();
+		List<Reminder> reminders = jdbcTemplate.query("""
+			WITH candidates AS (
+			  SELECT reminder.id AS reminder_id, intervention.alert_id,
+			         intervention.student_id, intervention.id AS intervention_id,
+			         intervention.type, intervention.created_at,
+			         reminder.scheduled_at,
+			         COUNT(*) OVER (PARTITION BY intervention.alert_id) AS intervention_count,
+			         ROW_NUMBER() OVER (
+			           PARTITION BY intervention.alert_id
+			           ORDER BY intervention.created_at DESC, intervention.id DESC
+			         ) AS representative_rank
+			  FROM interventions intervention
+			  JOIN intervention_reminders reminder
+			    ON reminder.intervention_id = intervention.id
+			   AND reminder.teacher_id = intervention.teacher_id
+			  WHERE intervention.teacher_id = ?
+			    AND intervention.status = 'OPEN'
+			    AND reminder.status = 'ACTIVE'
+			    AND reminder.scheduled_at < ?
+			)
+			SELECT reminder_id, alert_id, student_id, intervention_count,
+			       intervention_id, type, created_at, scheduled_at
+			FROM candidates
+			WHERE representative_rank = 1
+			ORDER BY scheduled_at ASC, alert_id ASC
+			""", (resultSet, rowNumber) -> new Reminder(
+			resultSet.getObject("reminder_id", UUID.class),
+			resultSet.getObject("alert_id", UUID.class),
+			resultSet.getObject("student_id", UUID.class),
+			resultSet.getLong("intervention_count"),
+			new LatestIntervention(
+				resultSet.getObject("intervention_id", UUID.class),
+				resultSet.getString("type"),
+				"개입 후 재확인이 예정되어 있습니다.",
+				resultSet.getTimestamp("created_at").toInstant()
+			),
+			resultSet.getTimestamp("scheduled_at").toInstant()
+		), teacherProfileId, endExclusive.atOffset(java.time.ZoneOffset.UTC));
+		return new DashboardBriefing(
+			date, List.copyOf(alerts), List.copyOf(todos), List.copyOf(reminders)
+		);
 	}
 
 	private List<Alert> extractAlerts(ResultSet resultSet) throws SQLException {

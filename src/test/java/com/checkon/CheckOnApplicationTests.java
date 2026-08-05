@@ -92,7 +92,7 @@ class CheckOnApplicationTests {
 		assertThat(jdbcTemplate.queryForObject(
 			"SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1",
 			String.class
-		)).isEqualTo("10");
+		)).isEqualTo("11");
 	}
 
 	@Test

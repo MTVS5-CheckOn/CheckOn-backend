@@ -6,7 +6,6 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -129,10 +128,14 @@ public class EngagementService {
 			throw invalidState();
 		}
 		try {
-			// 과거 상담 이력을 덮어쓰지 않는다. 추가 조치는 항상 새 개입 행이다.
-			return interventionView(interventions.saveAndFlush(Intervention.create(
-				teacherId, alert.studentId(), alert.id(), type, content, Instant.now(clock)
-			)));
+			Instant now = Instant.now(clock);
+			Intervention intervention = interventions.saveAndFlush(Intervention.create(
+				teacherId, alert.studentId(), alert.id(), type, content, now
+			));
+			reminders.saveAndFlush(InterventionReminder.create(
+				teacherId, intervention.id(), now.plusSeconds(7L * 24 * 60 * 60), now
+			));
+			return interventionView(intervention);
 		}
 		catch (IllegalArgumentException exception) {
 			throw EngagementException.of(
@@ -152,47 +155,22 @@ public class EngagementService {
 		Intervention intervention = interventions.findByIdAndTeacherId(
 			interventionId, teacherId
 		).orElseThrow(EngagementService::notFound);
+		Instant now = Instant.now(clock);
 		try {
 			if (complete) {
-				intervention.complete(Instant.now(clock));
+				intervention.complete(now);
 			}
 			else {
-				intervention.cancel(Instant.now(clock));
+				intervention.cancel(now);
+				reminders.findByTeacherIdAndInterventionIdAndStatus(
+					teacherId, interventionId, ReminderStatus.ACTIVE
+				).ifPresent(reminder -> reminder.cancel(now));
 			}
 		}
 		catch (IllegalStateException exception) {
 			throw invalidState();
 		}
 		return interventionView(intervention);
-	}
-
-	@Transactional
-	public ReminderView createReminder(
-		UUID teacherId,
-		UUID interventionId,
-		Instant scheduledAt
-	) {
-		setTenantScope(teacherId);
-		Intervention intervention = interventions.findByIdAndTeacherId(
-			interventionId, teacherId
-		).orElseThrow(EngagementService::notFound);
-		if (intervention.status() != InterventionStatus.OPEN) {
-			throw invalidState();
-		}
-		if (reminders.existsByTeacherIdAndInterventionIdAndStatus(
-			teacherId, interventionId, ReminderStatus.ACTIVE
-		)) {
-			throw activeReminderExists();
-		}
-		try {
-			return reminderView(reminders.saveAndFlush(InterventionReminder.create(
-				teacherId, interventionId, scheduledAt, Instant.now(clock)
-			)));
-		}
-		catch (DataIntegrityViolationException exception) {
-			// 사전 조회 뒤 동시에 들어온 요청도 partial unique index가 막는다.
-			throw activeReminderExists();
-		}
 	}
 
 	@Transactional
@@ -270,13 +248,6 @@ public class EngagementService {
 		return EngagementException.of(
 			EngagementException.Reason.INVALID_STATE,
 			"invalid state transition"
-		);
-	}
-
-	private static EngagementException activeReminderExists() {
-		return EngagementException.of(
-			EngagementException.Reason.ACTIVE_REMINDER_EXISTS,
-			"active reminder already exists"
 		);
 	}
 

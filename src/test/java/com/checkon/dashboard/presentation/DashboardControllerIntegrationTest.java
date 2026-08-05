@@ -105,7 +105,37 @@ class DashboardControllerIntegrationTest {
 			.andExpect(status().isOk()).andExpect(jsonPath("$.alerts.length()").value(3));
 		mvc.perform(get("/api/v1/dashboard/briefing")
 				.param("date", TODAY.minusDays(1).toString()).with(teacherAuthentication(TEACHER)))
-			.andExpect(status().isOk()).andExpect(jsonPath("$.alerts").isEmpty());
+			.andExpect(status().isOk()).andExpect(jsonPath("$.alerts").isEmpty())
+			.andExpect(jsonPath("$.reminders").isArray());
+	}
+
+	@Test
+	void remindersAreGroupedByAlertAndUseTheLatestValidIntervention() throws Exception {
+		UUID alertId = jdbc.queryForObject("""
+			SELECT id FROM engagement_alerts
+			WHERE teacher_id = ? AND status = 'APPROVED'
+			ORDER BY id LIMIT 1
+			""", UUID.class, TEACHER);
+		UUID older = UUID.fromString("0198f100-0000-7000-8000-000000000001");
+		UUID latest = UUID.fromString("0198f100-0000-7000-8000-000000000002");
+		Instant olderAt = TODAY.atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant().minusSeconds(3600);
+		Instant latestAt = olderAt.plusSeconds(60);
+		insertInterventionWithReminder(older, alertId, olderAt, olderAt.plusSeconds(120));
+		insertInterventionWithReminder(latest, alertId, latestAt, latestAt.plusSeconds(120));
+
+		mvc.perform(get("/api/v1/dashboard/briefing")
+				.param("date", TODAY.toString()).with(teacherAuthentication(TEACHER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.reminders.length()").value(1))
+			.andExpect(jsonPath("$.reminders[0].alertId").value(alertId.toString()))
+			.andExpect(jsonPath("$.reminders[0].interventionCount").value(2))
+			.andExpect(jsonPath("$.reminders[0].latestIntervention.interventionId")
+				.value(latest.toString()))
+			.andExpect(jsonPath("$.reminders[0].latestIntervention.summary")
+				.value("개입 후 재확인이 예정되어 있습니다."))
+			.andExpect(jsonPath("$.reminders[0].latestIntervention.content").doesNotExist())
+			.andExpect(jsonPath("$.reminders[0].studentName").doesNotExist())
+			.andExpect(jsonPath("$.reminders[0].status").doesNotExist());
 	}
 
 	@Test
@@ -246,6 +276,21 @@ class DashboardControllerIntegrationTest {
 			studentId, alias, NOW.atOffset(ZoneOffset.UTC), NOW.atOffset(ZoneOffset.UTC));
 		jdbc.update("INSERT INTO ai_student_aliases(teacher_id,student_id,alias,created_at) VALUES (?,?,?,?)",
 			teacherId, studentId, aiAlias, NOW.atOffset(ZoneOffset.UTC));
+	}
+
+	private void insertInterventionWithReminder(
+		UUID interventionId, UUID alertId, Instant createdAt, Instant scheduledAt
+	) {
+		jdbc.update("""
+			INSERT INTO interventions(id,teacher_id,student_id,alert_id,type,content,status,
+			 created_at,updated_at) VALUES (?,?,?,?, 'CALL','private content','OPEN',?,?)
+			""", interventionId, TEACHER, STUDENT, alertId,
+			createdAt.atOffset(ZoneOffset.UTC), createdAt.atOffset(ZoneOffset.UTC));
+		jdbc.update("""
+			INSERT INTO intervention_reminders(teacher_id,intervention_id,scheduled_at,status,
+			 created_at,updated_at) VALUES (?,?,?,'ACTIVE',?,?)
+			""", TEACHER, interventionId, scheduledAt.atOffset(ZoneOffset.UTC),
+			createdAt.atOffset(ZoneOffset.UTC), createdAt.atOffset(ZoneOffset.UTC));
 	}
 
 	private void insertRunWithAlerts(
