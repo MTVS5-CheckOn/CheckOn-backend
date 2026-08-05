@@ -2,6 +2,7 @@ package com.checkon.engagement.application;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -82,6 +83,7 @@ public class EngagementService {
 		catch (IllegalStateException exception) {
 			throw invalidState();
 		}
+		completeOpenTodo(teacherId, alertId, Instant.now(clock));
 		return alertView(alert);
 	}
 
@@ -101,7 +103,17 @@ public class EngagementService {
 		catch (IllegalStateException exception) {
 			throw invalidState();
 		}
+		completeOpenTodo(teacherId, alertId, Instant.now(clock));
 		return alertView(alert);
+	}
+
+	private void completeOpenTodo(UUID teacherId, UUID alertId, Instant completedAt) {
+		jdbcTemplate.update("""
+			UPDATE alert_follow_up_todos
+			SET status = 'DONE', completed_at = ?, updated_at = ?
+			WHERE teacher_id = ? AND alert_id = ? AND status = 'OPEN'
+		""", completedAt.atOffset(ZoneOffset.UTC), completedAt.atOffset(ZoneOffset.UTC),
+			teacherId, alertId);
 	}
 
 	@Transactional

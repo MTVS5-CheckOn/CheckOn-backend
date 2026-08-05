@@ -16,6 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.checkon.dashboard.application.DashboardBriefing.Alert;
 import com.checkon.dashboard.application.DashboardBriefing.Evidence;
+import com.checkon.dashboard.application.DashboardBriefing.Ref;
+import com.checkon.dashboard.application.DashboardBriefing.Todo;
 import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 
 @Service
@@ -75,7 +77,19 @@ public class DashboardBriefingService {
 				},
 				this::extractAlerts
 		);
-		return new DashboardBriefing(date, List.copyOf(alerts));
+		List<Todo> todos = jdbcTemplate.query("""
+			SELECT id, kind, text, alert_id, due_date
+			FROM alert_follow_up_todos
+			WHERE teacher_id = ? AND status = 'OPEN' AND due_date <= ?
+			ORDER BY due_date ASC, created_at ASC, id ASC
+			""", (resultSet, rowNumber) -> new Todo(
+			resultSet.getObject("id", UUID.class),
+			resultSet.getString("kind"),
+			resultSet.getString("text"),
+			new Ref(resultSet.getObject("alert_id", UUID.class), "alert_detail"),
+			resultSet.getObject("due_date", LocalDate.class), false
+		), teacherProfileId, date);
+		return new DashboardBriefing(date, List.copyOf(alerts), List.copyOf(todos));
 	}
 
 	private List<Alert> extractAlerts(ResultSet resultSet) throws SQLException {

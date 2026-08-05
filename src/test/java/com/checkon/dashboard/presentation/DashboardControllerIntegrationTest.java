@@ -55,6 +55,7 @@ class DashboardControllerIntegrationTest {
 
 	@BeforeEach
 	void setUp() {
+		jdbc.update("DELETE FROM alert_follow_up_todos");
 		jdbc.update("DELETE FROM intervention_reminders");
 		jdbc.update("DELETE FROM interventions");
 		jdbc.update("DELETE FROM engagement_alerts");

@@ -82,6 +82,7 @@ public class AccountSecurityConfiguration {
 				.requestMatchers("/api/v1/learning-records/**").hasRole("TEACHER")
 				.requestMatchers("/api/v1/detection-runs/**").hasRole("TEACHER")
 				.requestMatchers("/api/v1/engagement/**").hasRole("TEACHER")
+				.requestMatchers("/api/v1/todos/**").hasRole("TEACHER")
 				.requestMatchers("/api/dev/**").hasRole("TEACHER")
 				.anyRequest().authenticated()
 			)

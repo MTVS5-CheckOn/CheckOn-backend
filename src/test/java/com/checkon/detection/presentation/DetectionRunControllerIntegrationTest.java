@@ -82,6 +82,7 @@ class DetectionRunControllerIntegrationTest {
 	void fixtures() {
 		jdbc.update("DELETE FROM intervention_reminders");
 		jdbc.update("DELETE FROM interventions");
+		jdbc.update("DELETE FROM alert_follow_up_todos");
 		jdbc.update("DELETE FROM engagement_alerts");
 		jdbc.update("DELETE FROM detection_result_evidence");
 		jdbc.update("DELETE FROM detection_signal_results");
