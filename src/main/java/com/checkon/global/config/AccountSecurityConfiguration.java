@@ -78,9 +78,12 @@ public class AccountSecurityConfiguration {
 		// 공격 대상이 아니다. JWT 필터가 서명과 현재 DB 세션을 모두 확인한다.
 		return http
 			.authorizeHttpRequests(authorize -> authorize
+				.requestMatchers("/api/v1/dashboard/**").hasRole("TEACHER")
+				.requestMatchers("/api/v1/students/**").hasRole("TEACHER")
 				.requestMatchers("/api/v1/learning-records/**").hasRole("TEACHER")
 				.requestMatchers("/api/v1/detection-runs/**").hasRole("TEACHER")
 				.requestMatchers("/api/v1/engagement/**").hasRole("TEACHER")
+				.requestMatchers("/api/v1/todos/**").hasRole("TEACHER")
 				.requestMatchers("/api/dev/**").hasRole("TEACHER")
 				.anyRequest().authenticated()
 			)

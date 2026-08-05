@@ -73,6 +73,18 @@ public class OperationalDetectionRunService {
 			analysisDate,
 			snapshot
 		);
+		if (prepared.status() == DetectionRunStatus.SUCCEEDED) {
+			return new OperationalDetectionRun(
+				prepared.runId(), DetectionRunStatus.SUCCEEDED, analysisDate,
+				prepared.created(), 0, Outcome.ALREADY_COMPLETED
+			);
+		}
+		if (prepared.status() == DetectionRunStatus.REQUESTED) {
+			return new OperationalDetectionRun(
+				prepared.runId(), DetectionRunStatus.REQUESTED, analysisDate,
+				prepared.created(), 0, Outcome.DUPLICATE
+			);
+		}
 
 		// snapshot 준비 트랜잭션을 끝낸 뒤 AI HTTP를 호출한다. 외부 응답을
 		// 기다리는 동안 DB 커넥션을 점유하지 않으면서 attempt 시작과 결과 저장은
@@ -87,8 +99,15 @@ public class OperationalDetectionRunService {
 			DetectionRunStatus.SUCCEEDED,
 			analysisDate,
 			prepared.created(),
-			executed.attemptNumber()
+			executed.attemptNumber(),
+			Outcome.SUCCEEDED
 		);
+	}
+
+	public enum Outcome {
+		SUCCEEDED,
+		ALREADY_COMPLETED,
+		DUPLICATE
 	}
 
 	public record OperationalDetectionRun(
@@ -96,7 +115,8 @@ public class OperationalDetectionRunService {
 		DetectionRunStatus status,
 		LocalDate analysisDate,
 		boolean created,
-		int attemptNumber
+		int attemptNumber,
+		Outcome outcome
 	) {
 	}
 }

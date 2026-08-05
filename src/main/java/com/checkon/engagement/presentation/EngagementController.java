@@ -1,6 +1,5 @@
 package com.checkon.engagement.presentation;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -23,7 +22,6 @@ import com.checkon.engagement.domain.AlertStatus;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 @RestController
@@ -101,17 +99,6 @@ public class EngagementController {
 		);
 	}
 
-	@PostMapping("/interventions/{interventionId}/reminders")
-	ReminderView createReminder(
-		@AuthenticationPrincipal AuthenticatedAccount principal,
-		@PathVariable UUID interventionId,
-		@Valid @RequestBody ReminderRequest request
-	) {
-		return engagementService.createReminder(
-			teacherProfileId(principal), interventionId, request.scheduledAt()
-		);
-	}
-
 	@PostMapping("/reminders/{reminderId}/completion")
 	ReminderView completeReminder(
 		@AuthenticationPrincipal AuthenticatedAccount principal,
@@ -146,6 +133,4 @@ public class EngagementController {
 	) {
 	}
 
-	public record ReminderRequest(@NotNull Instant scheduledAt) {
-	}
 }
