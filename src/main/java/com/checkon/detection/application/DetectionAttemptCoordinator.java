@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.checkon.detection.domain.DetectionRun;
 import com.checkon.detection.domain.DetectionRequestAttempt;
+import com.checkon.detection.domain.DetectionRunStatus;
 import com.checkon.detection.infrastructure.persistence.DetectionRunRepository;
 import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 
@@ -37,6 +38,9 @@ public class DetectionAttemptCoordinator {
 	) {
 		tenantDatabaseContext.setCurrentTeacher(teacherId);
 		DetectionRun run = findRun(teacherId, runId);
+		if (run.status() == DetectionRunStatus.REQUESTED) {
+			throw new DetectionRunAlreadyRunningException();
+		}
 		String expectedKey = DetectionExecutionKey.daily(
 			tenantAlias,
 			run.analysisDate()
@@ -76,7 +80,7 @@ public class DetectionAttemptCoordinator {
 	}
 
 	private DetectionRun findRun(UUID teacherId, UUID runId) {
-		return runRepository.findByIdAndTeacherId(runId, teacherId)
+		return runRepository.findByIdAndTeacherIdForUpdate(runId, teacherId)
 			.orElseThrow(DetectionExecutionException::runNotFound);
 	}
 

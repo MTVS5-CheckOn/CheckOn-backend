@@ -222,7 +222,7 @@ class DetectionRunControllerIntegrationTest {
 	}
 
 	@Test
-	void retriesFailedRunWithASecondAttemptAndRejectsSuccessfulReexecution()
+	void retriesFailedRunWithASecondAttemptAndDoesNotReexecuteSuccessfulRun()
 		throws Exception {
 		insertLearningRecord(
 			TEACHER,
@@ -263,13 +263,15 @@ class DetectionRunControllerIntegrationTest {
 			))
 			.hasSize(1);
 
-		// 성공 Run은 현재 상태 전이 정책대로 재실행하지 않는다.
+		// 성공 Run은 멱등한 성공 응답을 반환하고 AI를 다시 호출하지 않는다.
 		mockMvc.perform(post("/api/v1/detection-runs")
 				.with(teacherAuthentication(TEACHER))
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"analysisDate\":\"2026-08-03\"}"))
-			.andExpect(status().isConflict())
-			.andExpect(jsonPath("$.code").value("DETECTION_RUN_STATE_CONFLICT"));
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("SUCCEEDED"))
+			.andExpect(jsonPath("$.created").value(false))
+			.andExpect(jsonPath("$.attemptNumber").value(0));
 		verify(riskDetectionClient, times(2)).detect(any(), any());
 	}
 
