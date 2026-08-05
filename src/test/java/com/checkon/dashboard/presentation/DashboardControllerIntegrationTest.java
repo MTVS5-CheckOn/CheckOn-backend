@@ -64,12 +64,16 @@ class DashboardControllerIntegrationTest {
 		jdbc.update("DELETE FROM detection_request_attempts");
 		jdbc.update("DELETE FROM detection_runs");
 		jdbc.update("DELETE FROM ai_student_aliases");
+		jdbc.update("DELETE FROM student_personal_information");
 		jdbc.update("DELETE FROM teacher_student_relationships");
 		jdbc.update("DELETE FROM student_profiles");
 		RosterTestFixture.insertTeacher(jdbc, TEACHER);
 		RosterTestFixture.insertTeacher(jdbc, OTHER_TEACHER);
 		insertStudent(STUDENT, "실명처럼 보이는 별칭", "st_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TEACHER);
 		insertStudent(OTHER_STUDENT, "다른 강사 학생", "st_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", OTHER_TEACHER);
+		insertRelationship(TEACHER, STUDENT);
+		insertRelationship(OTHER_TEACHER, OTHER_STUDENT);
+		insertRealName(TEACHER, STUDENT, "김서연");
 		insertRunWithAlerts(TEACHER, STUDENT, TODAY, "today", "st_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 		insertRunWithAlerts(OTHER_TEACHER, OTHER_STUDENT, TODAY, "other", "st_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
 		insertRunWithAlerts(TEACHER, STUDENT, TODAY.minusDays(2), "past", "st_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -94,7 +98,7 @@ class DashboardControllerIntegrationTest {
 			.andExpect(jsonPath("$.alerts[0].status").value("PENDING_REVIEW"))
 			.andExpect(jsonPath("$.alerts[1].status").value("APPROVED"))
 			.andExpect(jsonPath("$.alerts[2].status").value("REJECTED"))
-			.andExpect(jsonPath("$.alerts[0].studentName").doesNotExist())
+			.andExpect(jsonPath("$.alerts[0].studentName").value("김서연"))
 			.andExpect(jsonPath("$.alerts[0].feedbackGiven").doesNotExist());
 	}
 
@@ -134,7 +138,7 @@ class DashboardControllerIntegrationTest {
 			.andExpect(jsonPath("$.reminders[0].latestIntervention.summary")
 				.value("개입 후 재확인이 예정되어 있습니다."))
 			.andExpect(jsonPath("$.reminders[0].latestIntervention.content").doesNotExist())
-			.andExpect(jsonPath("$.reminders[0].studentName").doesNotExist())
+			.andExpect(jsonPath("$.reminders[0].studentName").value("김서연"))
 			.andExpect(jsonPath("$.reminders[0].status").doesNotExist());
 	}
 
@@ -150,6 +154,16 @@ class DashboardControllerIntegrationTest {
 		mvc.perform(get("/api/v1/dashboard/briefing")
 				.param("date", "2026/08/05").with(teacherAuthentication(TEACHER)))
 			.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void missingRealNameIsNullAndNeverFallsBackToEitherAlias() throws Exception {
+		jdbc.update("DELETE FROM student_personal_information WHERE student_id = ?", STUDENT);
+		mvc.perform(get("/api/v1/dashboard/briefing")
+				.param("date", TODAY.toString()).with(teacherAuthentication(TEACHER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.alerts[0].studentName")
+				.value(org.hamcrest.Matchers.nullValue()));
 	}
 
 	@Test
@@ -276,6 +290,18 @@ class DashboardControllerIntegrationTest {
 			studentId, alias, NOW.atOffset(ZoneOffset.UTC), NOW.atOffset(ZoneOffset.UTC));
 		jdbc.update("INSERT INTO ai_student_aliases(teacher_id,student_id,alias,created_at) VALUES (?,?,?,?)",
 			teacherId, studentId, aiAlias, NOW.atOffset(ZoneOffset.UTC));
+	}
+
+	private void insertRelationship(UUID teacherId, UUID studentId) {
+		jdbc.update("INSERT INTO teacher_student_relationships(teacher_id,student_id,status,started_at,created_at) VALUES(?,?,'ACTIVE',?,?)",
+			teacherId, studentId, NOW.atOffset(ZoneOffset.UTC), NOW.atOffset(ZoneOffset.UTC));
+	}
+
+	private void insertRealName(UUID teacherId, UUID studentId, String realName) {
+		UUID accountId = UUID.nameUUIDFromBytes(("account:" + teacherId).getBytes());
+		jdbc.update("INSERT INTO student_personal_information(student_id,real_name,updated_by_account_id,updated_by_role,created_at,updated_at) VALUES(?,?,?,'TEACHER',?,?)",
+			studentId, realName, accountId,
+			NOW.atOffset(ZoneOffset.UTC), NOW.atOffset(ZoneOffset.UTC));
 	}
 
 	private void insertInterventionWithReminder(

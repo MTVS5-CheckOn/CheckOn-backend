@@ -32,6 +32,12 @@ class AiDetectionContractTest {
 		assertThat(request.learningEvents()).hasSize(2);
 		assertThat(request.learningEvents().get(1).correct()).isNull();
 		assertThat(request.alertContext().getFirst().resolvedAt()).isNull();
+		String serialized = objectMapper.writeValueAsString(request);
+		assertThat(serialized)
+			.doesNotContain("studentName")
+			.doesNotContain("student_name")
+			.doesNotContain("realName")
+			.doesNotContain("real_name");
 	}
 
 	@Test

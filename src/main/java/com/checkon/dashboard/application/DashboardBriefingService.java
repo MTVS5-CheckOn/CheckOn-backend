@@ -52,6 +52,7 @@ public class DashboardBriefingService {
 			"""
 				SELECT alert.id AS alert_id,
 				       alert.student_id,
+				       personal.real_name AS student_name,
 				       signal.rule_id,
 				       signal.signal_type,
 				       signal.rank,
@@ -67,6 +68,8 @@ public class DashboardBriefingService {
 				  ON run.id = signal.detection_run_id
 				JOIN detection_result_evidence evidence
 				  ON evidence.detection_signal_result_id = signal.id
+				LEFT JOIN student_personal_information personal
+				  ON personal.student_id = alert.student_id
 				WHERE alert.teacher_id = ?
 				  AND run.teacher_id = ?
 				  AND run.analysis_date = ?
@@ -97,6 +100,7 @@ public class DashboardBriefingService {
 			WITH candidates AS (
 			  SELECT reminder.id AS reminder_id, intervention.alert_id,
 			         intervention.student_id, intervention.id AS intervention_id,
+			         personal.real_name AS student_name,
 			         intervention.type, intervention.created_at,
 			         reminder.scheduled_at,
 			         COUNT(*) OVER (PARTITION BY intervention.alert_id) AS intervention_count,
@@ -108,12 +112,14 @@ public class DashboardBriefingService {
 			  JOIN intervention_reminders reminder
 			    ON reminder.intervention_id = intervention.id
 			   AND reminder.teacher_id = intervention.teacher_id
+			  LEFT JOIN student_personal_information personal
+			    ON personal.student_id = intervention.student_id
 			  WHERE intervention.teacher_id = ?
 			    AND intervention.status = 'OPEN'
 			    AND reminder.status = 'ACTIVE'
 			    AND reminder.scheduled_at < ?
 			)
-			SELECT reminder_id, alert_id, student_id, intervention_count,
+			SELECT reminder_id, alert_id, student_id, student_name, intervention_count,
 			       intervention_id, type, created_at, scheduled_at
 			FROM candidates
 			WHERE representative_rank = 1
@@ -122,6 +128,7 @@ public class DashboardBriefingService {
 			resultSet.getObject("reminder_id", UUID.class),
 			resultSet.getObject("alert_id", UUID.class),
 			resultSet.getObject("student_id", UUID.class),
+			resultSet.getString("student_name"),
 			resultSet.getLong("intervention_count"),
 			new LatestIntervention(
 				resultSet.getObject("intervention_id", UUID.class),
@@ -143,6 +150,7 @@ public class DashboardBriefingService {
 			AlertAccumulator alert = rows.computeIfAbsent(alertId, ignored -> new AlertAccumulator(
 				alertId,
 				resultSetUuid(resultSet, "student_id"),
+				resultSetString(resultSet, "student_name"),
 				resultSetString(resultSet, "rule_id"),
 				resultSetString(resultSet, "signal_type"),
 				resultSetInt(resultSet, "rank"),
@@ -178,19 +186,19 @@ public class DashboardBriefingService {
 	}
 
 	private record AlertAccumulator(
-		UUID alertId, UUID studentId, String ruleId, String signalType, int rank,
+		UUID alertId, UUID studentId, String studentName, String ruleId, String signalType, int rank,
 		String brief, boolean briefFallback, String status, List<Evidence> evidence
 	) {
 		AlertAccumulator(
-			UUID alertId, UUID studentId, String ruleId, String signalType, int rank,
+			UUID alertId, UUID studentId, String studentName, String ruleId, String signalType, int rank,
 			String brief, boolean briefFallback, String status
 		) {
-			this(alertId, studentId, ruleId, signalType, rank, brief, briefFallback,
+			this(alertId, studentId, studentName, ruleId, signalType, rank, brief, briefFallback,
 				status, new ArrayList<>());
 		}
 
 		Alert toAlert() {
-			return new Alert(alertId, studentId, ruleId, signalType, rank, brief,
+			return new Alert(alertId, studentId, studentName, ruleId, signalType, rank, brief,
 				briefFallback, status, List.copyOf(evidence));
 		}
 	}

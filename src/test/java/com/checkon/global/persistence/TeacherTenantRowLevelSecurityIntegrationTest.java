@@ -42,6 +42,10 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 		UUID.fromString("019846dc-7c00-7000-8000-000000001011");
 	private static final UUID STUDENT_B =
 		UUID.fromString("019846dc-7c00-7000-8000-000000001012");
+	private static final UUID STUDENT_A_WITHOUT_PII =
+		UUID.fromString("019846dc-7c00-7000-8000-000000001013");
+	private static final UUID STUDENT_B_WITHOUT_PII =
+		UUID.fromString("019846dc-7c00-7000-8000-000000001014");
 	private static final UUID CLASS_A =
 		UUID.fromString("019846dc-7c00-7000-8000-000000001021");
 	private static final UUID CLASS_B =
@@ -99,6 +103,7 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			PASSWORD '%s'
 			""".formatted(password));
 		administrator.execute("GRANT USAGE ON SCHEMA public TO " + RESTRICTED_ROLE);
+		administrator.execute("GRANT SELECT ON teacher_profiles TO " + RESTRICTED_ROLE);
 		administrator.execute("""
 			GRANT SELECT, INSERT, UPDATE, DELETE
 			ON class_groups,
@@ -110,6 +115,7 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			   detection_result_evidence,
 			   learning_records,
 			   ai_student_aliases,
+			   student_personal_information,
 			   engagement_alerts,
 			   interventions,
 			   intervention_reminders
@@ -172,11 +178,12 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'detection_result_evidence',
 				    'learning_records',
 				    'ai_student_aliases',
+				    'student_personal_information',
 				    'engagement_alerts','interventions','intervention_reminders'
 				  )
 				  AND table_metadata.relrowsecurity
 				  AND table_metadata.relforcerowsecurity
-				""")).isEqualTo(12);
+				""")).isEqualTo(13);
 			assertThat(queryInt(statement, """
 				SELECT count(*) FROM pg_policies
 				WHERE schemaname = 'public'
@@ -190,9 +197,10 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'detection_result_evidence',
 				    'learning_records',
 				    'ai_student_aliases',
+				    'student_personal_information',
 				    'engagement_alerts','interventions','intervention_reminders'
 				  )
-				""")).isEqualTo(48);
+				""")).isEqualTo(52);
 			assertThat(queryInt(statement, """
 				SELECT count(*)
 				FROM pg_class table_metadata
@@ -214,6 +222,7 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThat(count(connection, "detection_request_attempts")).isZero();
 			assertThat(count(connection, "learning_records")).isZero();
 			assertThat(count(connection, "ai_student_aliases")).isZero();
+			assertThat(count(connection, "student_personal_information")).isZero();
 			assertThat(count(connection, "engagement_alerts")).isZero();
 			assertThat(update(connection,
 				"UPDATE class_groups SET name = 'blocked' WHERE id = ?", CLASS_A
@@ -233,7 +242,7 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			setTeacher(connection, TEACHER_A);
 			assertThat(ids(connection, "class_groups")).containsExactly(CLASS_A);
 			assertThat(ids(connection, "teacher_student_relationships"))
-				.containsExactly(RELATIONSHIP_A);
+				.hasSize(2).contains(RELATIONSHIP_A);
 			assertThat(ids(connection, "detection_runs")).containsExactly(RUN_A);
 			assertThat(ids(connection, "detection_request_attempts"))
 				.containsExactly(ATTEMPT_A);
@@ -241,6 +250,7 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				.containsExactly(SIGNAL_A);
 			assertThat(ids(connection, "learning_records")).containsExactly(LEARNING_A);
 			assertThat(ids(connection, "ai_student_aliases")).containsExactly(AI_ALIAS_A);
+			assertThat(studentPersonalInformationCount(connection)).isEqualTo(1);
 			assertThat(ids(connection, "engagement_alerts")).containsExactly(ALERT_A);
 			assertThat(calendarAlertCount(
 				connection, TEACHER_A, "2026-07-28", "2026-08-03"
@@ -274,6 +284,21 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThat(update(connection,
 				"DELETE FROM ai_student_aliases WHERE id = ?", AI_ALIAS_B
 			)).isZero();
+			assertThat(update(connection,
+				"UPDATE student_personal_information SET real_name = 'blocked' WHERE student_id = ?",
+				STUDENT_B
+			)).isZero();
+			assertThat(insertPersonalInformation(
+				connection, STUDENT_A_WITHOUT_PII, TEACHER_A, "허용 학생"
+			)).isEqualTo(1);
+			assertThat(update(connection,
+				"UPDATE student_personal_information SET real_name = '수정 학생' WHERE student_id = ?",
+				STUDENT_A_WITHOUT_PII
+			)).isEqualTo(1);
+			assertThat(update(connection,
+				"DELETE FROM student_personal_information WHERE student_id = ?",
+				STUDENT_A_WITHOUT_PII
+			)).isEqualTo(1);
 			assertThat(update(connection,"UPDATE engagement_alerts SET updated_at=now() WHERE id=?",ALERT_B)).isZero();
 			assertThat(update(connection,"DELETE FROM interventions WHERE id=?",INTERVENTION_B)).isZero();
 			assertThat(update(connection,"UPDATE intervention_reminders SET scheduled_at=now() WHERE id=?",REMINDER_B)).isZero();
@@ -281,6 +306,11 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThatThrownBy(() -> insertLearningRecord(
 				connection, UUID.randomUUID(), TEACHER_B, STUDENT_B))
 				.isInstanceOf(SQLException.class).hasMessageContaining("row-level security");
+			connection.rollback();
+			setTeacher(connection, TEACHER_A);
+			assertThatThrownBy(() -> insertPersonalInformation(
+				connection, STUDENT_B_WITHOUT_PII, TEACHER_A, "차단 학생"
+			)).isInstanceOf(SQLException.class).hasMessageContaining("row-level security");
 			connection.rollback();
 			setTeacher(connection, TEACHER_A);
 			assertThatThrownBy(() -> insertClass(
@@ -346,7 +376,9 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 
 	private void insertFixtures() {
 		OffsetDateTime now = OffsetDateTime.parse("2026-07-31T09:00:00+09:00");
-		for (UUID student : new UUID[]{STUDENT_A, STUDENT_B}) {
+		for (UUID student : new UUID[]{
+			STUDENT_A, STUDENT_B, STUDENT_A_WITHOUT_PII, STUDENT_B_WITHOUT_PII
+		}) {
 			administrator.update("""
 				INSERT INTO student_profiles
 				    (id, alias, grade, created_at, updated_at)
@@ -363,10 +395,24 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			INSERT INTO teacher_student_relationships
 			    (id, teacher_id, student_id, status, started_at, created_at)
 			VALUES (?, ?, ?, 'ACTIVE', ?, ?),
-			       (?, ?, ?, 'ACTIVE', ?, ?)
+			       (?, ?, ?, 'ACTIVE', ?, ?),
+			       (uuidv7(), ?, ?, 'ACTIVE', ?, ?),
+			       (uuidv7(), ?, ?, 'ACTIVE', ?, ?)
 			""",
 			RELATIONSHIP_A, TEACHER_A, STUDENT_A, now, now,
-			RELATIONSHIP_B, TEACHER_B, STUDENT_B, now, now);
+			RELATIONSHIP_B, TEACHER_B, STUDENT_B, now, now,
+			TEACHER_A, STUDENT_A_WITHOUT_PII, now, now,
+			TEACHER_B, STUDENT_B_WITHOUT_PII, now, now);
+		administrator.update("""
+			INSERT INTO student_personal_information
+			    (student_id, real_name, updated_by_account_id, updated_by_role,
+			     created_at, updated_at)
+			SELECT ?, '학생 A', account_id, 'TEACHER', ?, ?
+			FROM teacher_profiles WHERE id = ?
+			UNION ALL
+			SELECT ?, '학생 B', account_id, 'TEACHER', ?, ?
+			FROM teacher_profiles WHERE id = ?
+			""", STUDENT_A, now, now, TEACHER_A, STUDENT_B, now, now, TEACHER_B);
 		insertRun(RUN_A, TEACHER_A, "rls-a:2026-07-31");
 		insertRun(RUN_B, TEACHER_B, "rls-b:2026-07-31");
 		insertDetectionChildren(RUN_A, ATTEMPT_A, SIGNAL_A, "request-a",
@@ -577,6 +623,34 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 		try (ResultSet result = statement.executeQuery(sql)) {
 			result.next();
 			return result.getInt(1);
+		}
+	}
+
+	private int studentPersonalInformationCount(Connection connection) throws SQLException {
+		try (Statement statement = connection.createStatement();
+			 ResultSet result = statement.executeQuery(
+				 "SELECT count(*) FROM student_personal_information"
+			 )) {
+			assertThat(result.next()).isTrue();
+			return result.getInt(1);
+		}
+	}
+
+	private int insertPersonalInformation(
+		Connection connection, UUID studentId, UUID teacherId, String realName
+	) throws SQLException {
+		try (PreparedStatement statement = connection.prepareStatement("""
+			INSERT INTO student_personal_information(
+			    student_id, real_name, updated_by_account_id, updated_by_role,
+			    created_at, updated_at
+			)
+			SELECT ?, ?, account_id, 'TEACHER', now(), now()
+			FROM teacher_profiles WHERE id = ?
+			""")) {
+			statement.setObject(1, studentId);
+			statement.setString(2, realName);
+			statement.setObject(3, teacherId);
+			return statement.executeUpdate();
 		}
 	}
 

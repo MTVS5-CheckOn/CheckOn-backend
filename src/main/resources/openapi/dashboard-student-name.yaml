@@ -1,0 +1,157 @@
+openapi: 3.0.3
+info:
+  title: CheckOn Dashboard student name contract
+  version: 1.0.0
+paths:
+  /api/v1/dashboard/briefing:
+    get:
+      summary: 날짜별 Dashboard 브리핑 조회
+      parameters:
+        - in: query
+          name: date
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: 브리핑 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardBriefing'
+  /api/v1/students/{studentId}/personal-information/name:
+    put:
+      summary: ACTIVE 관계 학생의 실명 등록 또는 수정
+      parameters:
+        - in: path
+          name: studentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [studentName]
+              properties:
+                studentName:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+      responses:
+        '200':
+          description: 등록 또는 수정 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [studentId, studentName, updatedAt]
+                properties:
+                  studentId:
+                    type: string
+                    format: uuid
+                  studentName:
+                    type: string
+                  updatedAt:
+                    type: string
+                    format: date-time
+        '404':
+          description: 학생이 없거나 현재 강사의 ACTIVE 관계 밖에 있음
+components:
+  schemas:
+    DashboardBriefing:
+      type: object
+      required: [date, alerts, todos, reminders]
+      properties:
+        date:
+          type: string
+          format: date
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Alert'
+        todos:
+          type: array
+          items:
+            type: object
+        reminders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Reminder'
+    Alert:
+      type: object
+      required:
+        - alertId
+        - studentId
+        - studentName
+        - ruleId
+        - signalType
+        - rank
+        - brief
+        - briefFallback
+        - status
+        - evidence
+      properties:
+        alertId:
+          type: string
+          format: uuid
+        studentId:
+          type: string
+          format: uuid
+        studentName:
+          type: string
+          nullable: true
+          description: 실명 미등록 시 null이며 alias로 대체하지 않는다.
+        ruleId:
+          type: string
+        signalType:
+          type: string
+        rank:
+          type: integer
+        brief:
+          type: string
+        briefFallback:
+          type: boolean
+        status:
+          type: string
+        evidence:
+          type: array
+          items:
+            type: object
+    Reminder:
+      type: object
+      required:
+        - reminderId
+        - alertId
+        - studentId
+        - studentName
+        - interventionCount
+        - latestIntervention
+        - scheduledAt
+      properties:
+        reminderId:
+          type: string
+          format: uuid
+        alertId:
+          type: string
+          format: uuid
+        studentId:
+          type: string
+          format: uuid
+        studentName:
+          type: string
+          nullable: true
+          description: 실명 미등록 시 null이며 alias로 대체하지 않는다.
+        interventionCount:
+          type: integer
+          format: int64
+        latestIntervention:
+          type: object
+        scheduledAt:
+          type: string
+          format: date-time
+

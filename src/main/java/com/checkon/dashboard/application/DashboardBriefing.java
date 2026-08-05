@@ -10,6 +10,7 @@ public record DashboardBriefing(
 	public record Alert(
 		UUID alertId,
 		UUID studentId,
+		String studentName,
 		String ruleId,
 		String signalType,
 		int rank,
@@ -26,7 +27,8 @@ public record DashboardBriefing(
 	public record Todo(UUID todoId, String kind, String text, Ref ref, LocalDate dueDate, boolean done) {}
 	public record Ref(UUID alertId, String screen) {}
 	public record Reminder(
-		UUID reminderId, UUID alertId, UUID studentId, long interventionCount,
+		UUID reminderId, UUID alertId, UUID studentId, String studentName,
+		long interventionCount,
 		LatestIntervention latestIntervention, java.time.Instant scheduledAt
 	) {}
 	public record LatestIntervention(

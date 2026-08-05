@@ -91,6 +91,7 @@ class DetectionRunControllerIntegrationTest {
 		jdbc.update("DELETE FROM ai_student_aliases");
 		jdbc.update("DELETE FROM learning_records");
 		jdbc.update("DELETE FROM class_enrollments");
+		jdbc.update("DELETE FROM student_personal_information");
 		jdbc.update("DELETE FROM teacher_student_relationships");
 		jdbc.update("DELETE FROM class_groups");
 		jdbc.update("DELETE FROM student_profiles");
@@ -101,6 +102,7 @@ class DetectionRunControllerIntegrationTest {
 	@Test
 	void authenticatedTeacherRunsServerOwnedPseudonymizedSnapshot()
 		throws Exception {
+		insertRealName(TEACHER, STUDENT, "김실명");
 		insertLearningRecord(
 			TEACHER,
 			STUDENT,
@@ -184,6 +186,7 @@ class DetectionRunControllerIntegrationTest {
 		);
 		String json = objectMapper.writeValueAsString(request);
 		assertThat(json)
+			.doesNotContain("김실명")
 			.doesNotContain("운영 테스트 학생")
 			.doesNotContain(STUDENT.toString())
 			.doesNotContain(OTHER_STUDENT.toString());
@@ -363,6 +366,17 @@ class DetectionRunControllerIntegrationTest {
 			VALUES (?, ?, ?, 'SOLVE', ?, 'integration-test', true, 120, ?, ?)
 			""", recordId, teacherId, studentId, occurredAt.atOffset(ZoneOffset.UTC),
 			occurredAt.atOffset(ZoneOffset.UTC), occurredAt.atOffset(ZoneOffset.UTC));
+	}
+
+	private void insertRealName(UUID teacherId, UUID studentId, String realName) {
+		jdbc.update("""
+			INSERT INTO student_personal_information(
+			    student_id, real_name, updated_by_account_id, updated_by_role,
+			    created_at, updated_at
+			)
+			SELECT ?, ?, account_id, 'TEACHER', now(), now()
+			FROM teacher_profiles WHERE id = ?
+			""", studentId, realName, teacherId);
 	}
 
 	private AiDetectionResponse validResponse(AiDetectionRequest request) {

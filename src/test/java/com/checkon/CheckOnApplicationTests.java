@@ -84,15 +84,20 @@ class CheckOnApplicationTests {
 			"SELECT to_regclass('public.alert_follow_up_todos')::text",
 			String.class
 		);
+		String studentPersonalInformation = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.student_personal_information')::text",
+			String.class
+		);
 
 		assertThat(detectionRuns).isEqualTo("detection_runs");
 		assertThat(detectionAttempts).isEqualTo("detection_request_attempts");
 		assertThat(rosterRelationships).isEqualTo("teacher_student_relationships");
 		assertThat(alertFollowUpTodos).isEqualTo("alert_follow_up_todos");
+		assertThat(studentPersonalInformation).isEqualTo("student_personal_information");
 		assertThat(jdbcTemplate.queryForObject(
 			"SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1",
 			String.class
-		)).isEqualTo("11");
+		)).isEqualTo("12");
 	}
 
 	@Test
