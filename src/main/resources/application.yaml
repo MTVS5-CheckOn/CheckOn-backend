@@ -20,6 +20,10 @@ spring:
     password: ${FLYWAY_DB_PASSWORD:${DB_PASSWORD}}
 
 checkon:
+  dashboard:
+    test-authentication:
+      enabled: false
+      teacher-profile-id:
   tenant:
     verify-database-role: ${VERIFY_DATABASE_ROLE:true}
   auth:
