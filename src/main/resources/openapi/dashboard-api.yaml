@@ -1,0 +1,504 @@
+openapi: 3.0.3
+info:
+  title: CheckOn Dashboard API
+  version: 1.0.0
+  description: |
+    프론트엔드 대시보드 v1 연동 기준 계약이다. JSON 필드는 camelCase, 날짜는
+    yyyy-MM-dd, Instant는 RFC 3339 date-time이며 서비스 논리 시간대는 Asia/Seoul이다.
+    기본적으로 Bearer access token과 TEACHER 권한이 필요하다. 개발 프로필에서는 이 문서의
+    13개 API를 인증 헤더 없이 사용할 수 있으며 서버에 고정된 테스트 teacherProfileId를 사용한다.
+    그 외 테넌트는 인증 principal의 teacherProfileId로 결정하며 teacherId/tenantId는 신뢰하지 않는다.
+    통계, observing, feedbackGiven, 상담 일정, 문의, 리포트 승인 대기와 Reminder 알림 발송은 범위 밖이다.
+servers:
+  - url: /api/v1
+    description: 환경별 호스트 뒤에 붙는 API base path (Apidog 환경에서 호스트를 설정)
+security:
+  - bearerAuth: []
+tags:
+  - name: Dashboard
+  - name: Engagement
+  - name: Todo
+  - name: Roster Support
+    description: 대시보드 학생 실명 표시를 지원하지만 대시보드 자체 API는 아니다.
+paths:
+  /dashboard/briefing:
+    get:
+      security: []
+      tags: [Dashboard]
+      operationId: getDashboardBriefing
+      summary: 날짜별 대시보드 브리핑 조회
+      description: |
+        Asia/Seoul 기준 오늘 또는 과거 날짜를 조회한다. 데이터가 없어도 200과 빈 배열을 반환한다.
+        Alert는 rank, alertId 순이고 Evidence는 createdAt, id 순이다. Todo는 조회일까지 미완료인
+        항목(이월 포함)을 dueDate, createdAt, id 순으로 반환한다. Reminder는 조회일 다음 날 00:00
+        미만에 예정된 ACTIVE Reminder와 OPEN Intervention만 Alert별로 묶고, 최신 Intervention을 대표로
+        선택해 scheduledAt, alertId 순으로 반환한다. studentName 미등록 시 null이며 alias로 대체하지 않는다.
+      parameters:
+        - $ref: '#/components/parameters/BriefingDate'
+      responses:
+        '200':
+          description: 브리핑 조회 성공
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DashboardBriefing'}
+              example:
+                date: '2026-08-05'
+                alerts:
+                  - alertId: 0198f000-0000-7000-8000-000000000101
+                    studentId: 0198f000-0000-7000-8000-000000000003
+                    studentName: null
+                    ruleId: R1
+                    signalType: hidden_risk
+                    rank: 1
+                    brief: 최근 학습 신호를 확인해 주세요.
+                    briefFallback: false
+                    status: PENDING_REVIEW
+                    evidence: [{recordId: record-1, summary: 최근 오답률이 증가했습니다.}]
+                todos: []
+                reminders: []
+        '400':
+          description: 누락/날짜 형식 오류 또는 미래 날짜
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+              examples:
+                future: {value: {code: FUTURE_DATE_NOT_ALLOWED, message: Future briefing dates cannot be queried.}}
+                missing: {value: {code: MISSING_REQUEST_PARAMETER, message: 필수 요청 파라미터를 확인해 주세요.}}
+                format: {value: {code: INVALID_DATE_FORMAT, message: 날짜는 yyyy-MM-dd 형식이어야 합니다.}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /dashboard/calendar:
+    get:
+      security: []
+      tags: [Dashboard]
+      operationId: getDashboardCalendar
+      summary: 주간 대시보드 캘린더 조회
+      description: |
+        startedAt 월요일부터 같은 주 endedAt 일요일까지 정확히 7일을 날짜 오름차순으로 반환한다.
+        미래 주도 허용하며 빈 날짜는 eventCount 0이다. eventCount는 detection_runs.analysis_date에
+        연결된 Alert 수로, 상태와 Evidence 수에 무관하게 Alert 한 건을 한 번 센다. Todo, Reminder,
+        상담 일정 등은 포함하지 않는다.
+      parameters:
+        - $ref: '#/components/parameters/StartedAt'
+        - $ref: '#/components/parameters/EndedAt'
+      responses:
+        '200':
+          description: 7일 캘린더 조회 성공
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DashboardCalendar'}
+              example:
+                startedAt: '2026-08-03'
+                endedAt: '2026-08-09'
+                items:
+                  - {date: '2026-08-03', eventCount: 2}
+                  - {date: '2026-08-04', eventCount: 0}
+                  - {date: '2026-08-05', eventCount: 1}
+                  - {date: '2026-08-06', eventCount: 0}
+                  - {date: '2026-08-07', eventCount: 0}
+                  - {date: '2026-08-08', eventCount: 0}
+                  - {date: '2026-08-09', eventCount: 0}
+        '400':
+          description: 누락, 날짜 형식 오류 또는 잘못된 주간 범위
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+              examples:
+                missing: {value: {code: MISSING_REQUEST_PARAMETER, message: 필수 요청 파라미터를 확인해 주세요.}}
+                format: {value: {code: INVALID_DATE_FORMAT, message: 날짜는 yyyy-MM-dd 형식이어야 합니다.}}
+                range: {value: {code: INVALID_CALENDAR_RANGE, message: The calendar range must be one Monday-through-Sunday week.}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /engagement/alerts:
+    get:
+      security: []
+      tags: [Engagement]
+      operationId: listEngagementAlerts
+      summary: 상태별 Alert 검토 큐 조회
+      description: 브리핑이 아니라 상태별 검토 큐 탐색용 목록이다. createdAt, id 오름차순이다.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: 생략 시 PENDING_REVIEW
+          schema: {$ref: '#/components/schemas/AlertStatus'}
+          example: PENDING_REVIEW
+      responses:
+        '200':
+          description: Alert 목록(없으면 빈 배열)
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/AlertView'}}
+              example: []
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /engagement/alerts/{alertId}:
+    get:
+      security: []
+      tags: [Engagement]
+      operationId: getEngagementAlertDetail
+      summary: Alert 상세 조회
+      description: Alert 상태 정보와 생성순 Evidence를 반환한다.
+      parameters: [{$ref: '#/components/parameters/AlertId'}]
+      responses:
+        '200':
+          description: 상세 조회 성공
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AlertDetail'}
+              example:
+                alert: {id: 0198f000-0000-7000-8000-000000000101, studentId: 0198f000-0000-7000-8000-000000000003, detectionSignalResultId: 0198f000-0000-7000-8000-000000000201, status: PENDING_REVIEW, decisionNote: null, decidedAt: null, createdAt: '2026-08-05T00:00:00Z'}
+                evidence: [{id: 0198f000-0000-7000-8000-000000000301, sourceHint: learning_records, recordId: record-1, summary: 근거}]
+        '404': {$ref: '#/components/responses/EngagementNotFound'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /engagement/alerts/{alertId}/approval:
+    post:
+      security: []
+      tags: [Engagement]
+      operationId: approveEngagementAlert
+      summary: Alert 승인
+      description: PENDING_REVIEW Alert를 승인한다. 연결된 OPEN Todo도 완료한다. 이미 승인된 경우 멱등이다.
+      parameters: [{$ref: '#/components/parameters/AlertId'}]
+      responses:
+        '200': {$ref: '#/components/responses/AlertViewSuccess'}
+        '404': {$ref: '#/components/responses/EngagementNotFound'}
+        '409': {$ref: '#/components/responses/InvalidEngagementState'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /engagement/alerts/{alertId}/rejection:
+    post:
+      security: []
+      tags: [Engagement]
+      operationId: rejectEngagementAlert
+      summary: Alert 거절
+      description: PENDING_REVIEW Alert를 사유와 함께 거절하고 연결된 OPEN Todo를 완료한다.
+      parameters: [{$ref: '#/components/parameters/AlertId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RejectionRequest'}
+            example: {note: 오경보로 판단했습니다.}
+      responses:
+        '200': {$ref: '#/components/responses/AlertViewSuccess'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/EngagementNotFound'}
+        '409': {$ref: '#/components/responses/InvalidEngagementState'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /engagement/alerts/{alertId}/interventions:
+    post:
+      security: []
+      tags: [Engagement]
+      operationId: createAlertIntervention
+      summary: Alert 기반 Intervention 생성
+      description: APPROVED Alert에 OPEN Intervention과 7일 뒤 ACTIVE Reminder를 같은 트랜잭션에서 생성한다.
+      parameters: [{$ref: '#/components/parameters/AlertId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InterventionRequest'}
+            example: {type: CALL, content: 전화 상담을 진행했습니다.}
+      responses:
+        '200':
+          description: 생성 성공
+          content: {application/json: {schema: {$ref: '#/components/schemas/InterventionView'}, example: {id: 0198f000-0000-7000-8000-000000000401, alertId: 0198f000-0000-7000-8000-000000000101, studentId: 0198f000-0000-7000-8000-000000000003, type: CALL, content: 전화 상담을 진행했습니다., status: OPEN, createdAt: '2026-08-05T00:00:00Z'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/EngagementNotFound'}
+        '409': {$ref: '#/components/responses/InvalidEngagementState'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /engagement/interventions/{interventionId}/completion:
+    post:
+      security: []
+      tags: [Engagement]
+      operationId: completeIntervention
+      summary: Intervention 완료
+      description: OPEN Intervention을 COMPLETED로 전환한다. 연결 Reminder는 변경하지 않는다.
+      parameters: [{$ref: '#/components/parameters/InterventionId'}]
+      responses:
+        '200': {$ref: '#/components/responses/InterventionViewSuccess'}
+        '404': {$ref: '#/components/responses/EngagementNotFound'}
+        '409': {$ref: '#/components/responses/InvalidEngagementState'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /engagement/interventions/{interventionId}/cancellation:
+    post:
+      security: []
+      tags: [Engagement]
+      operationId: cancelIntervention
+      summary: Intervention 취소
+      description: OPEN Intervention과 연결된 ACTIVE Reminder를 같은 시각에 취소한다.
+      parameters: [{$ref: '#/components/parameters/InterventionId'}]
+      responses:
+        '200': {$ref: '#/components/responses/InterventionViewSuccess'}
+        '404': {$ref: '#/components/responses/EngagementNotFound'}
+        '409': {$ref: '#/components/responses/InvalidEngagementState'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /todos/{todoId}:
+    patch:
+      security: []
+      tags: [Todo]
+      operationId: completeTodo
+      summary: Todo 완료
+      description: done=true만 지원하며 반복 완료는 멱등이다. false로 완료 취소/재개할 수 없다.
+      parameters: [{$ref: '#/components/parameters/TodoId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TodoUpdateRequest'}
+            example: {done: true}
+      responses:
+        '200':
+          description: 완료 성공
+          content: {application/json: {schema: {$ref: '#/components/schemas/TodoResult'}, example: {todoId: 0198f000-0000-7000-8000-000000000501, kind: ALERT_FOLLOW_UP, done: true, completedAt: '2026-08-05T00:00:00Z'}}}
+        '400':
+          description: 본문 오류 또는 done이 true가 아님
+          content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, examples: {invalid: {value: {code: INVALID_TODO_UPDATE, message: done=true만 지원합니다.}}}}}
+        '404':
+          description: 없거나 접근 불가능한 Todo
+          content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: TODO_NOT_FOUND, message: Todo를 찾을 수 없습니다.}}}
+        '409':
+          description: 완료할 수 없는 상태
+          content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: INVALID_TODO_STATE, message: 현재 상태에서는 요청을 처리할 수 없습니다.}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /engagement/reminders/{reminderId}/completion:
+    post:
+      security: []
+      tags: [Engagement]
+      operationId: completeReminder
+      summary: Reminder 완료
+      description: ACTIVE Reminder를 COMPLETED로 전환한다.
+      parameters: [{$ref: '#/components/parameters/ReminderId'}]
+      responses:
+        '200': {$ref: '#/components/responses/ReminderViewSuccess'}
+        '404': {$ref: '#/components/responses/EngagementNotFound'}
+        '409': {$ref: '#/components/responses/InvalidEngagementState'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /engagement/reminders/{reminderId}/cancellation:
+    post:
+      security: []
+      tags: [Engagement]
+      operationId: cancelReminder
+      summary: Reminder 취소
+      description: ACTIVE Reminder를 CANCELLED로 전환한다.
+      parameters: [{$ref: '#/components/parameters/ReminderId'}]
+      responses:
+        '200': {$ref: '#/components/responses/ReminderViewSuccess'}
+        '404': {$ref: '#/components/responses/EngagementNotFound'}
+        '409': {$ref: '#/components/responses/InvalidEngagementState'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /students/{studentId}/personal-information/name:
+    put:
+      security: []
+      tags: [Roster Support]
+      operationId: saveStudentPersonalInformationName
+      summary: 학생 실명 저장
+      description: 대시보드 studentName 표시를 지원한다. 다른 테넌트 학생은 존재 여부를 숨겨 같은 404를 반환한다.
+      parameters: [{$ref: '#/components/parameters/StudentId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StudentNameRequest'}
+            example: {studentName: 김서연}
+      responses:
+        '200':
+          description: 저장 성공
+          content: {application/json: {schema: {$ref: '#/components/schemas/StudentNameResponse'}, example: {studentId: 0198f000-0000-7000-8000-000000000003, studentName: 김서연, updatedAt: '2026-08-05T00:00:00Z'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404':
+          description: 없거나 접근 불가능한 학생
+          content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: STUDENT_NOT_FOUND, message: 학생을 찾을 수 없습니다.}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  parameters:
+    BriefingDate: {name: date, in: query, required: true, schema: {type: string, format: date}, example: '2026-08-05'}
+    StartedAt: {name: startedAt, in: query, required: true, description: 월요일, schema: {type: string, format: date}, example: '2026-08-03'}
+    EndedAt: {name: endedAt, in: query, required: true, description: 같은 주 일요일, schema: {type: string, format: date}, example: '2026-08-09'}
+    AlertId: {name: alertId, in: path, required: true, schema: {type: string, format: uuid}}
+    InterventionId: {name: interventionId, in: path, required: true, schema: {type: string, format: uuid}}
+    ReminderId: {name: reminderId, in: path, required: true, schema: {type: string, format: uuid}}
+    TodoId: {name: todoId, in: path, required: true, schema: {type: string, format: uuid}}
+    StudentId: {name: studentId, in: path, required: true, schema: {type: string, format: uuid}}
+  responses:
+    Unauthorized: {description: 인증 실패. Security filter가 생성하므로 JSON 오류 본문은 보장되지 않는다.}
+    Forbidden: {description: TEACHER 권한이 아님. Security가 생성하므로 JSON 오류 본문은 보장되지 않는다.}
+    InvalidRequest:
+      description: 요청 값 오류
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: INVALID_REQUEST, message: 요청 값을 확인해 주세요.}}}
+    EngagementNotFound:
+      description: 없거나 다른 테넌트에 속한 리소스
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: ENGAGEMENT_RESOURCE_NOT_FOUND, message: 대상을 찾을 수 없습니다.}}}
+    InvalidEngagementState:
+      description: 허용되지 않는 상태 전이
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: INVALID_ENGAGEMENT_STATE, message: 현재 상태에서는 요청을 처리할 수 없습니다.}}}
+    AlertViewSuccess:
+      description: Alert 상태 변경 성공
+      content: {application/json: {schema: {$ref: '#/components/schemas/AlertView'}, example: {id: 0198f000-0000-7000-8000-000000000101, studentId: 0198f000-0000-7000-8000-000000000003, detectionSignalResultId: 0198f000-0000-7000-8000-000000000201, status: APPROVED, decisionNote: null, decidedAt: '2026-08-05T00:00:00Z', createdAt: '2026-08-05T00:00:00Z'}}}
+    InterventionViewSuccess:
+      description: Intervention 상태 변경 성공
+      content: {application/json: {schema: {$ref: '#/components/schemas/InterventionView'}}}
+    ReminderViewSuccess:
+      description: Reminder 상태 변경 성공
+      content: {application/json: {schema: {$ref: '#/components/schemas/ReminderView'}}}
+  schemas:
+    AlertStatus: {type: string, enum: [PENDING_REVIEW, APPROVED, REJECTED]}
+    InterventionStatus: {type: string, enum: [OPEN, COMPLETED, CANCELLED]}
+    ReminderStatus: {type: string, enum: [ACTIVE, COMPLETED, CANCELLED]}
+    DashboardBriefing:
+      type: object
+      required: [date, alerts, todos, reminders]
+      properties:
+        date: {type: string, format: date}
+        alerts: {type: array, items: {$ref: '#/components/schemas/DashboardAlert'}}
+        todos: {type: array, items: {$ref: '#/components/schemas/DashboardTodo'}}
+        reminders: {type: array, items: {$ref: '#/components/schemas/DashboardReminder'}}
+    DashboardAlert:
+      type: object
+      required: [alertId, studentId, studentName, ruleId, signalType, rank, brief, briefFallback, status, evidence]
+      properties:
+        alertId: {type: string, format: uuid}
+        studentId: {type: string, format: uuid}
+        studentName: {type: string, nullable: true, description: key는 존재하며 미등록 시 null. alias로 대체하지 않는다.}
+        ruleId: {type: string}
+        signalType: {type: string}
+        rank: {type: integer, format: int32}
+        brief: {type: string}
+        briefFallback: {type: boolean}
+        status: {$ref: '#/components/schemas/AlertStatus'}
+        evidence: {type: array, minItems: 1, items: {$ref: '#/components/schemas/DashboardEvidence'}}
+    DashboardEvidence:
+      type: object
+      required: [recordId, summary]
+      properties: {recordId: {type: string}, summary: {type: string}}
+    DashboardTodo:
+      type: object
+      required: [todoId, kind, text, ref, dueDate, done]
+      properties:
+        todoId: {type: string, format: uuid}
+        kind: {type: string, enum: [ALERT_FOLLOW_UP]}
+        text: {type: string}
+        ref: {$ref: '#/components/schemas/DashboardTodoRef'}
+        dueDate: {type: string, format: date}
+        done: {type: boolean, enum: [false]}
+    DashboardTodoRef:
+      type: object
+      required: [alertId, screen]
+      properties: {alertId: {type: string, format: uuid}, screen: {type: string, enum: [alert_detail]}}
+    DashboardReminder:
+      type: object
+      required: [reminderId, alertId, studentId, studentName, interventionCount, latestIntervention, scheduledAt]
+      properties:
+        reminderId: {type: string, format: uuid}
+        alertId: {type: string, format: uuid}
+        studentId: {type: string, format: uuid}
+        studentName: {type: string, nullable: true, description: key는 존재하며 미등록 시 null. alias로 대체하지 않는다.}
+        interventionCount: {type: integer, format: int64, minimum: 1}
+        latestIntervention: {$ref: '#/components/schemas/LatestIntervention'}
+        scheduledAt: {type: string, format: date-time}
+    LatestIntervention:
+      type: object
+      required: [interventionId, type, summary, createdAt]
+      properties:
+        interventionId: {type: string, format: uuid}
+        type: {type: string, description: 현재 자유 문자열이며 표준 enum은 미확정}
+        summary: {type: string, enum: [개입 후 재확인이 예정되어 있습니다.]}
+        createdAt: {type: string, format: date-time}
+    DashboardCalendar:
+      type: object
+      required: [startedAt, endedAt, items]
+      properties:
+        startedAt: {type: string, format: date}
+        endedAt: {type: string, format: date}
+        items: {type: array, minItems: 7, maxItems: 7, items: {$ref: '#/components/schemas/DashboardCalendarItem'}}
+    DashboardCalendarItem:
+      type: object
+      required: [date, eventCount]
+      properties: {date: {type: string, format: date}, eventCount: {type: integer, format: int64, minimum: 0}}
+    AlertView:
+      type: object
+      required: [id, studentId, detectionSignalResultId, status, decisionNote, decidedAt, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        studentId: {type: string, format: uuid}
+        detectionSignalResultId: {type: string, format: uuid}
+        status: {$ref: '#/components/schemas/AlertStatus'}
+        decisionNote: {type: string, nullable: true, description: PENDING_REVIEW와 승인 시 null, 거절 시 사유}
+        decidedAt: {type: string, format: date-time, nullable: true, description: PENDING_REVIEW이면 null}
+        createdAt: {type: string, format: date-time}
+    AlertDetail:
+      type: object
+      required: [alert, evidence]
+      properties:
+        alert: {$ref: '#/components/schemas/AlertView'}
+        evidence: {type: array, items: {$ref: '#/components/schemas/EvidenceView'}}
+    EvidenceView:
+      type: object
+      required: [id, sourceHint, recordId, summary]
+      properties: {id: {type: string, format: uuid}, sourceHint: {type: string}, recordId: {type: string}, summary: {type: string}}
+    InterventionView:
+      type: object
+      required: [id, alertId, studentId, type, content, status, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        alertId: {type: string, format: uuid}
+        studentId: {type: string, format: uuid}
+        type: {type: string}
+        content: {type: string}
+        status: {$ref: '#/components/schemas/InterventionStatus'}
+        createdAt: {type: string, format: date-time}
+    ReminderView:
+      type: object
+      required: [id, interventionId, scheduledAt, status]
+      properties:
+        id: {type: string, format: uuid}
+        interventionId: {type: string, format: uuid}
+        scheduledAt: {type: string, format: date-time}
+        status: {$ref: '#/components/schemas/ReminderStatus'}
+    TodoUpdateRequest:
+      type: object
+      required: [done]
+      additionalProperties: false
+      properties: {done: {type: boolean, enum: [true]}}
+    TodoResult:
+      type: object
+      required: [todoId, kind, done, completedAt]
+      properties:
+        todoId: {type: string, format: uuid}
+        kind: {type: string, enum: [ALERT_FOLLOW_UP]}
+        done: {type: boolean, enum: [true]}
+        completedAt: {type: string, format: date-time}
+    RejectionRequest:
+      type: object
+      required: [note]
+      properties: {note: {type: string, minLength: 1, maxLength: 2000}}
+    InterventionRequest:
+      type: object
+      required: [type, content]
+      properties:
+        type: {type: string, minLength: 1, maxLength: 40, description: 표준 enum 정책은 미확정}
+        content: {type: string, minLength: 1, maxLength: 4000}
+    StudentNameRequest:
+      type: object
+      required: [studentName]
+      properties: {studentName: {type: string, minLength: 1, maxLength: 100}}
+    StudentNameResponse:
+      type: object
+      required: [studentId, studentName, updatedAt]
+      properties: {studentId: {type: string, format: uuid}, studentName: {type: string}, updatedAt: {type: string, format: date-time}}
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties: {code: {type: string}, message: {type: string}}

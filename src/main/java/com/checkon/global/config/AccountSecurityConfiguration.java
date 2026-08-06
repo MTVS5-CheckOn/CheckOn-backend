@@ -35,7 +35,10 @@ import com.checkon.account.infrastructure.security.RefreshRequestOriginFilter;
  * 임의의 강사 헤더가 아니라 인증된 TEACHER 주체만 허용한다.</p>
  */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(AuthenticationProperties.class)
+@EnableConfigurationProperties({
+	AuthenticationProperties.class,
+	DashboardTestAuthenticationProperties.class
+})
 public class AccountSecurityConfiguration {
 
 	@Bean
@@ -72,7 +75,8 @@ public class AccountSecurityConfiguration {
 	SecurityFilterChain authenticatedApiSecurityFilterChain(
 		HttpSecurity http,
 		JwtDecoder jwtDecoder,
-		AuthenticatedAccountService authenticatedAccountService
+		AuthenticatedAccountService authenticatedAccountService,
+		DashboardTestAuthenticationProperties dashboardTestAuthentication
 	) throws Exception {
 		// 보호 API는 Authorization 헤더만 사용하므로 브라우저 쿠키 기반 CSRF
 		// 공격 대상이 아니다. JWT 필터가 서명과 현재 DB 세션을 모두 확인한다.
@@ -94,6 +98,10 @@ public class AccountSecurityConfiguration {
 			.addFilterBefore(
 				new JwtAuthenticationFilter(jwtDecoder, authenticatedAccountService),
 				UsernamePasswordAuthenticationFilter.class
+			)
+			.addFilterBefore(
+				new DashboardTestAuthenticationFilter(dashboardTestAuthentication),
+				JwtAuthenticationFilter.class
 			)
 			.build();
 	}

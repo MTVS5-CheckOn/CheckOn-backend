@@ -1,3 +1,9 @@
 spring:
   config:
     import: "file:.env[.properties]"
+
+checkon:
+  dashboard:
+    test-authentication:
+      enabled: ${DASHBOARD_TEST_AUTH_ENABLED:true}
+      teacher-profile-id: ${DASHBOARD_TEST_TEACHER_PROFILE_ID:}

@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -16,7 +17,11 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -34,6 +39,7 @@ import com.checkon.support.RosterTestFixture;
 @SpringBootTest
 @AutoConfigureMockMvc
 @Testcontainers
+@Import(DashboardControllerIntegrationTest.FixedClockConfiguration.class)
 class DashboardControllerIntegrationTest {
 	@Container
 	@ServiceConnection
@@ -43,8 +49,8 @@ class DashboardControllerIntegrationTest {
 	private static final UUID OTHER_TEACHER = UUID.fromString("0198f000-0000-7000-8000-000000000002");
 	private static final UUID STUDENT = UUID.fromString("0198f000-0000-7000-8000-000000000003");
 	private static final UUID OTHER_STUDENT = UUID.fromString("0198f000-0000-7000-8000-000000000004");
-	private static final LocalDate TODAY = LocalDate.now(ZoneId.of("Asia/Seoul"));
 	private static final Instant NOW = Instant.parse("2026-08-05T00:00:00Z");
+	private static final LocalDate TODAY = LocalDate.of(2026, 8, 5);
 	private static final LocalDate WEEK_START = TODAY.with(
 		TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)
 	);
@@ -52,6 +58,15 @@ class DashboardControllerIntegrationTest {
 
 	@Autowired MockMvc mvc;
 	@Autowired JdbcTemplate jdbc;
+
+	@TestConfiguration(proxyBeanMethods = false)
+	static class FixedClockConfiguration {
+		@Bean
+		@Primary
+		Clock dashboardTestClock() {
+			return Clock.fixed(NOW, ZoneOffset.UTC);
+		}
+	}
 
 	@BeforeEach
 	void setUp() {
