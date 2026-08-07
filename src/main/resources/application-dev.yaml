@@ -6,5 +6,5 @@ checkon:
   security:
     test-authentication:
       enabled: ${TEST_AUTH_ENABLED:true}
-      account-id: ${TEST_ACCOUNT_ID:}
-      teacher-profile-id: ${TEST_TEACHER_PROFILE_ID:}
+      account-id: ${TEST_ACCOUNT_ID:0198f000-0000-7000-8000-000000000000}
+      teacher-profile-id: ${TEST_TEACHER_PROFILE_ID:0198f000-0000-7000-8000-000000000001}
