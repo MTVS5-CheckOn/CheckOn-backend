@@ -8,3 +8,4 @@ checkon:
       enabled: ${TEST_AUTH_ENABLED:true}
       account-id: ${TEST_ACCOUNT_ID:}
       teacher-profile-id: ${TEST_TEACHER_PROFILE_ID:}
+
