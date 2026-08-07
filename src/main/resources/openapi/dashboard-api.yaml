@@ -5,8 +5,8 @@ info:
   description: |
     프론트엔드 대시보드 v1 연동 기준 계약이다. JSON 필드는 camelCase, 날짜는
     yyyy-MM-dd, Instant는 RFC 3339 date-time이며 서비스 논리 시간대는 Asia/Seoul이다.
-    기본적으로 Bearer access token과 TEACHER 권한이 필요하다. 개발 프로필에서는 이 문서의
-    13개 API를 인증 헤더 없이 사용할 수 있으며 서버에 고정된 테스트 teacherProfileId를 사용한다.
+    기본적으로 Bearer access token과 TEACHER 권한이 필요하다. 개발 프로필에서는 보호 API 전체를
+    인증 헤더 없이 사용할 수 있으며 서버에 고정된 테스트 teacherProfileId를 사용한다.
     그 외 테넌트는 인증 principal의 teacherProfileId로 결정하며 teacherId/tenantId는 신뢰하지 않는다.
     통계, observing, feedbackGiven, 상담 일정, 문의, 리포트 승인 대기와 Reminder 알림 발송은 범위 밖이다.
 servers:

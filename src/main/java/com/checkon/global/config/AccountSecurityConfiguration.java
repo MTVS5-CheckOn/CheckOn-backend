@@ -37,7 +37,7 @@ import com.checkon.account.infrastructure.security.RefreshRequestOriginFilter;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({
 	AuthenticationProperties.class,
-	DashboardTestAuthenticationProperties.class
+	DevelopmentTestAuthenticationProperties.class
 })
 public class AccountSecurityConfiguration {
 
@@ -76,7 +76,7 @@ public class AccountSecurityConfiguration {
 		HttpSecurity http,
 		JwtDecoder jwtDecoder,
 		AuthenticatedAccountService authenticatedAccountService,
-		DashboardTestAuthenticationProperties dashboardTestAuthentication
+		DevelopmentTestAuthenticationProperties developmentTestAuthentication
 	) throws Exception {
 		// 보호 API는 Authorization 헤더만 사용하므로 브라우저 쿠키 기반 CSRF
 		// 공격 대상이 아니다. JWT 필터가 서명과 현재 DB 세션을 모두 확인한다.
@@ -100,7 +100,7 @@ public class AccountSecurityConfiguration {
 				UsernamePasswordAuthenticationFilter.class
 			)
 			.addFilterBefore(
-				new DashboardTestAuthenticationFilter(dashboardTestAuthentication),
+				new DevelopmentTestAuthenticationFilter(developmentTestAuthentication),
 				JwtAuthenticationFilter.class
 			)
 			.build();
