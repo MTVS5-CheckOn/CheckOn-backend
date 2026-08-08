@@ -44,7 +44,7 @@ import com.checkon.support.RosterTestFixture;
 
 import tools.jackson.databind.ObjectMapper;
 
-@SpringBootTest
+@SpringBootTest(properties = "checkon.security.test-authentication.enabled=false")
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")
 @Testcontainers
