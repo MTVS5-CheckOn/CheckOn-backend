@@ -23,7 +23,6 @@ tags:
 paths:
   /dashboard/briefing:
     get:
-      security: []
       tags: [Dashboard]
       operationId: getDashboardBriefing
       summary: 날짜별 대시보드 브리핑 조회
@@ -69,7 +68,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /dashboard/calendar:
     get:
-      security: []
       tags: [Dashboard]
       operationId: getDashboardCalendar
       summary: 주간 대시보드 캘린더 조회
@@ -111,7 +109,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/alerts:
     get:
-      security: []
       tags: [Engagement]
       operationId: listEngagementAlerts
       summary: 상태별 Alert 검토 큐 조회
@@ -135,7 +132,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/alerts/{alertId}:
     get:
-      security: []
       tags: [Engagement]
       operationId: getEngagementAlertDetail
       summary: Alert 상세 조회
@@ -155,7 +151,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/alerts/{alertId}/approval:
     post:
-      security: []
       tags: [Engagement]
       operationId: approveEngagementAlert
       summary: Alert 승인
@@ -169,7 +164,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/alerts/{alertId}/rejection:
     post:
-      security: []
       tags: [Engagement]
       operationId: rejectEngagementAlert
       summary: Alert 거절
@@ -190,7 +184,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/alerts/{alertId}/interventions:
     post:
-      security: []
       tags: [Engagement]
       operationId: createAlertIntervention
       summary: Alert 기반 Intervention 생성
@@ -213,7 +206,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/interventions/{interventionId}/completion:
     post:
-      security: []
       tags: [Engagement]
       operationId: completeIntervention
       summary: Intervention 완료
@@ -227,7 +219,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/interventions/{interventionId}/cancellation:
     post:
-      security: []
       tags: [Engagement]
       operationId: cancelIntervention
       summary: Intervention 취소
@@ -241,7 +232,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /todos/{todoId}:
     patch:
-      security: []
       tags: [Todo]
       operationId: completeTodo
       summary: Todo 완료
@@ -270,7 +260,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/reminders/{reminderId}/completion:
     post:
-      security: []
       tags: [Engagement]
       operationId: completeReminder
       summary: Reminder 완료
@@ -284,7 +273,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/reminders/{reminderId}/cancellation:
     post:
-      security: []
       tags: [Engagement]
       operationId: cancelReminder
       summary: Reminder 취소
@@ -298,7 +286,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /students/{studentId}/personal-information/name:
     put:
-      security: []
       tags: [Roster Support]
       operationId: saveStudentPersonalInformationName
       summary: 학생 실명 저장
