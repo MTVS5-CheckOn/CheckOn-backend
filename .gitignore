@@ -45,4 +45,7 @@ out/
 !.env.example
 
 ### Local documentation ###
-docs/
+!/docs/
+/docs/*
+!/docs/POLICY_REGISTER.md
+!/docs/FRONTEND_SCREEN_DATA_POLICY.md

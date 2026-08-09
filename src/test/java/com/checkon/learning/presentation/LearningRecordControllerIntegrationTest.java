@@ -231,8 +231,8 @@ class LearningRecordControllerIntegrationTest {
 		insertStudentRelationship(teacherId, studentId, status);
 		Instant now = Instant.parse("2026-08-01T00:00:00Z");
 		jdbc.update("""
-			INSERT INTO class_groups (id, teacher_id, name, status, created_at, updated_at)
-			VALUES (?, ?, '테스트 반', 'ACTIVE', ?, ?)
+			INSERT INTO class_groups (id, teacher_id, name, subject, status, created_at, updated_at)
+			VALUES (?, ?, '테스트 반', '수학', 'ACTIVE', ?, ?)
 			""", classId, teacherId, now.atOffset(ZoneOffset.UTC), now.atOffset(ZoneOffset.UTC));
 	}
 

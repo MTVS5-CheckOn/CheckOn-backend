@@ -54,6 +54,10 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 		UUID.fromString("019846dc-7c00-7000-8000-000000001031");
 	private static final UUID RELATIONSHIP_B =
 		UUID.fromString("019846dc-7c00-7000-8000-000000001032");
+	private static final UUID ENROLLMENT_A =
+		UUID.fromString("019846dc-7c00-7000-8000-000000001035");
+	private static final UUID ENROLLMENT_B =
+		UUID.fromString("019846dc-7c00-7000-8000-000000001036");
 	private static final UUID RUN_A =
 		UUID.fromString("019846dc-7c00-7000-8000-000000001041");
 	private static final UUID RUN_B =
@@ -219,6 +223,7 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 		throws Exception {
 		try (Connection connection = restrictedDataSource.getConnection()) {
 			assertThat(count(connection, "class_groups")).isZero();
+			assertThat(count(connection, "class_enrollments")).isZero();
 			assertThat(count(connection, "detection_request_attempts")).isZero();
 			assertThat(count(connection, "learning_records")).isZero();
 			assertThat(count(connection, "ai_student_aliases")).isZero();
@@ -226,6 +231,10 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThat(count(connection, "engagement_alerts")).isZero();
 			assertThat(update(connection,
 				"UPDATE class_groups SET name = 'blocked' WHERE id = ?", CLASS_A
+			)).isZero();
+			assertThat(update(connection,
+				"UPDATE class_enrollments SET enrolled_at = now() WHERE id = ?",
+				ENROLLMENT_A
 			)).isZero();
 			assertThat(update(connection,
 				"DELETE FROM class_groups WHERE id = ?", CLASS_A
@@ -241,6 +250,7 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 
 			setTeacher(connection, TEACHER_A);
 			assertThat(ids(connection, "class_groups")).containsExactly(CLASS_A);
+			assertThat(ids(connection, "class_enrollments")).containsExactly(ENROLLMENT_A);
 			assertThat(ids(connection, "teacher_student_relationships"))
 				.hasSize(2).contains(RELATIONSHIP_A);
 			assertThat(ids(connection, "detection_runs")).containsExactly(RUN_A);
@@ -264,10 +274,29 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			UUID ownClass = UUID.randomUUID();
 			insertClass(connection, ownClass, TEACHER_A, "allowed own class");
 			assertThat(selectById(connection, "class_groups", ownClass)).isEqualTo(1);
+			assertThat(update(connection,
+				"DELETE FROM class_groups WHERE id = ?", ownClass
+			)).isZero();
+			assertThat(selectById(connection, "class_groups", ownClass)).isEqualTo(1);
 			assertThat(selectById(connection, "class_groups", CLASS_B)).isZero();
 			assertThat(update(connection,
 				"UPDATE class_groups SET name = 'blocked' WHERE id = ?", CLASS_B
 			)).isZero();
+			assertThat(update(connection,
+				"UPDATE class_enrollments SET enrolled_at = now() WHERE id = ?",
+				ENROLLMENT_B
+			)).isZero();
+			assertThat(update(connection,
+				"UPDATE class_groups SET subject = 'Science', memo = 'owned' WHERE id = ?",
+				CLASS_A
+			)).isEqualTo(1);
+			insertEnrollment(
+				connection,
+				UUID.randomUUID(),
+				CLASS_A,
+				TEACHER_A,
+				STUDENT_A_WITHOUT_PII
+			);
 			assertThat(update(connection,
 				"DELETE FROM class_groups WHERE id = ?", CLASS_B
 			)).isZero();
@@ -311,6 +340,16 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThatThrownBy(() -> insertPersonalInformation(
 				connection, STUDENT_B_WITHOUT_PII, TEACHER_A, "차단 학생"
 			)).isInstanceOf(SQLException.class).hasMessageContaining("row-level security");
+			connection.rollback();
+			setTeacher(connection, TEACHER_A);
+			assertThatThrownBy(() -> insertEndedEnrollment(
+				connection,
+				UUID.randomUUID(),
+				CLASS_B,
+				TEACHER_B,
+				STUDENT_B_WITHOUT_PII
+			)).isInstanceOf(SQLException.class)
+				.hasMessageContaining("row-level security");
 			connection.rollback();
 			setTeacher(connection, TEACHER_A);
 			assertThatThrownBy(() -> insertClass(
@@ -387,9 +426,9 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 		}
 		administrator.update("""
 			INSERT INTO class_groups
-			    (id, teacher_id, name, status, created_at, updated_at)
-			VALUES (?, ?, 'A class', 'ACTIVE', ?, ?),
-			       (?, ?, 'B class', 'ACTIVE', ?, ?)
+			    (id, teacher_id, name, subject, status, created_at, updated_at)
+			VALUES (?, ?, 'A class', 'Math', 'ACTIVE', ?, ?),
+			       (?, ?, 'B class', 'Math', 'ACTIVE', ?, ?)
 			""", CLASS_A, TEACHER_A, now, now, CLASS_B, TEACHER_B, now, now);
 		administrator.update("""
 			INSERT INTO teacher_student_relationships
@@ -403,6 +442,15 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			RELATIONSHIP_B, TEACHER_B, STUDENT_B, now, now,
 			TEACHER_A, STUDENT_A_WITHOUT_PII, now, now,
 			TEACHER_B, STUDENT_B_WITHOUT_PII, now, now);
+		administrator.update("""
+			INSERT INTO class_enrollments (
+			    id, class_group_id, teacher_id, student_id, status,
+			    enrolled_at, created_at
+			) VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?),
+			         (?, ?, ?, ?, 'ACTIVE', ?, ?)
+			""",
+			ENROLLMENT_A, CLASS_A, TEACHER_A, STUDENT_A, now, now,
+			ENROLLMENT_B, CLASS_B, TEACHER_B, STUDENT_B, now, now);
 		administrator.update("""
 			INSERT INTO student_personal_information
 			    (student_id, real_name, updated_by_account_id, updated_by_role,
@@ -571,8 +619,8 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 	) throws SQLException {
 		try (PreparedStatement statement = connection.prepareStatement("""
 			INSERT INTO class_groups
-			    (id, teacher_id, name, status, created_at, updated_at)
-			VALUES (?, ?, ?, 'ACTIVE', now(), now())
+			    (id, teacher_id, name, subject, status, created_at, updated_at)
+			VALUES (?, ?, ?, 'Math', 'ACTIVE', now(), now())
 			""")) {
 			statement.setObject(1, id);
 			statement.setObject(2, teacherId);
@@ -592,6 +640,48 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			statement.setObject(1, evidenceId);
 			statement.setObject(2, signalId);
 			statement.setString(3, "record-" + evidenceId);
+			statement.executeUpdate();
+		}
+	}
+
+	private void insertEnrollment(
+		Connection connection,
+		UUID id,
+		UUID classId,
+		UUID teacherId,
+		UUID studentId
+	) throws SQLException {
+		try (PreparedStatement statement = connection.prepareStatement("""
+			INSERT INTO class_enrollments (
+			    id, class_group_id, teacher_id, student_id, status,
+			    enrolled_at, created_at
+			) VALUES (?, ?, ?, ?, 'ACTIVE', now(), now())
+			""")) {
+			statement.setObject(1, id);
+			statement.setObject(2, classId);
+			statement.setObject(3, teacherId);
+			statement.setObject(4, studentId);
+			statement.executeUpdate();
+		}
+	}
+
+	private void insertEndedEnrollment(
+		Connection connection,
+		UUID id,
+		UUID classId,
+		UUID teacherId,
+		UUID studentId
+	) throws SQLException {
+		try (PreparedStatement statement = connection.prepareStatement("""
+			INSERT INTO class_enrollments (
+			    id, class_group_id, teacher_id, student_id, status,
+			    enrolled_at, ended_at, created_at
+			) VALUES (?, ?, ?, ?, 'ENDED', now(), now(), now())
+			""")) {
+			statement.setObject(1, id);
+			statement.setObject(2, classId);
+			statement.setObject(3, teacherId);
+			statement.setObject(4, studentId);
 			statement.executeUpdate();
 		}
 	}

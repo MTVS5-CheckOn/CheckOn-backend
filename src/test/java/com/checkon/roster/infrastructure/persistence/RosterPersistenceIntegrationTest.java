@@ -65,7 +65,7 @@ class RosterPersistenceIntegrationTest {
 			StudentProfile.create("학생 별칭", null, NOW)
 		);
 		ClassGroup classGroup = classGroupRepository.saveAndFlush(
-			ClassGroup.create(teacherId, "고1 A반", NOW)
+			ClassGroup.create(teacherId, "고1 A반", "수학", null, NOW)
 		);
 		relationshipRepository.saveAndFlush(TeacherStudentRelationship.start(
 			teacherId,
@@ -99,6 +99,43 @@ class RosterPersistenceIntegrationTest {
 	void databaseRejectsGradeFour() {
 		assertThatThrownBy(() -> insertStudentWithGrade(4))
 			.isInstanceOf(DataIntegrityViolationException.class);
+	}
+
+	@Test
+	void databaseRejectsBlankClassSubject() {
+		UUID teacherId = insertTeacher("subject@example.com", "과목 강사");
+		UUID classId = insertClass(teacherId, "과목 반");
+
+		assertThatThrownBy(() -> jdbcTemplate.update(
+			"UPDATE class_groups SET subject = '   ' WHERE id = ?",
+			classId
+		)).isInstanceOf(DataIntegrityViolationException.class);
+	}
+
+	@Test
+	void databaseRejectsOversizedClassMemo() {
+		UUID teacherId = insertTeacher("memo@example.com", "메모 강사");
+		UUID classId = insertClass(teacherId, "메모 반");
+
+		assertThatThrownBy(() -> jdbcTemplate.update(
+			"UPDATE class_groups SET memo = ? WHERE id = ?",
+			"가".repeat(1001),
+			classId
+		)).isInstanceOf(DataIntegrityViolationException.class);
+	}
+
+	@Test
+	void databaseRequiresSubjectForNewClassRows() {
+		UUID teacherId = insertTeacher("required@example.com", "필수 과목 강사");
+
+		assertThatThrownBy(() -> jdbcTemplate.update(
+			"""
+				INSERT INTO class_groups (
+				    id, teacher_id, name, status, created_at, updated_at
+				) VALUES (?, ?, '과목 없는 반', 'ACTIVE', ?, ?)
+				""",
+			UUID.randomUUID(), teacherId, DB_NOW, DB_NOW
+		)).isInstanceOf(DataIntegrityViolationException.class);
 	}
 
 	@Test
@@ -224,6 +261,72 @@ class RosterPersistenceIntegrationTest {
 	}
 
 	@Test
+	void databaseRejectsArchivingAClassWithActiveEnrollments() {
+		UUID teacherId = insertTeacher("archive@example.com", "보관 강사");
+		UUID studentId = insertStudentWithGrade(1);
+		insertRelationship(teacherId, studentId, "ACTIVE");
+		UUID classId = insertClass(teacherId, "보관 대상 반");
+		insertEnrollment(classId, teacherId, studentId, "ACTIVE");
+
+		assertThatThrownBy(() -> jdbcTemplate.update(
+			"UPDATE class_groups SET status = 'ARCHIVED' WHERE id = ?",
+			classId
+		)).isInstanceOf(DataIntegrityViolationException.class);
+	}
+
+	@Test
+	void databaseRejectsActiveEnrollmentInAnArchivedClass() {
+		UUID teacherId = insertTeacher("archived@example.com", "보관 강사");
+		UUID studentId = insertStudentWithGrade(1);
+		insertRelationship(teacherId, studentId, "ACTIVE");
+		UUID classId = insertClass(teacherId, "이미 보관된 반");
+		jdbcTemplate.update(
+			"UPDATE class_groups SET status = 'ARCHIVED' WHERE id = ?",
+			classId
+		);
+
+		assertThatThrownBy(() -> insertEnrollment(
+			classId, teacherId, studentId, "ACTIVE"
+		)).isInstanceOf(DataIntegrityViolationException.class);
+	}
+
+	@Test
+	void databaseRejectsReactivatingAnArchivedClass() {
+		UUID teacherId = insertTeacher("reactivate@example.com", "재활성 강사");
+		UUID classId = insertClass(teacherId, "보관 완료 반");
+		jdbcTemplate.update(
+			"UPDATE class_groups SET status = 'ARCHIVED' WHERE id = ?",
+			classId
+		);
+
+		assertThatThrownBy(() -> jdbcTemplate.update(
+			"UPDATE class_groups SET status = 'ACTIVE' WHERE id = ?",
+			classId
+		)).isInstanceOf(DataIntegrityViolationException.class);
+	}
+
+	@Test
+	void databaseAllowsArchiveAfterEnrollmentEnded() {
+		UUID teacherId = insertTeacher("ended@example.com", "종료 강사");
+		UUID studentId = insertStudentWithGrade(1);
+		insertRelationship(teacherId, studentId, "ACTIVE");
+		UUID classId = insertClass(teacherId, "종료 완료 반");
+		UUID enrollmentId = insertEnrollment(
+			classId, teacherId, studentId, "ACTIVE"
+		);
+		jdbcTemplate.update("""
+			UPDATE class_enrollments
+			SET status = 'ENDED', ended_at = ?
+			WHERE id = ?
+			""", DB_NOW.plusSeconds(1), enrollmentId);
+
+		assertThat(jdbcTemplate.update(
+			"UPDATE class_groups SET status = 'ARCHIVED' WHERE id = ?",
+			classId
+		)).isOne();
+	}
+
+	@Test
 	void requiresTeacherBoundaryForClassRelationshipAndEnrollmentLookup() {
 		UUID teacherA = insertTeacher("tenant-a@example.com", "강사 A");
 		UUID teacherB = insertTeacher("tenant-b@example.com", "강사 B");
@@ -311,9 +414,9 @@ class RosterPersistenceIntegrationTest {
 		jdbcTemplate.update(
 			"""
 				INSERT INTO class_groups (
-				    id, teacher_id, name, status, created_at, updated_at
+				    id, teacher_id, name, subject, status, created_at, updated_at
 				)
-				VALUES (?, ?, ?, 'ACTIVE', ?, ?)
+				VALUES (?, ?, ?, '수학', 'ACTIVE', ?, ?)
 				""",
 			id,
 			teacherId,

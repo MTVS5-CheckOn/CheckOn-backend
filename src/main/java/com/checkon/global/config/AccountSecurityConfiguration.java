@@ -83,6 +83,7 @@ public class AccountSecurityConfiguration {
 		return http
 			.authorizeHttpRequests(authorize -> authorize
 				.requestMatchers("/api/v1/dashboard/**").hasRole("TEACHER")
+				.requestMatchers("/api/v1/classes/**").hasRole("TEACHER")
 				.requestMatchers("/api/v1/students/**").hasRole("TEACHER")
 				.requestMatchers("/api/v1/learning-records/**").hasRole("TEACHER")
 				.requestMatchers("/api/v1/detection-runs/**").hasRole("TEACHER")

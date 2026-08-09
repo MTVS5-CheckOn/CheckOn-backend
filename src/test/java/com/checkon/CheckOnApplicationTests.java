@@ -88,16 +88,24 @@ class CheckOnApplicationTests {
 			"SELECT to_regclass('public.student_personal_information')::text",
 			String.class
 		);
+		Integer classManagementColumns = jdbcTemplate.queryForObject("""
+			SELECT count(*)
+			FROM information_schema.columns
+			WHERE table_schema = 'public'
+			  AND table_name = 'class_groups'
+			  AND column_name IN ('subject', 'memo')
+			""", Integer.class);
 
 		assertThat(detectionRuns).isEqualTo("detection_runs");
 		assertThat(detectionAttempts).isEqualTo("detection_request_attempts");
 		assertThat(rosterRelationships).isEqualTo("teacher_student_relationships");
 		assertThat(alertFollowUpTodos).isEqualTo("alert_follow_up_todos");
 		assertThat(studentPersonalInformation).isEqualTo("student_personal_information");
+		assertThat(classManagementColumns).isEqualTo(2);
 		assertThat(jdbcTemplate.queryForObject(
 			"SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1",
 			String.class
-		)).isEqualTo("12");
+		)).isEqualTo("13");
 	}
 
 	@Test

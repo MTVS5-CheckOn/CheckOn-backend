@@ -29,7 +29,7 @@ import com.checkon.account.domain.AccountRole;
 import com.checkon.account.infrastructure.security.AuthenticatedAccount;
 import com.checkon.support.RosterTestFixture;
 
-@SpringBootTest
+@SpringBootTest(properties = "checkon.security.test-authentication.enabled=false")
 @AutoConfigureMockMvc
 @Testcontainers
 class StudentPersonalInformationControllerIntegrationTest {
@@ -75,6 +75,32 @@ class StudentPersonalInformationControllerIntegrationTest {
 			.andExpect(jsonPath("$.studentName").value("김서윤"));
 
 		assertThatSingleStoredName("김서윤");
+	}
+
+	@Test
+	void unauthenticatedRequestIsRejected() throws Exception {
+		mvc.perform(put("/api/v1/students/{studentId}/personal-information/name", STUDENT)
+				.contentType("application/json")
+				.content("{\"studentName\":\"김서연\"}"))
+			.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void parentRequestIsForbidden() throws Exception {
+		mvc.perform(put("/api/v1/students/{studentId}/personal-information/name", STUDENT)
+				.contentType("application/json")
+				.content("{\"studentName\":\"김서연\"}")
+				.with(roleAuthentication(AccountRole.PARENT)))
+			.andExpect(status().isForbidden());
+	}
+
+	@Test
+	void studentRequestIsForbidden() throws Exception {
+		mvc.perform(put("/api/v1/students/{studentId}/personal-information/name", STUDENT)
+				.contentType("application/json")
+				.content("{\"studentName\":\"김서연\"}")
+				.with(roleAuthentication(AccountRole.STUDENT)))
+			.andExpect(status().isForbidden());
 	}
 
 	@Test
@@ -127,5 +153,13 @@ class StudentPersonalInformationControllerIntegrationTest {
 		return authentication(UsernamePasswordAuthenticationToken.authenticated(
 			new AuthenticatedAccount(accountId, AccountRole.TEACHER, teacherId, UUID.randomUUID()),
 			null, List.of(new SimpleGrantedAuthority("ROLE_TEACHER"))));
+	}
+
+	private org.springframework.test.web.servlet.request.RequestPostProcessor roleAuthentication(
+		AccountRole role
+	) {
+		return authentication(UsernamePasswordAuthenticationToken.authenticated(
+			new AuthenticatedAccount(UUID.randomUUID(), role, null, UUID.randomUUID()),
+			null, List.of(new SimpleGrantedAuthority("ROLE_" + role.name()))));
 	}
 }

@@ -1,9 +1,9 @@
 openapi: 3.0.3
 info:
-  title: CheckOn Dashboard API
+  title: CheckOn Frontend API
   version: 1.0.0
   description: |
-    프론트엔드 대시보드 v1 연동 기준 계약이다. JSON 필드는 camelCase, 날짜는
+    프론트엔드 화면 데이터 v1 연동 기준 계약이다. JSON 필드는 camelCase, 날짜는
     yyyy-MM-dd, Instant는 RFC 3339 date-time이며 서비스 논리 시간대는 Asia/Seoul이다.
     기본적으로 Bearer access token과 TEACHER 권한이 필요하다. 개발 프로필에서는 보호 API 전체를
     인증 헤더 없이 사용할 수 있으며 서버에 고정된 테스트 teacherProfileId를 사용한다.
@@ -15,15 +15,130 @@ servers:
 security:
   - bearerAuth: []
 tags:
+  - name: Class Management
   - name: Dashboard
   - name: Engagement
   - name: Todo
   - name: Roster Support
     description: 대시보드 학생 실명 표시를 지원하지만 대시보드 자체 API는 아니다.
 paths:
+  /classes:
+    get:
+      tags: [Class Management]
+      operationId: listClasses
+      summary: 활성 클래스 목록 조회
+      description: |
+        인증 강사의 ACTIVE 클래스만 createdAt DESC, id DESC로 조회한다.
+        activeStudentCount는 ACTIVE 클래스 소속만 집계한다. 화면 행 번호는
+        page * size + index + 1로 프론트가 계산한다.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 클래스 목록 조회 성공
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClassPage'}
+              example:
+                content:
+                  - classId: 0198f100-0000-7000-8000-000000000001
+                    name: 수능 국어 대비 반
+                    subject: 국어
+                    memo: null
+                    status: ACTIVE
+                    activeStudentCount: 0
+                    createdAt: '2026-08-09T00:00:00Z'
+                    updatedAt: '2026-08-09T00:00:00Z'
+                page: 0
+                size: 20
+                totalElements: 1
+                totalPages: 1
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [Class Management]
+      operationId: createClass
+      summary: 클래스 등록
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ClassDetailsRequest'}
+            example: {name: 수능 국어 대비 반, subject: 국어, memo: null}
+      responses:
+        '201':
+          description: 클래스 등록 성공
+          headers:
+            Location:
+              description: 생성된 클래스 상세 경로
+              schema: {type: string, format: uri-reference}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClassView'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /classes/{classId}:
+    get:
+      tags: [Class Management]
+      operationId: getClass
+      summary: 클래스 상세 조회
+      description: 소유 강사는 보관된 클래스도 status와 함께 조회할 수 있다.
+      parameters:
+        - $ref: '#/components/parameters/ClassId'
+      responses:
+        '200':
+          description: 클래스 상세 조회 성공
+          content: {application/json: {schema: {$ref: '#/components/schemas/ClassView'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/ClassNotFound'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    patch:
+      tags: [Class Management]
+      operationId: updateClass
+      summary: 클래스 기본 정보 수정
+      description: name, subject, memo를 현재 입력값으로 함께 교체한다. ARCHIVED 클래스는 수정할 수 없다.
+      parameters:
+        - $ref: '#/components/parameters/ClassId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ClassDetailsRequest'}
+      responses:
+        '200':
+          description: 클래스 수정 성공
+          content: {application/json: {schema: {$ref: '#/components/schemas/ClassView'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/ClassNotFound'}
+        '409': {$ref: '#/components/responses/InvalidClassState'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /classes/{classId}/archive:
+    post:
+      tags: [Class Management]
+      operationId: archiveClass
+      summary: 클래스 보관
+      description: |
+        모든 ACTIVE 소속을 같은 시각으로 종료한 뒤 클래스를 ARCHIVED로 바꾼다.
+        학생, 관계, 소속과 학습 이력은 삭제하지 않는다. 반복 요청은 기존 종료
+        시각과 클래스 updatedAt을 바꾸지 않는 멱등 동작이다.
+      parameters:
+        - $ref: '#/components/parameters/ClassId'
+      responses:
+        '200':
+          description: 클래스 보관 성공 또는 이미 보관됨
+          content: {application/json: {schema: {$ref: '#/components/schemas/ClassView'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/ClassNotFound'}
+        '409': {$ref: '#/components/responses/InvalidClassState'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /dashboard/briefing:
     get:
-      security: []
       tags: [Dashboard]
       operationId: getDashboardBriefing
       summary: 날짜별 대시보드 브리핑 조회
@@ -69,7 +184,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /dashboard/calendar:
     get:
-      security: []
       tags: [Dashboard]
       operationId: getDashboardCalendar
       summary: 주간 대시보드 캘린더 조회
@@ -111,7 +225,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/alerts:
     get:
-      security: []
       tags: [Engagement]
       operationId: listEngagementAlerts
       summary: 상태별 Alert 검토 큐 조회
@@ -135,7 +248,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/alerts/{alertId}:
     get:
-      security: []
       tags: [Engagement]
       operationId: getEngagementAlertDetail
       summary: Alert 상세 조회
@@ -155,7 +267,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/alerts/{alertId}/approval:
     post:
-      security: []
       tags: [Engagement]
       operationId: approveEngagementAlert
       summary: Alert 승인
@@ -169,7 +280,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/alerts/{alertId}/rejection:
     post:
-      security: []
       tags: [Engagement]
       operationId: rejectEngagementAlert
       summary: Alert 거절
@@ -190,7 +300,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/alerts/{alertId}/interventions:
     post:
-      security: []
       tags: [Engagement]
       operationId: createAlertIntervention
       summary: Alert 기반 Intervention 생성
@@ -213,7 +322,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/interventions/{interventionId}/completion:
     post:
-      security: []
       tags: [Engagement]
       operationId: completeIntervention
       summary: Intervention 완료
@@ -227,7 +335,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/interventions/{interventionId}/cancellation:
     post:
-      security: []
       tags: [Engagement]
       operationId: cancelIntervention
       summary: Intervention 취소
@@ -241,7 +348,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /todos/{todoId}:
     patch:
-      security: []
       tags: [Todo]
       operationId: completeTodo
       summary: Todo 완료
@@ -270,7 +376,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/reminders/{reminderId}/completion:
     post:
-      security: []
       tags: [Engagement]
       operationId: completeReminder
       summary: Reminder 완료
@@ -284,7 +389,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/reminders/{reminderId}/cancellation:
     post:
-      security: []
       tags: [Engagement]
       operationId: cancelReminder
       summary: Reminder 취소
@@ -298,7 +402,6 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /students/{studentId}/personal-information/name:
     put:
-      security: []
       tags: [Roster Support]
       operationId: saveStudentPersonalInformationName
       summary: 학생 실명 저장
@@ -332,12 +435,21 @@ components:
     ReminderId: {name: reminderId, in: path, required: true, schema: {type: string, format: uuid}}
     TodoId: {name: todoId, in: path, required: true, schema: {type: string, format: uuid}}
     StudentId: {name: studentId, in: path, required: true, schema: {type: string, format: uuid}}
+    ClassId: {name: classId, in: path, required: true, schema: {type: string, format: uuid}}
+    Page: {name: page, in: query, required: false, description: 0부터 시작, schema: {type: integer, format: int32, minimum: 0, default: 0}}
+    Size: {name: size, in: query, required: false, schema: {type: integer, format: int32, minimum: 1, maximum: 100, default: 20}}
   responses:
     Unauthorized: {description: 인증 실패. Security filter가 생성하므로 JSON 오류 본문은 보장되지 않는다.}
     Forbidden: {description: TEACHER 권한이 아님. Security가 생성하므로 JSON 오류 본문은 보장되지 않는다.}
     InvalidRequest:
       description: 요청 값 오류
       content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: INVALID_REQUEST, message: 요청 값을 확인해 주세요.}}}
+    ClassNotFound:
+      description: 없거나 다른 테넌트에 속한 클래스
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: CLASS_NOT_FOUND, message: 클래스를 찾을 수 없습니다.}}}
+    InvalidClassState:
+      description: 보관된 클래스 수정 또는 보관 불변식 위반
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: INVALID_CLASS_STATE, message: 현재 클래스 상태에서는 요청을 처리할 수 없습니다.}}}
     EngagementNotFound:
       description: 없거나 다른 테넌트에 속한 리소스
       content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: ENGAGEMENT_RESOURCE_NOT_FOUND, message: 대상을 찾을 수 없습니다.}}}
@@ -354,6 +466,35 @@ components:
       description: Reminder 상태 변경 성공
       content: {application/json: {schema: {$ref: '#/components/schemas/ReminderView'}}}
   schemas:
+    ClassStatus: {type: string, enum: [ACTIVE, ARCHIVED]}
+    ClassDetailsRequest:
+      type: object
+      required: [name, subject]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 100}
+        subject: {type: string, minLength: 1, maxLength: 100, description: 표시용 자유 문자열. 앞뒤 공백은 제거된다.}
+        memo: {type: string, maxLength: 1000, nullable: true}
+    ClassView:
+      type: object
+      required: [classId, name, subject, memo, status, activeStudentCount, createdAt, updatedAt]
+      properties:
+        classId: {type: string, format: uuid}
+        name: {type: string, minLength: 1, maxLength: 100}
+        subject: {type: string, minLength: 1, maxLength: 100, nullable: true, description: V12 이전 행은 교사가 수정하기 전까지 null일 수 있다. 신규 등록과 수정 입력에서는 필수다.}
+        memo: {type: string, maxLength: 1000, nullable: true}
+        status: {$ref: '#/components/schemas/ClassStatus'}
+        activeStudentCount: {type: integer, format: int64, minimum: 0}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    ClassPage:
+      type: object
+      required: [content, page, size, totalElements, totalPages]
+      properties:
+        content: {type: array, items: {$ref: '#/components/schemas/ClassView'}}
+        page: {type: integer, format: int32, minimum: 0}
+        size: {type: integer, format: int32, minimum: 1, maximum: 100}
+        totalElements: {type: integer, format: int64, minimum: 0}
+        totalPages: {type: integer, format: int64, minimum: 0}
     AlertStatus: {type: string, enum: [PENDING_REVIEW, APPROVED, REJECTED]}
     InterventionStatus: {type: string, enum: [OPEN, COMPLETED, CANCELLED]}
     ReminderStatus: {type: string, enum: [ACTIVE, COMPLETED, CANCELLED]}

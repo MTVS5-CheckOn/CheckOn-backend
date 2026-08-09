@@ -6,10 +6,14 @@ import java.util.Optional;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import jakarta.persistence.LockModeType;
+
 import com.checkon.roster.domain.ClassEnrollment;
+import com.checkon.roster.domain.RelationshipStatus;
 
 public interface ClassEnrollmentRepository
 	extends JpaRepository<ClassEnrollment, UUID> {
@@ -18,7 +22,28 @@ public interface ClassEnrollmentRepository
 
 	List<ClassEnrollment> findAllByTeacherIdAndStatus(
 		UUID teacherId,
-		com.checkon.roster.domain.RelationshipStatus status
+		RelationshipStatus status
+	);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+		select enrollment
+		from ClassEnrollment enrollment
+		where enrollment.classGroupId = :classGroupId
+		  and enrollment.teacherId = :teacherId
+		  and enrollment.status = :status
+		order by enrollment.id
+		""")
+	List<ClassEnrollment> findAllForUpdate(
+		@Param("classGroupId") UUID classGroupId,
+		@Param("teacherId") UUID teacherId,
+		@Param("status") RelationshipStatus status
+	);
+
+	long countByClassGroupIdAndTeacherIdAndStatus(
+		UUID classGroupId,
+		UUID teacherId,
+		RelationshipStatus status
 	);
 
 	/**
