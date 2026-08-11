@@ -393,7 +393,7 @@
 - 결정 상태: `CONFIRMED`
 - 구현 상태: `IMPLEMENTED`
 - 근거 수준: `CONVERSATION_CONFIRMED`
-- 실행 시각: 매일 `02:00`, `Asia/Seoul`. Spring cron은 초를 포함한 `0 0 2 * * *`를 사용하고 JVM 기본 시간대에 의존하지 않는다.
+- 실행 시각: 매일 `02:10`, `Asia/Seoul`. Spring cron은 초를 포함한 `0 10 2 * * *`를 사용하고 JVM 기본 시간대에 의존하지 않는다.
 - 분석 날짜: 주입된 `Clock`으로 실행 시각의 `Asia/Seoul` 날짜를 계산하고 그 당일을 `analysisDate`로 사용한다.
 - 실행 대상: `teacher_profiles`가 존재하며 연결된 Account의 역할과 상태가 각각 `TEACHER`, `ACTIVE`인 강사다. 활성 학생 관계나 학습 기록 존재 여부를 대상 목록 SQL에 중복 구현하지 않는다.
 - 빈 기록: 기존 Detection 정책과 같이 `NO_LEARNING_RECORDS`로 건너뛰고 다음 강사를 계속 처리한다.
@@ -413,7 +413,25 @@
   - `src/test/java/com/checkon/detection/infrastructure/scheduling/DetectionSchedulerTest.java`
   - `src/test/java/com/checkon/detection/application/ScheduledDetectionJobTest.java`
   - `src/test/java/com/checkon/detection/application/ScheduledDetectionTargetProviderIntegrationTest.java`
-- 마지막 검증일: 2026-08-05
+- 마지막 검증일: 2026-08-12
+
+#### DET-005 동의 기능 전 AI 분석 임시 정책
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `PARTIAL`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
+- 현재 임시 정책: 동의 UI와 백엔드 저장 기능이 구현되기 전에는 `PRE_CONSENT_ALLOW_ALL`을 기본값으로 사용한다. 이 모드에서 서버가 만든 AI 스냅샷의 학생 `consent`는 `granted`이며, 시현·테스트·승인된 임시 운영에서 실제 분석 요청과 결과 저장이 계속 가능하다.
+- 의미 구분: 이 값은 현재 외부 AI 계약의 분석 허용 필드이며, 학생이 실제로 동의했다는 영속 기록을 새로 만드는 기능은 아니다. 동의 원본·시각·약관 버전은 아직 저장하지 않는다.
+- 전환 정책: 프론트엔드가 받은 동의 결과를 백엔드에 저장하는 기능이 배포되면 설정을 `REQUIRE_RECORDED_GRANT`로 전환한다. 현재 저장된 grant가 없는 학생은 `unknown`으로 보고 학생·학습 이벤트·반 참조를 모두 AI 스냅샷에서 제외한다. 실제 저장 상태 조회는 동의 도메인 구현 시 이 정책에 연결한다.
+- 전송 경계: 동의 판단은 AI 호출 또는 미래 Kafka 요청 이벤트를 만들기 전에 백엔드 스냅샷 생성 단계에서 수행한다. 따라서 전송 방식이 HTTP에서 Kafka로 바뀌어도 같은 정책을 재사용한다.
+- 코드 근거:
+  - `src/main/java/com/checkon/detection/application/AiDetectionConsentMode.java`
+  - `src/main/java/com/checkon/detection/application/AiDetectionConsentPolicy.java`
+  - `src/main/java/com/checkon/detection/integration/ai/AiDetectionConsentProperties.java`
+  - `src/main/java/com/checkon/learning/application/LearningRecordSnapshotService.java`
+  - `src/test/java/com/checkon/learning/application/LearningRecordSnapshotServiceTest.java`
+- 남은 범위: 실제 동의 테이블, 프론트엔드 결과 수신 API, 동의·철회 시각과 약관 버전, 동의 변경 시 기존 Detection 재시도·보존 정책은 후속 동의 기능 범위에서 결정·구현한다.
+- 마지막 검증일: 2026-08-12
 
 ### Frontend·UX
 
@@ -550,6 +568,7 @@
 | 2026-08-09 | SCREEN-CLASS-001·002 구현 완료, SCREEN-PAGE-001 클래스 목록 범위 구현 및 팀 공유 문서 추가 | 클래스 관리·Flyway·RLS·OpenAPI 집중 테스트 39건 통과. `gradlew clean build` 전체 173건 통과 |
 | 2026-08-09 | SCREEN-CLASS-001·002와 SCREEN-PAGE-001 승인 정책 등록, ROS-003 구현 상태 정정 및 중복 SEC-003을 SEC-004로 정정 | 사용자 승인 대화와 현재 정책·스키마를 정적 대조. 기능 구현 전 상태 기록 |
 | 2026-08-06 | LR-003 구현 상태 정정 및 LR-005~LR-009 Import 프로파일링·매핑 확정·검증·결과·미확정 계약 정책 등록 | 정책 레지스트리, Gap 분석, 현재 백엔드 Import 구현 부재를 정적 대조. 코드·테스트 변경 없음 |
+| 2026-08-12 | DET-004 실행 시각을 02:10으로 변경하고 DET-005 동의 기능 전 임시 AI 분석 정책 등록 | 사용자 확정 정책과 Detection 스냅샷·스케줄 코드 동기화. 집중 테스트와 전체 빌드 176건 통과 |
 | 2026-08-05 | ENG-005 개입 기반 Reminder 자동 생성·취소 연동과 Alert 단위 대시보드 집계 정책 등록 및 구현 | Reminder, Engagement·Dashboard, Detection·Scheduler 집중 테스트 통과. 전체 빌드 결과는 최종 보고 참조 |
 | 2026-08-05 | ENG-004 경보 후속 조치 Todo 정책 등록 및 구현 | Todo 단위 테스트, Engagement·Dashboard 22건, 전체 빌드 130건 통과. 운영 데이터 승격 리허설과 Todo 전용 제한 역할 DML은 미실행 |
 | 2026-08-05 | DET-004 후속 확장 대상을 Redis에서 Kafka 비동기 실행으로 정정 | 정책 문구 정적 확인. Kafka 구현은 현재 범위에서 제외 |

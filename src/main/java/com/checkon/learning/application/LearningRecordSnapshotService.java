@@ -15,6 +15,8 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.checkon.detection.application.AiDetectionConsentPolicy;
+import com.checkon.detection.application.AiDetectionConsentPolicy.Decision;
 import com.checkon.detection.application.PrepareDetectionRunService;
 import com.checkon.detection.application.PrepareDetectionRunService.PreparedDetectionRun;
 import com.checkon.detection.integration.ai.dto.AiDetectionRequest;
@@ -33,13 +35,16 @@ public class LearningRecordSnapshotService {
 	private final LearningRecordRepository records;
 	private final ClassEnrollmentRepository enrollments;
 	private final AiStudentAliasService aliases;
+	private final AiDetectionConsentPolicy consentPolicy;
 	private final PrepareDetectionRunService prepareService;
 	private final TeacherTenantDatabaseContext tenantContext;
 
 	public LearningRecordSnapshotService(LearningRecordRepository records,
 		ClassEnrollmentRepository enrollments, AiStudentAliasService aliases,
+		AiDetectionConsentPolicy consentPolicy,
 		PrepareDetectionRunService prepareService, TeacherTenantDatabaseContext tenantContext) {
 		this.records = records; this.enrollments = enrollments; this.aliases = aliases;
+		this.consentPolicy = consentPolicy;
 		this.prepareService = prepareService; this.tenantContext = tenantContext;
 	}
 
@@ -75,9 +80,18 @@ public class LearningRecordSnapshotService {
 			teacherId, RelationshipStatus.ACTIVE)) {
 			activeEnrollments.put(enrollment.studentId(), enrollment);
 		}
+		Map<UUID, Decision> consentByStudent = new LinkedHashMap<>();
+		for (LearningRecord record : ordered) {
+			consentByStudent.computeIfAbsent(record.studentId(),
+				studentId -> consentPolicy.decide(teacherId, studentId));
+		}
 		Map<UUID, String> aliasByStudent = new LinkedHashMap<>();
-		for (LearningRecord record : ordered)
-			aliasByStudent.computeIfAbsent(record.studentId(), id -> aliases.getOrCreate(teacherId, id));
+		for (LearningRecord record : ordered) {
+			if (consentByStudent.get(record.studentId()).included()) {
+				aliasByStudent.computeIfAbsent(record.studentId(),
+					id -> aliases.getOrCreate(teacherId, id));
+			}
+		}
 
 		Map<UUID, LearningRecord> latestByStudent = new LinkedHashMap<>();
 		for (LearningRecord record : ordered) latestByStudent.put(record.studentId(), record);
@@ -90,11 +104,13 @@ public class LearningRecordSnapshotService {
 			int weeks = enrollment == null ? 0 : Math.max(0,
 				(int) (Duration.between(enrollment.enrolledAt(), toExclusive).toDays() / 7));
 			students.add(new AiDetectionRequest.StudentSnapshot(entry.getValue(),
-				classRef(classId), weeks, enrollment == null ? "recorded" : "enrolled", "unknown"));
+				classRef(classId), weeks, enrollment == null ? "recorded" : "enrolled",
+				consentByStudent.get(studentId).requestConsent()));
 		}
 		students.sort(Comparator.comparing(AiDetectionRequest.StudentSnapshot::studentRef));
 
 		List<AiDetectionRequest.LearningEventSnapshot> events = ordered.stream()
+			.filter(record -> consentByStudent.get(record.studentId()).included())
 			.map(record -> new AiDetectionRequest.LearningEventSnapshot(
 				"le_" + compact(record.id()), aliasByStudent.get(record.studentId()),
 				record.recordType().aiValue(), record.occurredAt().atOffset(ZoneOffset.UTC),
@@ -103,6 +119,7 @@ public class LearningRecordSnapshotService {
 				record.assignmentTitleText(), record.sourceType()))
 			.toList();
 		List<AiDetectionRequest.ClassReference> classes = ordered.stream()
+			.filter(record -> consentByStudent.get(record.studentId()).included())
 			.map(LearningRecord::classGroupId).filter(Objects::nonNull).distinct()
 			.map(id -> new AiDetectionRequest.ClassReference(classRef(id)))
 			.sorted(Comparator.comparing(AiDetectionRequest.ClassReference::classRef)).toList();

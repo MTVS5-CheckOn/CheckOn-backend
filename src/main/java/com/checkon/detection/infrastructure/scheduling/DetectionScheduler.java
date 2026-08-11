@@ -12,7 +12,7 @@ import com.checkon.detection.application.ScheduledDetectionJob;
 @Component
 public class DetectionScheduler {
 
-	public static final String CRON = "0 0 2 * * *";
+	public static final String CRON = "0 10 2 * * *";
 	public static final String ZONE = "Asia/Seoul";
 	private static final ZoneId SERVICE_ZONE = ZoneId.of(ZONE);
 
