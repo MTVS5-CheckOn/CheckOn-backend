@@ -2,6 +2,21 @@ spring:
   application:
     name: CheckOn
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        acks: all
+        enable.idempotence: true
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: false
+      properties:
+        isolation.level: read_committed
+
   jpa:
     hibernate:
       ddl-auto: validate
@@ -45,3 +60,16 @@ checkon:
         # 동의 UI·저장 기능이 아직 없는 구현/시연 단계의 명시적 임시 정책이다.
         # 동의 기능 배포 시 REQUIRE_RECORDED_GRANT로 전환한다.
         mode: ${AI_DETECTION_CONSENT_MODE:PRE_CONSENT_ALLOW_ALL}
+  kafka:
+    risk-detection:
+      enabled: ${CHECKON_KAFKA_ENABLED:true}
+      requested-topic: ${RISK_DETECTION_REQUESTED_TOPIC:checkon.risk-detection.requested.v1}
+      completed-topic: ${RISK_DETECTION_COMPLETED_TOPIC:checkon.risk-detection.completed.v1}
+      failed-topic: ${RISK_DETECTION_FAILED_TOPIC:checkon.risk-detection.failed.v1}
+      consumer-group-id: ${RISK_DETECTION_CONSUMER_GROUP:checkon-backend-risk-detection-v1}
+      outbox-poll-delay: ${RISK_DETECTION_OUTBOX_POLL_DELAY:1s}
+      outbox-lock-timeout: ${RISK_DETECTION_OUTBOX_LOCK_TIMEOUT:30s}
+      outbox-retry-delay: ${RISK_DETECTION_OUTBOX_RETRY_DELAY:5s}
+      producer-send-timeout: ${RISK_DETECTION_PRODUCER_SEND_TIMEOUT:10s}
+      outbox-batch-size: ${RISK_DETECTION_OUTBOX_BATCH_SIZE:20}
+      outbox-max-attempts: ${RISK_DETECTION_OUTBOX_MAX_ATTEMPTS:8}

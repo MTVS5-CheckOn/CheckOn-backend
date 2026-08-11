@@ -45,7 +45,12 @@ public class DetectionAttemptCoordinator {
 			tenantAlias,
 			run.analysisDate()
 		).value();
-		if (!run.idempotencyKey().equals(expectedKey)) {
+		String legacyKey = DetectionExecutionKey.daily(
+			DetectionTenantKey.fromTeacherProfileId(teacherId).value(),
+			run.analysisDate()
+		).value();
+		if (!run.idempotencyKey().equals(expectedKey)
+			&& !run.idempotencyKey().equals(legacyKey)) {
 			throw DetectionExecutionException.tenantMismatch();
 		}
 		UUID attemptId = idGenerator.nextIds(1).getFirst();
@@ -60,7 +65,8 @@ public class DetectionAttemptCoordinator {
 			attemptId,
 			requestId,
 			attempt.attemptNumber(),
-			run.idempotencyKey(),
+			expectedKey,
+			run.snapshotHash(),
 			run.snapshotPayload()
 		);
 	}
@@ -89,6 +95,7 @@ public class DetectionAttemptCoordinator {
 		String requestId,
 		int attemptNumber,
 		String idempotencyKey,
+		String snapshotHash,
 		String snapshotPayload
 	) {
 	}

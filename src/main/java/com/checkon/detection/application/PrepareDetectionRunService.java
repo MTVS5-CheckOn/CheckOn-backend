@@ -117,12 +117,24 @@ public class PrepareDetectionRunService {
 		String idempotencyKey
 	) {
 		if (!existing.snapshotHash().equals(snapshotHash)
-			|| !existing.idempotencyKey().equals(idempotencyKey)) {
+			|| !hasCurrentOrLegacyIdempotencyKey(existing, idempotencyKey)) {
 			throw new PrepareDetectionRunException(
 				"A different snapshot already exists for this teacher and analysis date"
 			);
 		}
 		return toResult(existing, false);
+	}
+
+	private boolean hasCurrentOrLegacyIdempotencyKey(
+		DetectionRun run,
+		String currentKey
+	) {
+		if (run.idempotencyKey().equals(currentKey)) return true;
+		String legacyKey = DetectionExecutionKey.daily(
+			DetectionTenantKey.fromTeacherProfileId(run.teacherId()).value(),
+			run.analysisDate()
+		).value();
+		return run.idempotencyKey().equals(legacyKey);
 	}
 
 	private PreparedDetectionRun toResult(DetectionRun run, boolean created) {

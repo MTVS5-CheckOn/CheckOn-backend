@@ -27,7 +27,7 @@ public class ScheduledDetectionJob {
 	}
 
 	public Summary run(LocalDate analysisDate) {
-		int succeeded = 0;
+		int enqueued = 0;
 		int duplicate = 0;
 		int noLearningRecords = 0;
 		int failed = 0;
@@ -37,7 +37,7 @@ public class ScheduledDetectionJob {
 				Outcome outcome = detectionRunService
 					.execute(teacherProfileId, analysisDate)
 					.outcome();
-				if (outcome == Outcome.SUCCEEDED) succeeded++;
+				if (outcome == Outcome.ENQUEUED) enqueued++;
 				else duplicate++;
 			}
 			catch (NoLearningRecordsException exception) {
@@ -55,15 +55,15 @@ public class ScheduledDetectionJob {
 			}
 		}
 
-		Summary summary = new Summary(succeeded, duplicate, noLearningRecords, failed);
-		log.info("Scheduled Detection completed: analysisDate={}, succeeded={}, duplicate={}, noLearningRecords={}, failed={}",
-			analysisDate, succeeded, duplicate, noLearningRecords, failed);
+		Summary summary = new Summary(enqueued, duplicate, noLearningRecords, failed);
+		log.info("Scheduled Detection enqueued: analysisDate={}, enqueued={}, duplicate={}, noLearningRecords={}, failed={}",
+			analysisDate, enqueued, duplicate, noLearningRecords, failed);
 		return summary;
 	}
 
-	public record Summary(int succeeded, int duplicate, int noLearningRecords, int failed) {
+	public record Summary(int enqueued, int duplicate, int noLearningRecords, int failed) {
 		public int total() {
-			return succeeded + duplicate + noLearningRecords + failed;
+			return enqueued + duplicate + noLearningRecords + failed;
 		}
 	}
 }

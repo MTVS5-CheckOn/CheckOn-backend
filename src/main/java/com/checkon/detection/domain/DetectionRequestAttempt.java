@@ -74,11 +74,11 @@ public class DetectionRequestAttempt {
 		this.status = DetectionRequestAttemptStatus.REQUESTED;
 	}
 
-	void markSucceeded(int httpStatus, Instant completedAt) {
+	void markSucceeded(Integer httpStatus, Instant completedAt) {
 		requireRequested(DetectionRequestAttemptStatus.SUCCEEDED);
-		if (httpStatus < 200 || httpStatus >= 300) {
+		if (httpStatus != null && (httpStatus < 200 || httpStatus >= 300)) {
 			throw new IllegalArgumentException(
-				"successful attempt must have a 2xx HTTP status"
+				"successful attempt HTTP status must be null or 2xx"
 			);
 		}
 		Instant completionTime = Objects.requireNonNull(

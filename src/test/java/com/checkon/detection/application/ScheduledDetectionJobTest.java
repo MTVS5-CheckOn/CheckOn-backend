@@ -29,7 +29,7 @@ class ScheduledDetectionJobTest {
 		OperationalDetectionRunService service = mock(OperationalDetectionRunService.class);
 		when(targets.findActiveTeacherProfileIds())
 			.thenReturn(List.of(success, duplicate, empty, failed));
-		when(service.execute(success, DATE)).thenReturn(result(success, Outcome.SUCCEEDED));
+		when(service.execute(success, DATE)).thenReturn(result(success, Outcome.ENQUEUED));
 		when(service.execute(duplicate, DATE))
 			.thenReturn(result(duplicate, Outcome.ALREADY_COMPLETED));
 		when(service.execute(empty, DATE)).thenThrow(new NoLearningRecordsException());
@@ -38,7 +38,7 @@ class ScheduledDetectionJobTest {
 		ScheduledDetectionJob.Summary summary =
 			new ScheduledDetectionJob(targets, service).run(DATE);
 
-		assertThat(summary.succeeded()).isEqualTo(1);
+		assertThat(summary.enqueued()).isEqualTo(1);
 		assertThat(summary.duplicate()).isEqualTo(1);
 		assertThat(summary.noLearningRecords()).isEqualTo(1);
 		assertThat(summary.failed()).isEqualTo(1);

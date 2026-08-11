@@ -11,8 +11,8 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 import com.checkon.detection.application.PrepareDetectionRunService.PreparedDetectionRun;
-import com.checkon.detection.application.RiskDetectionExecutionService.ExecutedDetectionRun;
 import com.checkon.detection.domain.DetectionRunStatus;
+import com.checkon.detection.infrastructure.kafka.AiTenantAliasService;
 import com.checkon.detection.integration.ai.dto.AiDetectionRequest;
 import com.checkon.learning.application.LearningRecordSnapshotService;
 
@@ -25,16 +25,19 @@ public class OperationalDetectionRunService {
 
 	private final LearningRecordSnapshotService snapshotService;
 	private final PrepareDetectionRunService prepareService;
-	private final RiskDetectionExecutionService executionService;
+	private final KafkaDetectionRequestService kafkaRequestService;
+	private final AiTenantAliasService tenantAliasService;
 
 	public OperationalDetectionRunService(
 		LearningRecordSnapshotService snapshotService,
 		PrepareDetectionRunService prepareService,
-		RiskDetectionExecutionService executionService
+		KafkaDetectionRequestService kafkaRequestService,
+		AiTenantAliasService tenantAliasService
 	) {
 		this.snapshotService = snapshotService;
 		this.prepareService = prepareService;
-		this.executionService = executionService;
+		this.kafkaRequestService = kafkaRequestService;
+		this.tenantAliasService = tenantAliasService;
 	}
 
 	public OperationalDetectionRun execute(UUID teacherId, LocalDate analysisDate) {
@@ -64,12 +67,10 @@ public class OperationalDetectionRunService {
 			throw new NoLearningRecordsException();
 		}
 
-		String tenantKey = DetectionTenantKey
-			.fromTeacherProfileId(teacherId)
-			.value();
+		String tenantAlias = tenantAliasService.getOrCreate(teacherId);
 		PreparedDetectionRun prepared = prepareService.prepare(
 			teacherId,
-			tenantKey,
+			tenantAlias,
 			analysisDate,
 			snapshot
 		);
@@ -86,26 +87,20 @@ public class OperationalDetectionRunService {
 			);
 		}
 
-		// snapshot 준비 트랜잭션을 끝낸 뒤 AI HTTP를 호출한다. 외부 응답을
-		// 기다리는 동안 DB 커넥션을 점유하지 않으면서 attempt 시작과 결과 저장은
-		// 기존의 짧은 트랜잭션 및 재시도 이력 규칙을 그대로 사용한다.
-		ExecutedDetectionRun executed = executionService.execute(
-			teacherId,
-			tenantKey,
-			prepared.runId()
-		);
+		KafkaDetectionRequestService.EnqueuedDetectionRequest enqueued =
+			kafkaRequestService.enqueue(teacherId, tenantAlias, prepared.runId());
 		return new OperationalDetectionRun(
 			prepared.runId(),
-			DetectionRunStatus.SUCCEEDED,
+			DetectionRunStatus.REQUESTED,
 			analysisDate,
 			prepared.created(),
-			executed.attemptNumber(),
-			Outcome.SUCCEEDED
+			enqueued.attemptNumber(),
+			Outcome.ENQUEUED
 		);
 	}
 
 	public enum Outcome {
-		SUCCEEDED,
+		ENQUEUED,
 		ALREADY_COMPLETED,
 		DUPLICATE
 	}

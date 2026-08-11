@@ -5,6 +5,19 @@ spring:
     open-in-view: false
 
 checkon:
+  kafka:
+    risk-detection:
+      enabled: false
+      requested-topic: checkon.risk-detection.requested.v1
+      completed-topic: checkon.risk-detection.completed.v1
+      failed-topic: checkon.risk-detection.failed.v1
+      consumer-group-id: checkon-backend-risk-detection-test
+      outbox-poll-delay: 1s
+      outbox-lock-timeout: 30s
+      outbox-retry-delay: 1s
+      producer-send-timeout: 1s
+      outbox-batch-size: 20
+      outbox-max-attempts: 3
   tenant:
     # Testcontainers의 관리자 연결은 fixture와 migration 준비에만 사용한다.
     # 실제 RLS 차단은 별도의 제한된 비소유 역할 통합 테스트가 검증한다.
