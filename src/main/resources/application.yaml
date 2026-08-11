@@ -13,11 +13,11 @@ spring:
     password: ${DB_PASSWORD}
 
   flyway:
-    # 운영 런타임 역할은 DDL 권한 없이 제한한다. 별도 값이 없으면 기존
-    # 단일 사용자 개발 환경과 호환되도록 datasource 자격 증명을 사용한다.
+    # Flyway는 DDL 관리자 역할만 사용한다. 관리자 자격 증명이 누락되면
+    # 런타임 역할로 대체하지 않고 시작 단계에서 설정 오류를 드러낸다.
     url: ${FLYWAY_DB_URL:${DB_URL}}
-    user: ${FLYWAY_DB_USERNAME:${DB_USERNAME}}
-    password: ${FLYWAY_DB_PASSWORD:${DB_PASSWORD}}
+    user: ${FLYWAY_DB_USER}
+    password: ${FLYWAY_DB_PASSWORD}
 
 checkon:
   security:

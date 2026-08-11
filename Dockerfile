@@ -1,53 +1,50 @@
-# =========================
-# 1. 빌드 이미지 생성 단계
-# =========================
+# syntax=docker/dockerfile:1
 
-# Gradle 9.5.1 + JDK 25가 설치된 이미지를 빌드 환경으로 사용
-# 이 단계는 실제 서버 실행용이 아니라 Spring Boot 프로젝트를 빌드하여 JAR를 만드는 용도
-FROM gradle:9.5.1-jdk25 AS build
+# ==========================================
+# 1. Build Stage
+# Spring Boot 애플리케이션을 JAR로 빌드
+# ==========================================
 
-# 이후 명령어가 실행될 작업 디렉터리 지정
-WORKDIR /home/app
+FROM eclipse-temurin:25-jdk AS builder
 
-# 현재 프로젝트의 모든 파일을 컨테이너의 /home/app으로 복사
-# 복사된 파일의 소유자를 gradle 사용자/그룹으로 지정
-COPY --chown=gradle:gradle . /home/app
+WORKDIR /workspace
 
-# Gradle Wrapper에 실행 권한을 부여한 뒤 프로젝트 빌드
-# -x test : 테스트는 실행하지 않고 빌드
-# 빌드 성공 시 /home/app/build/libs/ 아래에 JAR 파일이 생성됨
-RUN chmod +x ./gradlew && ./gradlew build -x test
+# Gradle 관련 파일을 먼저 복사
+# 소스 코드만 변경됐을 때 의존성 관련 Docker 캐시를 재사용하기 위함
+COPY gradlew settings.gradle build.gradle ./
+COPY gradle gradle
+
+# Gradle Wrapper 실행 권한 부여
+RUN chmod +x gradlew
+
+# 애플리케이션 소스 복사
+COPY src src
+
+# Spring Boot 실행용 JAR 생성
+# 테스트는 Docker 이미지 빌드 단계에서는 제외
+RUN ./gradlew --no-daemon clean bootJar -x test
 
 
-# =========================
-# 2. 실제 실행 이미지 생성 단계
-# =========================
+# ==========================================
+# 2. Runtime Stage
+# 만들어진 JAR만 가져와 실제 애플리케이션 실행
+# ==========================================
 
-# 빌드는 이미 끝났으므로 JDK/Gradle이 필요 없음
-# Java 애플리케이션 실행에 필요한 JRE 25만 포함된 이미지를 사용
 FROM eclipse-temurin:25-jre
 
-# /tmp 디렉터리를 볼륨으로 지정
-# Spring Boot/Tomcat 등이 임시 파일을 사용할 수 있는 공간
-VOLUME /tmp
+WORKDIR /app
 
-# 이 컨테이너가 8080 포트를 사용하는 애플리케이션임을 명시
-# 주의: 실제 호스트 포트를 연결하는 것은 아니며,
-# docker run -p 8080:8080 ... 등의 설정이 별도로 필요함
+# 컨테이너를 root가 아닌 일반 사용자로 실행하기 위한 계정 생성
+RUN useradd -r -u 1001 appuser
+
+# Build Stage에서 생성된 Spring Boot JAR를 복사
+COPY --from=builder /workspace/build/libs/*.jar app.jar
+
+# 이후 프로세스는 appuser 권한으로 실행
+USER appuser
+
+# Spring Boot 기본 포트
 EXPOSE 8080
 
-# build 단계에서 만들어진 JAR 파일만 현재 실행 이미지로 복사
-# 최종 이미지 안에서는 /app.jar라는 이름으로 사용
-COPY --from=build /home/app/build/libs/*.jar /app.jar
-
-# 컨테이너가 시작될 때 실행할 명령
-#
-# 실제 실행되는 명령:
-# java -Dspring.profiles.default=prod -jar /app.jar
-#
-# spring.profiles.default=prod:
-# 별도로 활성화된 Spring Profile이 없으면 prod 프로파일을 기본값으로 사용
-#
-# -jar /app.jar:
-# 앞에서 복사한 Spring Boot JAR 애플리케이션 실행
-ENTRYPOINT ["sh", "-c", "java -Dspring.profiles.default=prod -jar /app.jar"]
+# 컨테이너가 시작될 때 Spring Boot 애플리케이션 실행
+ENTRYPOINT ["java", "-Dspring.profiles.active=prod", "-jar", "/app/app.jar"]
