@@ -32,7 +32,7 @@ class DetectionSchedulerTest {
 		Method method = DetectionScheduler.class.getMethod("runDailyDetection");
 		Scheduled scheduled = method.getAnnotation(Scheduled.class);
 
-		assertThat(scheduled.cron()).isEqualTo("0 0 2 * * *");
+		assertThat(scheduled.cron()).isEqualTo("0 10 2 * * *");
 		assertThat(scheduled.zone()).isEqualTo("Asia/Seoul");
 	}
 }

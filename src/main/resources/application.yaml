@@ -40,3 +40,8 @@ checkon:
     detect-path: ${AI_DETECT_PATH:/v1/detect}
     connect-timeout: ${AI_CONNECT_TIMEOUT:2s}
     read-timeout: ${AI_READ_TIMEOUT:10s}
+    detection:
+      consent:
+        # 동의 UI·저장 기능이 아직 없는 구현/시연 단계의 명시적 임시 정책이다.
+        # 동의 기능 배포 시 REQUIRE_RECORDED_GRANT로 전환한다.
+        mode: ${AI_DETECTION_CONSENT_MODE:PRE_CONSENT_ALLOW_ALL}

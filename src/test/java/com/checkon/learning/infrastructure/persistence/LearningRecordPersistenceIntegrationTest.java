@@ -138,6 +138,8 @@ class LearningRecordPersistenceIntegrationTest {
 		assertThat(json).doesNotContain("Visible Student Name").doesNotContain(STUDENT.toString());
 		assertThat(first.students()).singleElement().satisfies(student ->
 			assertThat(student.studentRef()).matches("st_[0-9a-f]{32}"));
+		assertThat(first.students()).extracting(student -> student.consent())
+			.containsOnly("granted");
 		assertThat(first.alertContext()).isEmpty();
 
 		LearningRecord record = records.findAllByTeacherIdAndOccurredAtGreaterThanEqualAndOccurredAtLessThan(
