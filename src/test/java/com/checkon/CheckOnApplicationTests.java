@@ -6,6 +6,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -71,6 +72,7 @@ class CheckOnApplicationTests {
 	}
 
 	@Test
+	@DisplayName("Given Flyway가 실행되면 When 현재 스키마를 조회할 때 Then 문제 출제 Kafka 경계까지 생성한다")
 	void flywayCreatesCurrentApplicationTables() {
 		String detectionRuns = jdbcTemplate.queryForObject(
 			"SELECT to_regclass('public.detection_runs')::text",
@@ -108,6 +110,26 @@ class CheckOnApplicationTests {
 			"SELECT to_regclass('public.detection_student_status_history')::text",
 			String.class
 		);
+		String problemGenerationRequests = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.problem_generation_requests')::text",
+			String.class
+		);
+		String problemGenerationOutbox = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.problem_generation_outbox')::text",
+			String.class
+		);
+		String problemGenerationConsumedEvents = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.problem_generation_consumed_events')::text",
+			String.class
+		);
+		String aiTenantAliases = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.ai_tenant_aliases')::text",
+			String.class
+		);
+		String aiClassAliases = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.ai_class_aliases')::text",
+			String.class
+		);
 		Integer classManagementColumns = jdbcTemplate.queryForObject("""
 			SELECT count(*)
 			FROM information_schema.columns
@@ -126,11 +148,16 @@ class CheckOnApplicationTests {
 		assertThat(assignmentEvidenceProjection)
 			.isEqualTo("detection_assignment_week_summaries");
 		assertThat(statusEvidenceHistory).isEqualTo("detection_student_status_history");
+		assertThat(problemGenerationRequests).isEqualTo("problem_generation_requests");
+		assertThat(problemGenerationOutbox).isEqualTo("problem_generation_outbox");
+		assertThat(problemGenerationConsumedEvents).isEqualTo("problem_generation_consumed_events");
+		assertThat(aiTenantAliases).isEqualTo("ai_tenant_aliases");
+		assertThat(aiClassAliases).isEqualTo("ai_class_aliases");
 		assertThat(classManagementColumns).isEqualTo(2);
 		assertThat(jdbcTemplate.queryForObject(
 			"SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1",
 			String.class
-		)).isEqualTo("15");
+		)).isEqualTo("16");
 	}
 
 	@Test

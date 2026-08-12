@@ -449,6 +449,45 @@
 - 남은 범위: 실제 동의 테이블, 프론트엔드 결과 수신 API, 동의·철회 시각과 약관 버전, 동의 변경 시 기존 Detection 재시도·보존 정책은 후속 동의 기능 범위에서 결정·구현한다.
 - 마지막 검증일: 2026-08-12
 
+### Problem Generation·AI 연동
+
+#### PG-001 v1 문제 출제 범위와 책임 경계
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `PARTIAL`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `EXTERNAL_CONTRACT`
+- v1 입력: 강사가 목표를 직접 선택하는 `teacher_manual`, 문법 `language`, 객관식 `mcq`, 지문 없음만 허용한다. 백엔드 API의 문항 수 상한은 초기 운영 안전값인 10개다.
+- 책임 경계: 백엔드는 인증·테넌트 소유권·alias 변환·요청 저장·결과 미러링·강사 검토·발행을 소유한다. AI는 생성·검증 결과만 소유하며 AI 검증 상태는 강사 승인 상태가 아니다.
+- 개인정보: Kafka와 AI payload에는 학생·강사 실명, 연락처, 내부 학생·반 UUID를 넣지 않는다. `tn_`, `st_`, `cl_` opaque alias만 사용한다.
+- 현재 제한: 약점 자동 출제, 스킬 taxonomy 조회, 문항 상세·수정·교체·삭제, 승인·발행은 최신 계약이 없어 이번 구현 범위에서 제외한다.
+- 마지막 검증일: 2026-08-12
+
+#### PG-002 Kafka 요청·결과 전달과 신뢰성
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `EXTERNAL_CONTRACT`, `CODE_CONFIRMED`
+- 요청 전달: 문제 출제 요청과 Outbox 행을 한 DB 트랜잭션으로 저장하고 Kafka 발행은 트랜잭션 밖에서 수행한다. 발행 성공 표시가 유실되면 같은 `event_id`가 재발행될 수 있다.
+- 결과 처리: Consumer는 `event_id` 영속 기록과 요청 상태 전이를 함께 사용해 중복 이벤트를 멱등 처리한다. terminal 상태를 반대 결과로 덮어쓰지 않는다.
+- 실패 처리: 일시 장애는 제한 재시도하고, 계약 위반 이벤트는 재시도하지 않고 DLT로 보낸다. Outbox 발행은 제한 횟수 뒤 `DEAD`로 보존하며 요청은 `DELIVERY_FAILED`로 표시하되 늦게 도착한 정당한 결과는 수용할 수 있다.
+- 추적: `event_id`, `correlation_id=problem_request_id`, `causation_id`, AI `job_id`, `execution_id`, `set_id`, backend·AI 멱등 키를 구분한다.
+- 설정 경계: 토픽·consumer group·재시도 관련 운영값은 환경 설정으로 분리한다. Broker TLS/SASL·ACL·파티션 수·보존 기간은 배포 전에 확정한다.
+- 코드 근거:
+  - `src/main/java/com/checkon/problem/integration/kafka`
+  - `src/main/java/com/checkon/problem/infrastructure/outbox`
+  - `src/main/resources/db/migration/V16__create_problem_generation_kafka_boundary.sql`
+- 마지막 검증일: 2026-08-12
+
+#### PG-003 불완전한 AI 결과 계약의 보존 정책
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `EXTERNAL_CONTRACT`
+- 정책: 현재 완료 계약만으로 문두·선지·정답·해설 전체를 보장할 수 없으므로 AI 결과와 versions를 `jsonb` 원문으로 원자적으로 저장하고, 안정된 후속 계약에서 별도 문항 read model로 투영한다.
+- 금지 사항: 원문에 없는 문항 상세를 추론해 만들거나 AI `verified`를 강사 승인·학생 발행으로 간주하지 않는다.
+- 연계 조건: AI 결과 이벤트는 backend `problem_request_id` 또는 같은 값을 가리키는 `correlation_id`를 반드시 되돌려줘야 한다. 없거나 tenant alias가 다르면 DLT 대상이다.
+- 마지막 검증일: 2026-08-12
+
 ### Frontend·UX
 
 #### SCREEN-PAGE-001 화면 목록 페이지와 안정 정렬
@@ -581,6 +620,7 @@
 
 | 날짜 | 변경 | 검증 |
 | --- | --- | --- |
+| 2026-08-12 | PG-001~003 문제 출제 v1 경계, Kafka Outbox·멱등 결과 소비·원문 결과 보존 정책 등록 및 구현 | 문제 출제 REST·Outbox·Kafka·DLT·RLS·OpenAPI BDD 집중 테스트와 최신 dev 기준 전체 200건 테스트, Gradle 빌드 통과 |
 | 2026-08-09 | SCREEN-CLASS-001·002 구현 완료, SCREEN-PAGE-001 클래스 목록 범위 구현 및 팀 공유 문서 추가 | 클래스 관리·Flyway·RLS·OpenAPI 집중 테스트 39건 통과. `gradlew clean build` 전체 173건 통과 |
 | 2026-08-09 | SCREEN-CLASS-001·002와 SCREEN-PAGE-001 승인 정책 등록, ROS-003 구현 상태 정정 및 중복 SEC-003을 SEC-004로 정정 | 사용자 승인 대화와 현재 정책·스키마를 정적 대조. 기능 구현 전 상태 기록 |
 | 2026-08-06 | LR-003 구현 상태 정정 및 LR-005~LR-009 Import 프로파일링·매핑 확정·검증·결과·미확정 계약 정책 등록 | 정책 레지스트리, Gap 분석, 현재 백엔드 Import 구현 부재를 정적 대조. 코드·테스트 변경 없음 |

@@ -15,6 +15,7 @@ import javax.sql.DataSource;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -86,6 +87,18 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 	private static final UUID REMINDER_B = UUID.fromString("019846dc-7c00-7000-8000-0000000010b2");
 	private static final UUID STATUS_HISTORY_A = UUID.fromString("019846dc-7c00-7000-8000-0000000010c1");
 	private static final UUID STATUS_HISTORY_B = UUID.fromString("019846dc-7c00-7000-8000-0000000010c2");
+	private static final UUID CLASS_ALIAS_A = UUID.fromString("019846dc-7c00-7000-8000-0000000010d1");
+	private static final UUID CLASS_ALIAS_B = UUID.fromString("019846dc-7c00-7000-8000-0000000010d2");
+	private static final UUID PROBLEM_REQUEST_A = UUID.fromString("019846dc-7c00-7000-8000-0000000010e1");
+	private static final UUID PROBLEM_REQUEST_B = UUID.fromString("019846dc-7c00-7000-8000-0000000010e2");
+	private static final UUID PROBLEM_OUTBOX_A = UUID.fromString("019846dc-7c00-7000-8000-0000000010f1");
+	private static final UUID PROBLEM_OUTBOX_B = UUID.fromString("019846dc-7c00-7000-8000-0000000010f2");
+	private static final UUID PROBLEM_EVENT_A = UUID.fromString("019846dc-7c00-7000-8000-000000001101");
+	private static final UUID PROBLEM_EVENT_B = UUID.fromString("019846dc-7c00-7000-8000-000000001102");
+	private static final String TENANT_REF_A = "tn_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+	private static final String TENANT_REF_B = "tn_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+	private static final String CLASS_REF_A = "cl_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+	private static final String CLASS_REF_B = "cl_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 	private static final String RESTRICTED_ROLE = "checkon_rls_test_runtime";
 
 	@Container
@@ -126,11 +139,19 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			   student_personal_information,
 			   engagement_alerts,
 			   interventions,
-			   intervention_reminders
+			   intervention_reminders,
+			   ai_class_aliases,
+			   problem_generation_requests,
+			   problem_generation_outbox,
+			   problem_generation_consumed_events
 			TO checkon_rls_test_runtime
 			""");
 		administrator.execute("""
 			GRANT EXECUTE ON FUNCTION current_checkon_teacher_id()
+			TO checkon_rls_test_runtime
+			""");
+		administrator.execute("""
+			GRANT EXECUTE ON FUNCTION resolve_problem_generation_teacher(UUID, VARCHAR)
 			TO checkon_rls_test_runtime
 			""");
 
@@ -157,6 +178,7 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 	}
 
 	@Test
+	@DisplayName("Given 제한된 DB 역할일 때 When 보호 테이블 메타데이터를 조회하면 Then 모든 테이블에 RLS와 정책이 강제된다")
 	void enablesAndForcesRlsWithPoliciesForARestrictedNonOwnerRole() throws Exception {
 		try (Connection connection = restrictedDataSource.getConnection();
 			 Statement statement = connection.createStatement()) {
@@ -189,11 +211,14 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'detection_student_status_history',
 				    'ai_student_aliases',
 				    'student_personal_information',
-				    'engagement_alerts','interventions','intervention_reminders'
+				    'engagement_alerts','interventions','intervention_reminders',
+				    'ai_class_aliases',
+				    'problem_generation_requests','problem_generation_outbox',
+				    'problem_generation_consumed_events'
 				  )
 				  AND table_metadata.relrowsecurity
 				  AND table_metadata.relforcerowsecurity
-				""")).isEqualTo(15);
+				""")).isEqualTo(19);
 			assertThat(queryInt(statement, """
 				SELECT count(*) FROM pg_policies
 				WHERE schemaname = 'public'
@@ -210,9 +235,12 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'detection_student_status_history',
 				    'ai_student_aliases',
 				    'student_personal_information',
-				    'engagement_alerts','interventions','intervention_reminders'
+				    'engagement_alerts','interventions','intervention_reminders',
+				    'ai_class_aliases',
+				    'problem_generation_requests','problem_generation_outbox',
+				    'problem_generation_consumed_events'
 				  )
-				""")).isEqualTo(60);
+				""")).isEqualTo(76);
 			assertThat(queryInt(statement, """
 				SELECT count(*)
 				FROM pg_class table_metadata
@@ -227,6 +255,7 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 	}
 
 	@Test
+	@DisplayName("Given 제한된 DB 역할일 때 When 테넌트 컨텍스트를 바꾸면 Then 문제 출제 행을 포함한 모든 행이 격리된다")
 	void deniesEveryOperationWithoutTenantAndIsolatesDirectAndInheritedRows()
 		throws Exception {
 		try (Connection connection = restrictedDataSource.getConnection()) {
@@ -239,6 +268,10 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThat(count(connection, "ai_student_aliases")).isZero();
 			assertThat(count(connection, "student_personal_information")).isZero();
 			assertThat(count(connection, "engagement_alerts")).isZero();
+			assertThat(count(connection, "ai_class_aliases")).isZero();
+			assertThat(count(connection, "problem_generation_requests")).isZero();
+			assertThat(count(connection, "problem_generation_outbox")).isZero();
+			assertThat(count(connection, "problem_generation_consumed_events")).isZero();
 			assertThat(update(connection,
 				"UPDATE class_groups SET name = 'blocked' WHERE id = ?", CLASS_A
 			)).isZero();
@@ -282,6 +315,14 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			)).isZero();
 			assertThat(ids(connection, "interventions")).containsExactly(INTERVENTION_A);
 			assertThat(ids(connection, "intervention_reminders")).containsExactly(REMINDER_A);
+			assertThat(ids(connection, "ai_class_aliases")).containsExactly(CLASS_ALIAS_A);
+			assertThat(ids(connection, "problem_generation_requests")).containsExactly(PROBLEM_REQUEST_A);
+			assertThat(ids(connection, "problem_generation_outbox")).containsExactly(PROBLEM_OUTBOX_A);
+			assertThat(problemEventIds(connection)).containsExactly(PROBLEM_EVENT_A);
+			assertThat(resolveProblemTeacher(connection, PROBLEM_REQUEST_A, TENANT_REF_A))
+				.contains(TEACHER_A);
+			assertThat(resolveProblemTeacher(connection, PROBLEM_REQUEST_A, TENANT_REF_B))
+				.isEmpty();
 			assertThat(count(connection, "detection_result_evidence")).isEqualTo(1);
 			UUID ownClass = UUID.randomUUID();
 			insertClass(connection, ownClass, TEACHER_A, "allowed own class");
@@ -343,6 +384,16 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThat(update(connection,"UPDATE engagement_alerts SET updated_at=now() WHERE id=?",ALERT_B)).isZero();
 			assertThat(update(connection,"DELETE FROM interventions WHERE id=?",INTERVENTION_B)).isZero();
 			assertThat(update(connection,"UPDATE intervention_reminders SET scheduled_at=now() WHERE id=?",REMINDER_B)).isZero();
+			assertThat(update(connection,
+				"UPDATE problem_generation_requests SET error_code = 'blocked' WHERE id = ?",
+				PROBLEM_REQUEST_B
+			)).isZero();
+			assertThat(update(connection,
+				"DELETE FROM problem_generation_outbox WHERE id = ?", PROBLEM_OUTBOX_B
+			)).isZero();
+			assertThat(update(connection,
+				"DELETE FROM ai_class_aliases WHERE id = ?", CLASS_ALIAS_A
+			)).isZero();
 			insertLearningRecord(connection, UUID.randomUUID(), TEACHER_A, STUDENT_A);
 			assertThatThrownBy(() -> insertLearningRecord(
 				connection, UUID.randomUUID(), TEACHER_B, STUDENT_B))
@@ -381,6 +432,7 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 	}
 
 	@Test
+	@DisplayName("Given 연결이 풀에서 재사용될 때 When 커밋하거나 롤백하면 Then 이전 테넌트 컨텍스트가 남지 않는다")
 	void preventsOwnershipTransferAndClearsContextAfterCommitAndRollback()
 		throws Exception {
 		long backendPid;
@@ -498,6 +550,58 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			STATUS_HISTORY_B, TEACHER_B, STUDENT_B, now, now);
 		insertEngagementFixture(ALERT_A, INTERVENTION_A, REMINDER_A, TEACHER_A, STUDENT_A, SIGNAL_A);
 		insertEngagementFixture(ALERT_B, INTERVENTION_B, REMINDER_B, TEACHER_B, STUDENT_B, SIGNAL_B);
+		insertProblemGenerationFixture(
+			CLASS_ALIAS_A, PROBLEM_REQUEST_A, PROBLEM_OUTBOX_A,
+			PROBLEM_EVENT_A, TEACHER_A, CLASS_A, TENANT_REF_A, CLASS_REF_A, "a"
+		);
+		insertProblemGenerationFixture(
+			CLASS_ALIAS_B, PROBLEM_REQUEST_B, PROBLEM_OUTBOX_B,
+			PROBLEM_EVENT_B, TEACHER_B, CLASS_B, TENANT_REF_B, CLASS_REF_B, "b"
+		);
+	}
+
+	private void insertProblemGenerationFixture(
+		UUID classAliasId,
+		UUID requestId,
+		UUID outboxId,
+		UUID eventId,
+		UUID teacherId,
+		UUID classId,
+		String tenantAlias,
+		String classAlias,
+		String suffix
+	) {
+		administrator.update("""
+			INSERT INTO ai_tenant_aliases (teacher_id, alias, created_at)
+			VALUES (?, ?, now())
+			""", teacherId, tenantAlias);
+		administrator.update("""
+			INSERT INTO ai_class_aliases
+			    (id, teacher_id, class_group_id, alias, created_at)
+			VALUES (?, ?, ?, ?, now())
+			""", classAliasId, teacherId, classId, classAlias);
+		administrator.update("""
+			INSERT INTO problem_generation_requests (
+			    id, teacher_id, tenant_alias, target_kind, class_group_id,
+			    target_ref, client_idempotency_key, ai_idempotency_key,
+			    snapshot_hash, request_payload, status, requested_at, updated_at
+			) VALUES (?, ?, ?, 'CLASS', ?, ?, ?, ?, ?, '{}', 'QUEUED', now(), now())
+			""", requestId, teacherId, tenantAlias, classId, classAlias,
+			"rls-problem-" + suffix, "pg_" + suffix.repeat(32),
+			"sha256:" + suffix.repeat(64));
+		administrator.update("""
+			INSERT INTO problem_generation_outbox (
+			    id, teacher_id, problem_request_id, event_type, schema_version,
+			    event_key, payload, status, next_attempt_at, created_at
+			) VALUES (?, ?, ?, 'problem_generation.requested', 'pg-request-1',
+			          ?, '{}', 'PENDING', now(), now())
+			""", outboxId, teacherId, requestId, tenantAlias);
+		administrator.update("""
+			INSERT INTO problem_generation_consumed_events (
+			    event_id, teacher_id, problem_request_id, event_type,
+			    payload_hash, consumed_at
+			) VALUES (?, ?, ?, 'problem_generation.running', ?, now())
+			""", eventId, teacherId, requestId, "sha256:" + suffix.repeat(64));
 	}
 
 	private void insertEngagementFixture(UUID alert, UUID intervention, UUID reminder,
@@ -603,6 +707,37 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				ids.add(result.getObject(1, UUID.class));
 			}
 			return ids;
+		}
+	}
+
+	private java.util.List<UUID> problemEventIds(Connection connection)
+		throws SQLException {
+		try (Statement statement = connection.createStatement();
+			 ResultSet result = statement.executeQuery(
+				 "SELECT event_id FROM problem_generation_consumed_events ORDER BY event_id"
+			 )) {
+			java.util.List<UUID> ids = new java.util.ArrayList<>();
+			while (result.next()) {
+				ids.add(result.getObject(1, UUID.class));
+			}
+			return ids;
+		}
+	}
+
+	private java.util.Optional<UUID> resolveProblemTeacher(
+		Connection connection,
+		UUID requestId,
+		String tenantAlias
+	) throws SQLException {
+		try (PreparedStatement statement = connection.prepareStatement(
+			"SELECT resolve_problem_generation_teacher(?, ?)"
+		)) {
+			statement.setObject(1, requestId);
+			statement.setString(2, tenantAlias);
+			try (ResultSet result = statement.executeQuery()) {
+				result.next();
+				return java.util.Optional.ofNullable(result.getObject(1, UUID.class));
+			}
 		}
 	}
 

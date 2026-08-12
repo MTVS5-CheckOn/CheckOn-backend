@@ -12,13 +12,17 @@ spring:
         enable.idempotence: true
         # 40명 evidence snapshot(약 1.59 MiB)과 Kafka envelope를 수용한다.
         max.request.size: 3145728
+        max.in.flight.requests.per.connection: 5
     consumer:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       enable-auto-commit: false
+      auto-offset-reset: earliest
       properties:
         isolation.level: read_committed
         max.partition.fetch.bytes: 3145728
+    listener:
+      ack-mode: record
 
   jpa:
     hibernate:
@@ -63,6 +67,18 @@ checkon:
         # 동의 UI·저장 기능이 아직 없는 구현/시연 단계의 명시적 임시 정책이다.
         # 동의 기능 배포 시 REQUIRE_RECORDED_GRANT로 전환한다.
         mode: ${AI_DETECTION_CONSENT_MODE:PRE_CONSENT_ALLOW_ALL}
+    problem-generation:
+      kafka:
+        enabled: ${AI_PROBLEM_KAFKA_ENABLED:false}
+        request-topic: ${AI_PROBLEM_REQUEST_TOPIC:checkon.ai.problem-generation.requests.v1}
+        result-topic: ${AI_PROBLEM_RESULT_TOPIC:checkon.ai.problem-generation.results.v1}
+        dead-letter-topic: ${AI_PROBLEM_DLT_TOPIC:checkon.backend.problem-generation.results.dlt.v1}
+        consumer-group: ${AI_PROBLEM_CONSUMER_GROUP:checkon-backend-problem-generation-v1}
+        outbox-batch-size: ${AI_PROBLEM_OUTBOX_BATCH_SIZE:20}
+        outbox-max-attempts: ${AI_PROBLEM_OUTBOX_MAX_ATTEMPTS:5}
+        outbox-publish-timeout: ${AI_PROBLEM_OUTBOX_PUBLISH_TIMEOUT:10s}
+        stale-claim-after: ${AI_PROBLEM_STALE_CLAIM_AFTER:1m}
+        outbox-poll-delay: ${AI_PROBLEM_OUTBOX_POLL_DELAY:1s}
   kafka:
     risk-detection:
       enabled: ${CHECKON_KAFKA_ENABLED:true}
