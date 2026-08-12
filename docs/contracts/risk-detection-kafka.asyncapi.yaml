@@ -285,6 +285,10 @@ components:
                   display_label: { type: string }
                   score: { type: number }
                   rank: { type: integer }
+                  advisory:
+                    type: boolean
+                    default: false
+                    description: Student-detail reference only; never creates an Alert or Todo.
                   lifecycle: { type: string }
                   brief:
                     type: object

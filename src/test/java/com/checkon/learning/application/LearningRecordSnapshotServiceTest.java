@@ -19,6 +19,7 @@ import com.checkon.detection.application.AiDetectionConsentPolicy;
 import com.checkon.detection.application.PrepareDetectionRunService;
 import com.checkon.detection.infrastructure.persistence.DetectionEvidenceProjectionRepository;
 import com.checkon.detection.integration.ai.AiDetectionConsentProperties;
+import com.checkon.engagement.application.EngagementAlertContextService;
 import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 import com.checkon.learning.domain.LearningRecord;
 import com.checkon.learning.domain.LearningRecordType;
@@ -47,6 +48,7 @@ class LearningRecordSnapshotServiceTest {
 		assertThat(snapshot.students()).singleElement().satisfies(student -> {
 			assertThat(student.studentRef()).isEqualTo("st_demo_student");
 			assertThat(student.consent()).isEqualTo("granted");
+			assertThat(student.status()).isEqualTo("paused");
 		});
 		assertThat(snapshot.learningEvents()).singleElement();
 		assertThat(snapshot.snapshotMeta().classes()).singleElement();
@@ -93,7 +95,55 @@ class LearningRecordSnapshotServiceTest {
 		verifyNoInteractions(fixture.aliases());
 	}
 
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 종료 학생의 과거 기록, When 스냅샷을 만들면, Then 학생과 기록을 AI 요청에서 제외한다")
+	void givenEndedStudentHistory_whenBuildingSnapshot_thenExcludesFormerStudent() {
+		Fixture fixture = fixture(AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true, false);
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.students()).isEmpty();
+		assertThat(snapshot.learningEvents()).isEmpty();
+		assertThat(snapshot.detectionEvidence()).isEmpty();
+		assertThat(snapshot.alertContext()).isEmpty();
+		verifyNoInteractions(fixture.aliases());
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 기존 해결 경보, When 스냅샷을 만들면, Then AI alias 기반 alert_context를 채운다")
+	void givenResolvedAlertHistory_whenBuildingSnapshot_thenAddsPseudonymousAlertContext() {
+		Fixture fixture = fixture(AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true);
+		when(fixture.alertContexts().latestByStudentAndSignalType(TEACHER)).thenReturn(List.of(
+			new EngagementAlertContextService.AlertHistory(
+				STUDENT, "hidden_risk", "resolved", Instant.parse("2026-08-05T10:00:00Z"), true
+			)
+		));
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.alertContext()).singleElement().satisfies(context -> {
+			assertThat(context.studentRef()).isEqualTo("st_demo_student");
+			assertThat(context.signalType()).isEqualTo("hidden_risk");
+			assertThat(context.status()).isEqualTo("resolved");
+			assertThat(context.resolvedAt().toInstant())
+				.isEqualTo(Instant.parse("2026-08-05T10:00:00Z"));
+			assertThat(context.followedUp()).isTrue();
+		});
+	}
+
 	private Fixture fixture(AiDetectionConsentMode mode, boolean includeRecord) {
+		return fixture(mode, includeRecord, true);
+	}
+
+	private Fixture fixture(
+		AiDetectionConsentMode mode,
+		boolean includeRecord,
+		boolean activeRelationship
+	) {
 		LearningRecordRepository records = mock(LearningRecordRepository.class);
 		ClassEnrollmentRepository enrollments = mock(ClassEnrollmentRepository.class);
 		TeacherStudentRelationshipRepository relationships = mock(
@@ -102,6 +152,7 @@ class LearningRecordSnapshotServiceTest {
 		DetectionEvidenceProjectionRepository evidenceProjections = mock(
 			DetectionEvidenceProjectionRepository.class
 		);
+		EngagementAlertContextService alertContexts = mock(EngagementAlertContextService.class);
 		AiStudentAliasService aliases = mock(AiStudentAliasService.class);
 		PrepareDetectionRunService prepareService = mock(PrepareDetectionRunService.class);
 		TeacherTenantDatabaseContext tenantContext = mock(TeacherTenantDatabaseContext.class);
@@ -112,10 +163,11 @@ class LearningRecordSnapshotServiceTest {
 		)).thenReturn(includeRecord ? List.of(record) : List.of());
 		when(enrollments.findAllByTeacherIdAndStatus(TEACHER, RelationshipStatus.ACTIVE))
 			.thenReturn(List.of());
+		when(alertContexts.latestByStudentAndSignalType(TEACHER)).thenReturn(List.of());
 		when(relationships.findAllByTeacherIdAndStatus(TEACHER, RelationshipStatus.ACTIVE))
-			.thenReturn(List.of(TeacherStudentRelationship.start(
+			.thenReturn(activeRelationship ? List.of(TeacherStudentRelationship.start(
 				TEACHER, STUDENT, FROM.minusSeconds(60), FROM.minusSeconds(60)
-			)));
+			)) : List.of());
 		if (mode == AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL) {
 			when(aliases.getOrCreate(TEACHER, STUDENT)).thenReturn("st_demo_student");
 		}
@@ -124,9 +176,10 @@ class LearningRecordSnapshotServiceTest {
 			new AiDetectionConsentProperties(mode)
 		);
 		return new Fixture(new LearningRecordSnapshotService(
-			records, enrollments, relationships, evidenceProjections, aliases, consentPolicy,
+			records, enrollments, relationships, evidenceProjections, alertContexts, aliases,
+			consentPolicy,
 			prepareService, tenantContext
-		), aliases);
+		), aliases, alertContexts);
 	}
 
 	private LearningRecord record() {
@@ -141,6 +194,10 @@ class LearningRecordSnapshotServiceTest {
 		return record;
 	}
 
-	private record Fixture(LearningRecordSnapshotService service, AiStudentAliasService aliases) {
+	private record Fixture(
+		LearningRecordSnapshotService service,
+		AiStudentAliasService aliases,
+		EngagementAlertContextService alertContexts
+	) {
 	}
 }

@@ -252,7 +252,7 @@ paths:
       tags: [Engagement]
       operationId: getEngagementAlertDetail
       summary: Alert 상세 조회
-      description: Alert 상태 정보와 생성순 Evidence를 반환한다.
+      description: alertId 하나로 학생·반·신호 표시 정보와 생성순 Evidence를 반환한다.
       parameters: [{$ref: '#/components/parameters/AlertId'}]
       responses:
         '200':
@@ -261,7 +261,17 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/AlertDetail'}
               example:
-                alert: {id: 0198f000-0000-7000-8000-000000000101, studentId: 0198f000-0000-7000-8000-000000000003, detectionSignalResultId: 0198f000-0000-7000-8000-000000000201, status: PENDING_REVIEW, decisionNote: null, decidedAt: null, createdAt: '2026-08-05T00:00:00Z'}
+                alertId: 0198f000-0000-7000-8000-000000000101
+                studentId: 0198f000-0000-7000-8000-000000000003
+                studentName: 김서연
+                className: 고1 수능 국어반
+                ruleId: R4
+                signalType: hidden_risk
+                displayLabel: 숨은 신호 · 풀이시간 급증
+                brief: 최근 풀이시간이 개인 기준보다 증가했습니다.
+                briefFallback: false
+                status: PENDING_REVIEW
+                createdAt: '2026-08-05T00:00:00Z'
                 evidence: [{id: 0198f000-0000-7000-8000-000000000301, sourceHint: learning_records, recordId: record-1, summary: 근거}]
         '404': {$ref: '#/components/responses/EngagementNotFound'}
         '401': {$ref: '#/components/responses/Unauthorized'}
@@ -679,17 +689,20 @@ components:
         reminders: {type: array, items: {$ref: '#/components/schemas/DashboardReminder'}}
     DashboardAlert:
       type: object
-      required: [alertId, studentId, studentName, ruleId, signalType, rank, brief, briefFallback, status, evidence]
+      required: [alertId, studentId, studentName, className, ruleId, signalType, displayLabel, rank, brief, briefFallback, status, createdAt, evidence]
       properties:
         alertId: {type: string, format: uuid}
         studentId: {type: string, format: uuid}
         studentName: {type: string, nullable: true, description: key는 존재하며 미등록 시 null. alias로 대체하지 않는다.}
+        className: {type: string, nullable: true, description: 신호 class_ref를 현재 강사 소유 반으로 해석하지 못하면 null.}
         ruleId: {type: string}
         signalType: {type: string}
+        displayLabel: {type: string}
         rank: {type: integer, format: int32}
         brief: {type: string}
         briefFallback: {type: boolean}
         status: {$ref: '#/components/schemas/AlertStatus'}
+        createdAt: {type: string, format: date-time}
         evidence: {type: array, minItems: 1, items: {$ref: '#/components/schemas/DashboardEvidence'}}
     DashboardEvidence:
       type: object
@@ -697,11 +710,13 @@ components:
       properties: {recordId: {type: string}, summary: {type: string}}
     DashboardTodo:
       type: object
-      required: [todoId, kind, text, ref, dueDate, done]
+      required: [todoId, kind, text, displayLabel, createdAt, ref, dueDate, done]
       properties:
         todoId: {type: string, format: uuid}
         kind: {type: string, enum: [ALERT_FOLLOW_UP]}
         text: {type: string}
+        displayLabel: {type: string}
+        createdAt: {type: string, format: date-time}
         ref: {$ref: '#/components/schemas/DashboardTodoRef'}
         dueDate: {type: string, format: date}
         done: {type: boolean, enum: [false]}
@@ -752,9 +767,19 @@ components:
         createdAt: {type: string, format: date-time}
     AlertDetail:
       type: object
-      required: [alert, evidence]
+      required: [alertId, studentId, studentName, className, ruleId, signalType, displayLabel, brief, briefFallback, status, createdAt, evidence]
       properties:
-        alert: {$ref: '#/components/schemas/AlertView'}
+        alertId: {type: string, format: uuid}
+        studentId: {type: string, format: uuid}
+        studentName: {type: string, nullable: true, description: key는 존재하며 미등록 시 null. alias로 대체하지 않는다.}
+        className: {type: string, nullable: true, description: 신호 class_ref를 현재 강사 소유 반으로 해석하지 못하면 null.}
+        ruleId: {type: string}
+        signalType: {type: string}
+        displayLabel: {type: string}
+        brief: {type: string}
+        briefFallback: {type: boolean}
+        status: {$ref: '#/components/schemas/AlertStatus'}
+        createdAt: {type: string, format: date-time}
         evidence: {type: array, items: {$ref: '#/components/schemas/EvidenceView'}}
     EvidenceView:
       type: object

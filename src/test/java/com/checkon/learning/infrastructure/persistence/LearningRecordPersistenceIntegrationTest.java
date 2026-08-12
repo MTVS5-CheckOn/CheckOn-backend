@@ -183,7 +183,8 @@ class LearningRecordPersistenceIntegrationTest {
 	}
 
 	@Test
-	void keepsTeacherOwnedHistoricalRecordsAfterTheStudentRelationshipEnds() {
+	@org.junit.jupiter.api.DisplayName("Given 종료 학생의 과거 기록, When 현재 스냅샷을 만들면, Then DB 기록은 보존하고 AI 요청에서는 제외한다")
+	void keepsHistoricalRecordButExcludesFormerStudentFromCurrentAiSnapshot() {
 		saveService.save(TEACHER, draft(null, FROM.plusSeconds(10), true));
 		jdbc.update("""
 			UPDATE teacher_student_relationships
@@ -199,11 +200,13 @@ class LearningRecordPersistenceIntegrationTest {
 			FROM.plusSeconds(100)
 		);
 
-		assertThat(snapshot.learningEvents()).hasSize(1);
-		assertThat(snapshot.students()).singleElement().satisfies(student -> {
-			assertThat(student.status()).isEqualTo("recorded");
-			assertThat(student.enrolledWeeks()).isZero();
-		});
+		assertThat(jdbc.queryForObject("""
+			SELECT count(*) FROM learning_records
+			WHERE teacher_id = ? AND student_id = ?
+			""", Integer.class, TEACHER, STUDENT)).isOne();
+		assertThat(snapshot.students()).isEmpty();
+		assertThat(snapshot.learningEvents()).isEmpty();
+		assertThat(snapshot.detectionEvidence()).isEmpty();
 	}
 
 	private LearningRecord.Draft draft(String external, Instant occurredAt, Boolean correct) {
