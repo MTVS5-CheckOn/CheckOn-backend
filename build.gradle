@@ -29,6 +29,7 @@ dependencies {
     // Spring Kafka client alone does not create KafkaTemplate. The Boot starter
     // adds Kafka auto-configuration required by @RetryableTopic/DLT listeners.
     implementation 'org.springframework.boot:spring-boot-starter-kafka'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
 
     compileOnly 'org.projectlombok:lombok'
     runtimeOnly 'org.postgresql:postgresql'

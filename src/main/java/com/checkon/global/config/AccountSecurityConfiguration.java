@@ -82,6 +82,12 @@ public class AccountSecurityConfiguration {
 		// 공격 대상이 아니다. JWT 필터가 서명과 현재 DB 세션을 모두 확인한다.
 		return http
 			.authorizeHttpRequests(authorize -> authorize
+				.requestMatchers(
+					"/swagger-ui.html",
+					"/swagger-ui/**",
+					"/v3/api-docs/**",
+					"/openapi/**"
+				).permitAll()
 				.requestMatchers("/api/v1/dashboard/**").hasRole("TEACHER")
 				.requestMatchers("/api/v1/classes/**").hasRole("TEACHER")
 				.requestMatchers("/api/v1/students/**").hasRole("TEACHER")
