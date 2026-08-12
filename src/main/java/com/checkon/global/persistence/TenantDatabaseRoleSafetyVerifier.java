@@ -24,7 +24,7 @@ import org.springframework.stereotype.Component;
 )
 public class TenantDatabaseRoleSafetyVerifier implements ApplicationRunner {
 
-	private static final int RLS_TABLE_COUNT = 11;
+	private static final int RLS_TABLE_COUNT = 12;
 
 	private final JdbcTemplate jdbcTemplate;
 
@@ -62,6 +62,7 @@ public class TenantDatabaseRoleSafetyVerifier implements ApplicationRunner {
 			    'detection_result_evidence',
 			    'ai_class_aliases',
 			    'problem_generation_requests',
+			    'problem_generation_executions',
 			    'problem_generation_outbox',
 			    'problem_generation_consumed_events'
 			  )

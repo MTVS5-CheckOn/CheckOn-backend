@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.checkon.problem.application.ProblemGenerationException;
 
-@RestControllerAdvice(assignableTypes = ProblemGenerationController.class)
+@RestControllerAdvice(assignableTypes = {ProblemGenerationController.class, ProblemStudioController.class})
 public class ProblemGenerationExceptionHandler {
 
 	@ExceptionHandler({
@@ -49,6 +49,11 @@ public class ProblemGenerationExceptionHandler {
 				HttpStatus.CONFLICT,
 				"IDEMPOTENCY_CONFLICT",
 				"같은 멱등 키가 다른 요청에 이미 사용되었습니다."
+			);
+			case INVALID_STATE -> response(
+				HttpStatus.CONFLICT,
+				"INVALID_PROBLEM_STATE",
+				"현재 문제 출제 상태에서는 요청한 작업을 수행할 수 없습니다."
 			);
 		};
 	}

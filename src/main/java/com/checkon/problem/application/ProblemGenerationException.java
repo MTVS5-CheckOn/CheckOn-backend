@@ -13,7 +13,8 @@ public class ProblemGenerationException extends RuntimeException {
 	public static ProblemGenerationException invalidRequest(String message) { return new ProblemGenerationException(Reason.INVALID_REQUEST, message); }
 	public static ProblemGenerationException notFound() { return new ProblemGenerationException(Reason.REQUEST_NOT_FOUND, "problem generation request is missing or inaccessible"); }
 	public static ProblemGenerationException idempotencyConflict() { return new ProblemGenerationException(Reason.IDEMPOTENCY_CONFLICT, "idempotency key was already used with another request"); }
+	public static ProblemGenerationException invalidState(String message) { return new ProblemGenerationException(Reason.INVALID_STATE, message); }
 	public Reason reason() { return reason; }
 
-	public enum Reason { INVALID_PRINCIPAL, TARGET_NOT_FOUND, INVALID_REQUEST, REQUEST_NOT_FOUND, IDEMPOTENCY_CONFLICT }
+	public enum Reason { INVALID_PRINCIPAL, TARGET_NOT_FOUND, INVALID_REQUEST, REQUEST_NOT_FOUND, IDEMPOTENCY_CONFLICT, INVALID_STATE }
 }

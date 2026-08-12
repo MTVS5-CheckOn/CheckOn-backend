@@ -486,6 +486,107 @@ paths:
         '404':
           description: 없거나 다른 테넌트에 속한 출제 요청
           content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: PROBLEM_REQUEST_NOT_FOUND, message: 출제 요청을 찾을 수 없습니다.}}}
+  /problem-studio/students:
+    get:
+      tags: [Problem Studio]
+      operationId: listProblemStudioStudents
+      summary: Step 1 대상 학생 목록
+      description: ACTIVE 학생의 화면 표시 정보와 최근 30일 이상 신호 수를 페이지로 조회한다.
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/Size'}]
+      responses:
+        '200': {description: 대상 학생 목록, content: {application/json: {schema: {$ref: '#/components/schemas/ProblemStudioStudentPage'}}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /problem-studio/students/{studentId}/weakness-analysis:
+    get:
+      tags: [Problem Studio]
+      operationId: getProblemStudioWeaknessAnalysis
+      summary: Step 1 최근 8주 영역·유형 분석
+      parameters: [{$ref: '#/components/parameters/StudentId'}]
+      responses:
+        '200': {description: 최근 8주 분석, content: {application/json: {schema: {$ref: '#/components/schemas/ProblemStudioWeaknessAnalysis'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 없거나 접근할 수 없는 학생, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /problem-studio/requests:
+    post:
+      tags: [Problem Studio]
+      operationId: createProblemStudioRequest
+      summary: Step 2 영역별 출제 조건으로 생성 요청
+      description: 영역×유형별 문항 수의 합계는 1~20이며 요청과 Kafka Outbox를 원자 저장한다.
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/ProblemStudioRequest'}}}
+      responses:
+        '202': {description: 요청 저장, content: {application/json: {schema: {$ref: '#/components/schemas/ProblemStudioRequestResponse'}}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 없거나 접근할 수 없는 학생, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '409': {description: 멱등 키 충돌, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /problem-studio/requests/{requestId}/review:
+    get:
+      tags: [Problem Studio]
+      operationId: getProblemStudioReview
+      summary: Step 3 AI 생성 문항 검토 조회
+      parameters: [{$ref: '#/components/parameters/ProblemRequestId'}]
+      responses:
+        '200': {description: 문항과 검증 상태 집계, content: {application/json: {schema: {$ref: '#/components/schemas/ProblemStudioReview'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 없거나 접근할 수 없는 요청, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /problem-studio/requests/{requestId}/selection:
+    put:
+      tags: [Problem Studio]
+      operationId: replaceProblemStudioSelection
+      summary: Step 4 선택 문항 교체
+      parameters: [{$ref: '#/components/parameters/ProblemRequestId'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProblemStudioSelectionRequest'}}}}
+      responses:
+        '200': {description: 선택이 반영된 검토 모델, content: {application/json: {schema: {$ref: '#/components/schemas/ProblemStudioReview'}}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 요청 없음, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '409': {description: 저장 이후 선택 변경 등 상태 충돌, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /problem-studio/requests/{requestId}/save:
+    post:
+      tags: [Problem Studio]
+      operationId: saveProblemStudioSet
+      summary: Step 4 선택 문항 저장
+      parameters: [{$ref: '#/components/parameters/ProblemRequestId'}]
+      responses:
+        '200': {description: 동일 요청은 같은 저장 세트 반환, content: {application/json: {schema: {$ref: '#/components/schemas/ProblemStudioSavedSet'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 요청 없음, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '409': {description: 저장 불가능 상태, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /problem-studio/requests/{requestId}/publish:
+    post:
+      tags: [Problem Studio]
+      operationId: publishProblemStudioAssignment
+      summary: Step 4 대상 학생에게 과제 발행
+      parameters: [{$ref: '#/components/parameters/ProblemRequestId'}]
+      responses:
+        '200': {description: 동일 요청은 같은 발행 과제 반환, content: {application/json: {schema: {$ref: '#/components/schemas/ProblemStudioAssignment'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 요청 없음, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '409': {description: 발행 불가능 상태, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /problem-studio/requests/{requestId}/printable:
+    get:
+      tags: [Problem Studio]
+      operationId: getProblemStudioPrintableData
+      summary: Step 4 프론트 PDF 렌더링용 데이터
+      parameters: [{$ref: '#/components/parameters/ProblemRequestId'}]
+      responses:
+        '200': {description: 선택 문항과 대상 학생 인쇄 데이터, content: {application/json: {schema: {$ref: '#/components/schemas/ProblemStudioPrintable'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 요청 없음, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '409': {description: 선택 문항 없음, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
 components:
   securitySchemes:
     bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
@@ -714,7 +815,7 @@ components:
     ProblemDifficulty: {type: string, enum: [LOW, MEDIUM, HIGH]}
     ProblemGenerationStatus:
       type: string
-      enum: [QUEUED, DISPATCHED, RUNNING, SUCCEEDED, FAILED, CANCELLED, DELIVERY_FAILED]
+      enum: [QUEUED, DISPATCHED, RUNNING, SUCCEEDED, PARTIAL_SUCCESS, FAILED, CANCELLED, DELIVERY_FAILED]
     ProblemGenerationRequest:
       type: object
       additionalProperties: false
@@ -762,6 +863,151 @@ components:
         dispatchedAt: {type: string, format: date-time, nullable: true}
         completedAt: {type: string, format: date-time, nullable: true}
         replayed: {type: boolean, description: 동일 멱등 키와 동일 payload로 기존 요청을 재사용했는지 여부}
+    ProblemStudioStudentPage:
+      type: object
+      required: [content, page, size, totalElements, totalPages]
+      properties:
+        content: {type: array, items: {$ref: '#/components/schemas/ProblemStudioStudent'}}
+        page: {type: integer, minimum: 0}
+        size: {type: integer, minimum: 1, maximum: 100}
+        totalElements: {type: integer, format: int64, minimum: 0}
+        totalPages: {type: integer, minimum: 0}
+    ProblemStudioStudent:
+      type: object
+      required: [studentId, studentName, managedDays, recentSignalCount]
+      properties:
+        studentId: {type: string, format: uuid}
+        studentName: {type: string}
+        className: {type: string, nullable: true}
+        subject: {type: string, nullable: true}
+        managedDays: {type: integer, format: int64, minimum: 1}
+        recentSignalCount: {type: integer, minimum: 0}
+        notableSummary: {type: string, nullable: true}
+    ProblemStudioWeaknessAnalysis:
+      type: object
+      required: [studentId, windowStart, windowEnd, minimumSampleSize, cells]
+      properties:
+        studentId: {type: string, format: uuid}
+        windowStart: {type: string, format: date}
+        windowEnd: {type: string, format: date}
+        minimumSampleSize: {type: integer, enum: [10]}
+        studentAveragePercent: {type: number, nullable: true}
+        cells: {type: array, items: {$ref: '#/components/schemas/ProblemStudioWeaknessCell'}}
+    ProblemStudioWeaknessCell:
+      type: object
+      required: [areaTag, typeTag, solvedCount, correctCount, evaluation]
+      properties:
+        areaTag: {type: string}
+        typeTag: {type: string, enum: [FACT, INFER, CRITIC, CONCEPT]}
+        solvedCount: {type: integer, minimum: 0}
+        correctCount: {type: integer, minimum: 0}
+        accuracyPercent: {type: number, nullable: true}
+        gapFromStudentAveragePercent: {type: number, nullable: true}
+        evaluation: {type: string, enum: [GOOD, WEAK_SIGNAL, WEAK_CONFIRMED, ON_HOLD]}
+    ProblemStudioRequest:
+      type: object
+      additionalProperties: false
+      required: [studentId, targets, difficulty]
+      properties:
+        studentId: {type: string, format: uuid}
+        targets:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: {$ref: '#/components/schemas/ProblemStudioTarget'}
+        difficulty: {$ref: '#/components/schemas/ProblemDifficulty'}
+    ProblemStudioTarget:
+      type: object
+      additionalProperties: false
+      required: [areaTag, typeTag, count]
+      properties:
+        areaTag: {type: string, minLength: 1, maxLength: 80}
+        typeTag: {$ref: '#/components/schemas/ProblemTypeTag'}
+        count: {type: integer, minimum: 1, maximum: 20}
+    ProblemStudioRequestResponse:
+      type: object
+      required: [requestId, status, replayed]
+      properties:
+        requestId: {type: string, format: uuid}
+        status: {$ref: '#/components/schemas/ProblemGenerationStatus'}
+        replayed: {type: boolean}
+    ProblemValidationStatus: {type: string, enum: [PASSED, REVIEW_REQUIRED, UNVERIFIABLE, EXCLUDED]}
+    ProblemStudioReview:
+      type: object
+      required: [requestId, requestStatus, projectionStatus, counts, items]
+      properties:
+        requestId: {type: string, format: uuid}
+        requestStatus: {$ref: '#/components/schemas/ProblemGenerationStatus'}
+        projectionStatus: {type: string, enum: [PENDING, PROJECTED, PARTIAL, UNSUPPORTED]}
+        projectionErrorCode: {type: string, nullable: true}
+        counts: {$ref: '#/components/schemas/ProblemStudioReviewCounts'}
+        items: {type: array, items: {$ref: '#/components/schemas/ProblemStudioReviewItem'}}
+    ProblemStudioReviewCounts:
+      type: object
+      required: [passed, reviewRequired, unverifiable, excluded]
+      properties:
+        passed: {type: integer, minimum: 0}
+        reviewRequired: {type: integer, minimum: 0}
+        unverifiable: {type: integer, minimum: 0}
+        excluded: {type: integer, minimum: 0}
+    ProblemStudioReviewItem:
+      type: object
+      required: [itemId, ordinal, stem, options, validationStatus, selected]
+      properties:
+        itemId: {type: string, format: uuid}
+        ordinal: {type: integer, minimum: 1}
+        externalItemId: {type: string, nullable: true}
+        stem: {type: string}
+        passage: {type: string, nullable: true}
+        options: {type: array, minItems: 2, items: {$ref: '#/components/schemas/ProblemStudioOption'}}
+        correctAnswerText: {type: string, nullable: true}
+        explanation: {type: string, nullable: true}
+        sourceBasis: {type: string, nullable: true}
+        validationStatus: {$ref: '#/components/schemas/ProblemValidationStatus'}
+        validationMessage: {type: string, nullable: true}
+        selected: {type: boolean}
+    ProblemStudioOption:
+      type: object
+      required: [position, content, correct]
+      properties:
+        position: {type: integer, minimum: 1}
+        content: {type: string}
+        correct: {type: boolean}
+    ProblemStudioSelectionRequest:
+      type: object
+      additionalProperties: false
+      required: [itemIds]
+      properties:
+        itemIds: {type: array, maxItems: 20, uniqueItems: true, items: {type: string, format: uuid}}
+    ProblemStudioSavedSet:
+      type: object
+      required: [problemSetId, itemCount, status, savedAt]
+      properties:
+        problemSetId: {type: string, format: uuid}
+        itemCount: {type: integer, minimum: 1}
+        status: {type: string, enum: [SAVED, PUBLISHED]}
+        savedAt: {type: string, format: date-time}
+    ProblemStudioAssignment:
+      type: object
+      required: [assignmentId, problemSetId, studentId, itemCount, status, publishedAt]
+      properties:
+        assignmentId: {type: string, format: uuid}
+        problemSetId: {type: string, format: uuid}
+        studentId: {type: string, format: uuid}
+        itemCount: {type: integer, minimum: 1}
+        status: {type: string, enum: [PUBLISHED]}
+        publishedAt: {type: string, format: date-time}
+    ProblemStudioPrintable:
+      type: object
+      required: [requestId, studentId, studentName, generatedAt, items]
+      properties:
+        requestId: {type: string, format: uuid}
+        studentId: {type: string, format: uuid}
+        studentName: {type: string}
+        className: {type: string, nullable: true}
+        subject: {type: string, nullable: true}
+        generatedAt: {type: string, format: date-time}
+        items: {type: array, minItems: 1, items: {$ref: '#/components/schemas/ProblemStudioReviewItem'}}
     ErrorResponse:
       type: object
       required: [code, message]

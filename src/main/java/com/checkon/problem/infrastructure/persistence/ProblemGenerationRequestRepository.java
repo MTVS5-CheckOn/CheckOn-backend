@@ -127,6 +127,15 @@ public class ProblemGenerationRequestRepository {
 		)).update();
 	}
 
+	public void updateAggregatedStatus(UUID id, UUID teacherId, ProblemGenerationStatus status, String errorCode, Instant now) {
+		jdbcClient.sql("""
+			UPDATE problem_generation_requests SET status=:status,error_code=:errorCode,
+			completed_at=:completedAt,updated_at=:now WHERE id=:id AND teacher_id=:teacherId
+			""").param("status",status.name()).param("errorCode",nullable(errorCode))
+			.param("completedAt", status.terminal() ? databaseTime(now) : nullable(null))
+			.param("now",databaseTime(now)).param("id",id).param("teacherId",teacherId).update();
+	}
+
 	private static Object nullable(Object value) { return value == null ? new SqlParameterValue(Types.OTHER, null) : value; }
 	private static Object nullableTime(Instant value) { return value == null ? nullable(null) : databaseTime(value); }
 	private static OffsetDateTime databaseTime(Instant value) { return value.atOffset(ZoneOffset.UTC); }

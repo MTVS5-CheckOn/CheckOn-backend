@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import com.checkon.problem.application.ProblemGenerationPayloadHasher;
 import com.checkon.problem.domain.ProblemGenerationStatus;
+import com.checkon.problem.domain.ProblemGenerationExecutionStatus;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -43,6 +44,10 @@ public class ProblemGenerationResultEventParser {
 
 			validateWorkerKind(eventType, payload);
 			ProblemGenerationStatus status = status(eventType, payload);
+			UUID problemExecutionId = optionalUuid(payload.get("problem_execution_id"), "payload.problem_execution_id");
+			Integer targetIndex = optionalNonNegativeInt(payload.get("target_index"), "payload.target_index");
+			UUID adapterExecutionId = optionalUuid(payload.get("adapter_execution_id"), "payload.adapter_execution_id");
+			ProblemGenerationExecutionStatus executionStatus = executionStatus(eventType, payload, status);
 			JsonNode result = object(payload, "result");
 			JsonNode meta = object(root, "meta");
 			String jobId = firstText(payload, "job_id");
@@ -55,11 +60,28 @@ public class ProblemGenerationResultEventParser {
 			String resultPayload = status == ProblemGenerationStatus.RUNNING ? null : writeJson(result == null ? payload : result);
 			String versionsPayload = versions == null ? null : writeJson(versions);
 			return new ParsedProblemGenerationResultEvent(eventId, eventType, schemaVersion, requestId,
-				tenantAlias, status, jobId, executionId, setId, resultStatus, errorCode,
+				problemExecutionId, targetIndex, adapterExecutionId, tenantAlias, status, executionStatus, jobId, executionId, setId, resultStatus, errorCode,
 				resultPayload, versionsPayload, occurredAt(requiredText(root, "occurred_at")), hasher.sha256(rawPayload));
 		}
 		catch (ProblemGenerationEventContractException exception) { throw exception; }
 		catch (JacksonException exception) { throw new ProblemGenerationEventContractException("event payload is not valid JSON", exception); }
+	}
+	private static ProblemGenerationExecutionStatus executionStatus(String eventType, JsonNode payload, ProblemGenerationStatus parentStatus) {
+		String value = firstNonBlank(firstText(payload,"child_status"), firstText(payload,"phase"), firstText(payload,"result_status"));
+		if (value != null) {
+			String normalized = value.toLowerCase(Locale.ROOT).replace('-','_');
+			if (normalized.equals("timed_out") || normalized.equals("timeout")) return ProblemGenerationExecutionStatus.TIMED_OUT;
+			if (normalized.equals("delivery_failed")) return ProblemGenerationExecutionStatus.DELIVERY_FAILED;
+			if (normalized.equals("rejected_insufficient")) return ProblemGenerationExecutionStatus.REJECTED_INSUFFICIENT;
+			if (normalized.equals("cancelled")) return ProblemGenerationExecutionStatus.CANCELLED;
+		}
+		return switch (parentStatus) {
+			case RUNNING -> ProblemGenerationExecutionStatus.RUNNING;
+			case SUCCEEDED, PARTIAL_SUCCESS -> ProblemGenerationExecutionStatus.SUCCEEDED;
+			case FAILED, DELIVERY_FAILED -> ProblemGenerationExecutionStatus.FAILED;
+			case CANCELLED -> ProblemGenerationExecutionStatus.CANCELLED;
+			case QUEUED, DISPATCHED -> throw contract("result event cannot move child to a request-only phase");
+		};
 	}
 
 	private static ProblemGenerationStatus status(String eventType, JsonNode payload) {
@@ -98,6 +120,11 @@ public class ProblemGenerationResultEventParser {
 	private static UUID optionalUuid(JsonNode value, String field) {
 		if (value == null || value.isNull()) return null;
 		if (!value.isTextual()) throw contract(field + " must be a UUID string"); return uuid(value.asText(), field);
+	}
+	private static Integer optionalNonNegativeInt(JsonNode value, String field) {
+		if (value == null || value.isNull()) return null;
+		if (!value.canConvertToInt() || value.asInt() < 0) throw contract(field + " must be a non-negative integer");
+		return value.asInt();
 	}
 	private static UUID uuid(String value, String field) {
 		try { return UUID.fromString(value); } catch (IllegalArgumentException exception) { throw contract(field + " must be a UUID"); }

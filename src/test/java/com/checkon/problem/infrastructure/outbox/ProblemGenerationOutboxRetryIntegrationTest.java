@@ -25,7 +25,10 @@ import com.checkon.problem.domain.ProblemTargetKind;
 import com.checkon.problem.domain.ProblemTypeTag;
 import com.checkon.support.RosterTestFixture;
 
-@SpringBootTest(properties = "checkon.ai.problem-generation.kafka.outbox-max-attempts=2")
+@SpringBootTest(properties = {
+	"checkon.ai.problem-generation.kafka.enabled=false",
+	"checkon.ai.problem-generation.kafka.outbox-max-attempts=2"
+})
 @Testcontainers
 @DisplayName("문제 출제 Outbox 재시도")
 class ProblemGenerationOutboxRetryIntegrationTest {
@@ -46,8 +49,15 @@ class ProblemGenerationOutboxRetryIntegrationTest {
 
 	@BeforeEach
 	void setUp() {
+		jdbc.update("DELETE FROM problem_assignments");
+		jdbc.update("DELETE FROM saved_problem_set_items");
+		jdbc.update("DELETE FROM saved_problem_sets");
+		jdbc.update("DELETE FROM problem_generation_item_options");
+		jdbc.update("DELETE FROM problem_generation_items");
 		jdbc.update("DELETE FROM problem_generation_consumed_events");
 		jdbc.update("DELETE FROM problem_generation_outbox");
+		jdbc.update("DELETE FROM problem_generation_executions");
+		jdbc.update("DELETE FROM problem_generation_request_targets");
 		jdbc.update("DELETE FROM problem_generation_requests");
 		jdbc.update("DELETE FROM ai_tenant_aliases");
 		jdbc.update("DELETE FROM ai_student_aliases");
@@ -88,7 +98,7 @@ class ProblemGenerationOutboxRetryIntegrationTest {
 			requestId
 		)).isEqualTo("PENDING");
 		jdbc.update(
-			"UPDATE problem_generation_outbox SET next_attempt_at = now() - interval '1 second' WHERE problem_request_id = ?",
+			"UPDATE problem_generation_outbox SET next_attempt_at = TIMESTAMPTZ '2000-01-01T00:00:00Z' WHERE problem_request_id = ?",
 			requestId
 		);
 		var secondAttempt = coordinator.claim(TEACHER).getFirst();

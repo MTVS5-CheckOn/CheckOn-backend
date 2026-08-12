@@ -54,7 +54,8 @@ class ProblemGenerationOpenApiContractTest {
 		Map<String, Object> schemas = asMap(asMap(loadDocument().get("components")).get("schemas"));
 		Map<String, Object> status = asMap(schemas.get("ProblemGenerationStatus"));
 		assertThat(asList(status.get("enum"))).containsExactly(
-			"QUEUED", "DISPATCHED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED", "DELIVERY_FAILED"
+			"QUEUED", "DISPATCHED", "RUNNING", "SUCCEEDED", "PARTIAL_SUCCESS",
+			"FAILED", "CANCELLED", "DELIVERY_FAILED"
 		);
 
 		Map<String, Object> response = asMap(schemas.get("ProblemGenerationResponse"));

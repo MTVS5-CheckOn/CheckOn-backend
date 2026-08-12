@@ -12,20 +12,23 @@ import org.springframework.transaction.annotation.Transactional;
 import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 import com.checkon.problem.infrastructure.outbox.ProblemGenerationOutboxRepository.OutboxMessage;
 import com.checkon.problem.infrastructure.persistence.ProblemGenerationRequestRepository;
+import com.checkon.problem.infrastructure.persistence.ProblemGenerationExecutionRepository;
 import com.checkon.problem.integration.kafka.ProblemGenerationKafkaProperties;
+import com.checkon.problem.domain.ProblemGenerationStatus;
 
 @Service
 public class ProblemGenerationOutboxCoordinator {
 	private final ProblemGenerationOutboxRepository outbox;
 	private final ProblemGenerationRequestRepository requests;
+	private final ProblemGenerationExecutionRepository executions;
 	private final TeacherTenantDatabaseContext tenantContext;
 	private final ProblemGenerationKafkaProperties properties;
 	private final Clock clock;
 
 	public ProblemGenerationOutboxCoordinator(ProblemGenerationOutboxRepository outbox,
-		ProblemGenerationRequestRepository requests, TeacherTenantDatabaseContext tenantContext,
+		ProblemGenerationRequestRepository requests, ProblemGenerationExecutionRepository executions, TeacherTenantDatabaseContext tenantContext,
 		ProblemGenerationKafkaProperties properties, Clock clock) {
-		this.outbox = outbox; this.requests = requests; this.tenantContext = tenantContext;
+		this.outbox = outbox; this.requests = requests; this.executions = executions; this.tenantContext = tenantContext;
 		this.properties = properties; this.clock = clock;
 	}
 	public List<UUID> teacherIds() { return outbox.findAllTeacherIds(); }
@@ -41,6 +44,7 @@ public class ProblemGenerationOutboxCoordinator {
 		tenantContext.setCurrentTeacher(message.teacherId());
 		Instant now = Instant.now(clock);
 		outbox.markPublished(message.id(), message.teacherId(), now);
+		if (message.executionId() != null) executions.markDispatched(message.executionId(), message.teacherId(), now);
 		requests.markDispatched(message.requestId(), message.teacherId(), now);
 	}
 	@Transactional
@@ -49,7 +53,18 @@ public class ProblemGenerationOutboxCoordinator {
 		String safeError = failure.getClass().getSimpleName() + ": " + String.valueOf(failure.getMessage());
 		if (message.attemptCount() >= properties.outboxMaxAttempts()) {
 			outbox.markDead(message.id(), message.teacherId(), safeError);
-			requests.markDeliveryFailed(message.requestId(), message.teacherId(), Instant.now(clock));
+			Instant now = Instant.now(clock);
+			if (message.executionId() != null) {
+				executions.markDeliveryFailed(message.executionId(), message.teacherId(), now);
+				var statuses = executions.statuses(message.teacherId(), message.requestId());
+				if (statuses.stream().allMatch(com.checkon.problem.domain.ProblemGenerationExecutionStatus::terminal)) {
+					boolean succeeded = statuses.stream().anyMatch(status -> status == com.checkon.problem.domain.ProblemGenerationExecutionStatus.SUCCEEDED);
+					requests.updateAggregatedStatus(message.requestId(),message.teacherId(),
+						succeeded ? ProblemGenerationStatus.PARTIAL_SUCCESS : ProblemGenerationStatus.FAILED,
+						succeeded ? null : "ALL_CHILD_DELIVERIES_FAILED",now);
+				}
+				else requests.updateAggregatedStatus(message.requestId(),message.teacherId(),ProblemGenerationStatus.RUNNING,null,now);
+			} else requests.markDeliveryFailed(message.requestId(), message.teacherId(), now);
 			return;
 		}
 		Duration delay = Duration.ofSeconds(Math.min(60L, 1L << Math.min(message.attemptCount(), 6)));

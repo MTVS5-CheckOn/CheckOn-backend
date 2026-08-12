@@ -33,6 +33,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import com.checkon.problem.application.CreateProblemGenerationCommand;
+import com.checkon.problem.application.CreateProblemStudioCommand;
 import com.checkon.problem.application.ProblemGenerationRequestService;
 import com.checkon.problem.domain.ProblemDifficulty;
 import com.checkon.problem.domain.ProblemTargetKind;
@@ -83,8 +84,15 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 
 	@BeforeEach
 	void setUp() {
+		jdbc.update("DELETE FROM problem_assignments");
+		jdbc.update("DELETE FROM saved_problem_set_items");
+		jdbc.update("DELETE FROM saved_problem_sets");
+		jdbc.update("DELETE FROM problem_generation_item_options");
+		jdbc.update("DELETE FROM problem_generation_items");
 		jdbc.update("DELETE FROM problem_generation_consumed_events");
 		jdbc.update("DELETE FROM problem_generation_outbox");
+		jdbc.update("DELETE FROM problem_generation_executions");
+		jdbc.update("DELETE FROM problem_generation_request_targets");
 		jdbc.update("DELETE FROM problem_generation_requests");
 		jdbc.update("DELETE FROM ai_tenant_aliases");
 		jdbc.update("DELETE FROM ai_student_aliases");
@@ -105,6 +113,31 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 	@Nested
 	@DisplayName("Given 저장된 출제 요청이 있을 때")
 	class GivenAStoredProblemRequest {
+		@Test
+		@DisplayName("When 스튜디오 복수 셀을 요청하면 Then target별 child Kafka 이벤트를 각각 발행한다")
+		void publishesOneKafkaEventPerStudioTarget() throws Exception {
+			UUID requestId = requestService.createStudio(TEACHER, new CreateProblemStudioCommand(
+				STUDENT, List.of(
+					new CreateProblemStudioCommand.Target("language",ProblemTypeTag.FACT,3),
+					new CreateProblemStudioCommand.Target("language",ProblemTypeTag.INFER,2)),
+				ProblemDifficulty.MEDIUM,"studio-kafka-flow-0001")).requestId();
+			String tenantAlias = tenantAlias(requestId);
+			try (Consumer<String,String> consumer = consumer("studio-request-observer-"+UUID.randomUUID())) {
+				embeddedKafka.consumeFromAnEmbeddedTopic(consumer,REQUEST_TOPIC);
+				outboxPublisher.publishPending();
+				var records = KafkaTestUtils.getRecords(consumer,Duration.ofSeconds(10));
+				var childRecords = java.util.stream.StreamSupport.stream(records.records(REQUEST_TOPIC).spliterator(),false)
+					.filter(record -> record.value().contains(requestId.toString())).toList();
+				assertThat(childRecords).hasSize(2);
+				assertThat(childRecords).allSatisfy(record -> {
+					assertThat(record.key()).isEqualTo(tenantAlias);
+					assertThat(record.value()).contains(requestId.toString(),"problem_execution_id","target_index","teacher_manual")
+						.doesNotContain(TEACHER.toString(),STUDENT.toString(),"teacher_weakness_selection");
+					assertThat(header(record,"schema_version")).isEqualTo("pg-child-request-1");
+				});
+			}
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM problem_generation_executions WHERE problem_request_id=? AND status='DISPATCHED'",Integer.class,requestId)).isEqualTo(2);
+		}
 
 		@Test
 		@DisplayName("When Outbox를 발행하고 AI 성공 이벤트를 받으면 Then Kafka 계약과 DB 상태가 함께 완성된다")

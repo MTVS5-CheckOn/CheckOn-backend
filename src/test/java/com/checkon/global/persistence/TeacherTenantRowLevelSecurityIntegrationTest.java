@@ -142,8 +142,15 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			   intervention_reminders,
 			   ai_class_aliases,
 			   problem_generation_requests,
+			   problem_generation_executions,
 			   problem_generation_outbox,
-			   problem_generation_consumed_events
+			   problem_generation_consumed_events,
+			   problem_generation_request_targets,
+			   problem_generation_items,
+			   problem_generation_item_options,
+			   saved_problem_sets,
+			   saved_problem_set_items,
+			   problem_assignments
 			TO checkon_rls_test_runtime
 			""");
 		administrator.execute("""
@@ -213,12 +220,15 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'student_personal_information',
 				    'engagement_alerts','interventions','intervention_reminders',
 				    'ai_class_aliases',
-				    'problem_generation_requests','problem_generation_outbox',
-				    'problem_generation_consumed_events'
+				    'problem_generation_requests','problem_generation_executions','problem_generation_outbox',
+				    'problem_generation_consumed_events',
+				    'problem_generation_request_targets','problem_generation_items',
+				    'problem_generation_item_options','saved_problem_sets',
+				    'saved_problem_set_items','problem_assignments'
 				  )
 				  AND table_metadata.relrowsecurity
 				  AND table_metadata.relforcerowsecurity
-				""")).isEqualTo(19);
+				""")).isEqualTo(26);
 			assertThat(queryInt(statement, """
 				SELECT count(*) FROM pg_policies
 				WHERE schemaname = 'public'
@@ -237,10 +247,13 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'student_personal_information',
 				    'engagement_alerts','interventions','intervention_reminders',
 				    'ai_class_aliases',
-				    'problem_generation_requests','problem_generation_outbox',
-				    'problem_generation_consumed_events'
+				    'problem_generation_requests','problem_generation_executions','problem_generation_outbox',
+				    'problem_generation_consumed_events',
+				    'problem_generation_request_targets','problem_generation_items',
+				    'problem_generation_item_options','saved_problem_sets',
+				    'saved_problem_set_items','problem_assignments'
 				  )
-				""")).isEqualTo(76);
+				""")).isEqualTo(104);
 			assertThat(queryInt(statement, """
 				SELECT count(*)
 				FROM pg_class table_metadata
@@ -270,8 +283,15 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThat(count(connection, "engagement_alerts")).isZero();
 			assertThat(count(connection, "ai_class_aliases")).isZero();
 			assertThat(count(connection, "problem_generation_requests")).isZero();
+			assertThat(count(connection, "problem_generation_executions")).isZero();
 			assertThat(count(connection, "problem_generation_outbox")).isZero();
 			assertThat(count(connection, "problem_generation_consumed_events")).isZero();
+			assertThat(count(connection, "problem_generation_request_targets")).isZero();
+			assertThat(count(connection, "problem_generation_items")).isZero();
+			assertThat(count(connection, "problem_generation_item_options")).isZero();
+			assertThat(count(connection, "saved_problem_sets")).isZero();
+			assertThat(count(connection, "saved_problem_set_items")).isZero();
+			assertThat(count(connection, "problem_assignments")).isZero();
 			assertThat(update(connection,
 				"UPDATE class_groups SET name = 'blocked' WHERE id = ?", CLASS_A
 			)).isZero();

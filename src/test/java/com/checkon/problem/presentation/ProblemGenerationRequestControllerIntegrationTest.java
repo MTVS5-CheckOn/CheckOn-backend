@@ -66,8 +66,15 @@ class ProblemGenerationRequestControllerIntegrationTest {
 
 	@BeforeEach
 	void setUp() {
+		jdbc.update("DELETE FROM problem_assignments");
+		jdbc.update("DELETE FROM saved_problem_set_items");
+		jdbc.update("DELETE FROM saved_problem_sets");
+		jdbc.update("DELETE FROM problem_generation_item_options");
+		jdbc.update("DELETE FROM problem_generation_items");
 		jdbc.update("DELETE FROM problem_generation_consumed_events");
 		jdbc.update("DELETE FROM problem_generation_outbox");
+		jdbc.update("DELETE FROM problem_generation_executions");
+		jdbc.update("DELETE FROM problem_generation_request_targets");
 		jdbc.update("DELETE FROM problem_generation_requests");
 		jdbc.update("DELETE FROM ai_class_aliases");
 		jdbc.update("DELETE FROM ai_tenant_aliases");

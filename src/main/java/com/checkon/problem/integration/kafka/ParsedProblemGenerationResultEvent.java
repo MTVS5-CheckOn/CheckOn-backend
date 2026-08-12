@@ -4,10 +4,12 @@ import java.time.Instant;
 import java.util.UUID;
 
 import com.checkon.problem.domain.ProblemGenerationStatus;
+import com.checkon.problem.domain.ProblemGenerationExecutionStatus;
 
 public record ParsedProblemGenerationResultEvent(
 	UUID eventId, String eventType, String schemaVersion, UUID requestId,
-	String tenantAlias, ProblemGenerationStatus status, String jobId,
-	String executionId, String setId, String resultStatus, String errorCode,
+	UUID problemExecutionId, Integer targetIndex, UUID adapterExecutionId,
+	String tenantAlias, ProblemGenerationStatus status, ProblemGenerationExecutionStatus executionStatus, String jobId,
+	String aiExecutionId, String setId, String resultStatus, String errorCode,
 	String resultPayload, String versionsPayload, Instant occurredAt, String payloadHash
 ) { }
