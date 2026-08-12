@@ -11,8 +11,11 @@ servers:
 paths:
   /api/v1/detection-runs:
     post:
-      summary: Request a risk-detection run
-      description: Requires a TEACHER access token. The tenant is taken from the authenticated principal.
+      summary: 위험 탐지 분석 요청 (Kafka 비동기)
+      description: |
+        백엔드가 인증된 교사의 학습 기록으로 snapshot을 생성해 Kafka 요청 이벤트를 발행한다.
+        성공은 AI 분석 완료가 아니라 Outbox 접수 상태(`202 Accepted`)를 뜻한다.
+        테넌트는 인증 principal에서만 결정된다.
       operationId: requestDetectionRun
       requestBody:
         required: true

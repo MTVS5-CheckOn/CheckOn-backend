@@ -45,6 +45,16 @@ Backend Listener → Inbox 중복 방지 → 응답 검증·신호 저장 또는
 3. 실제 Kafka 연동을 끄고 DB/웹 테스트만 실행하려면 `CHECKON_KAFKA_ENABLED=false`를 사용합니다. 이 경우 Outbox는 기록되지만 publisher/listener는 실행되지 않습니다.
 4. 토픽 확인은 `docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --list`로 합니다. 현재 개발 Compose는 토픽 자동 생성을 허용합니다. 운영은 토픽, 파티션 수, retention을 인프라에서 명시 생성해야 합니다.
 
+### 등록 API 없이 빠르게 Kafka 시연하기
+
+아직 학생·반·학습 기록 API를 준비하지 않았거나 Kafka 연결만 시연해야 하면 아래 명령을 사용합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run-local-kafka.ps1 -PrepareDemoData
+```
+
+이 옵션은 **로컬 dev 프로세스에서만** 고정 가명 교사·학생·반과 기준일 학습 기록 하나를 idempotent하게 준비하고, dev 테스트 인증을 켭니다. 운영 API의 `NO_LEARNING_RECORDS` 규칙이나 `.env`는 바꾸지 않습니다. 로컬 DB에는 `Kafka 시연`으로 식별되는 전용 fixture 행만 생성·갱신하며 기존 행은 삭제하거나 변경하지 않습니다. 콘솔에 표시된 날짜를 Apidog `analysisDate`에 넣고, `Authorization` 헤더 없이 `POST /api/v1/detection-runs`를 호출합니다. 성공하면 `202 REQUESTED`와 함께 `checkon.risk-detection.requested.v1` 이벤트가 발행됩니다.
+
 ## 운영에서 특히 확인할 것
 
 - **Outbox가 쌓임**: AI 또는 broker 장애일 수 있습니다. `PENDING`/`FAILED` 수와 `last_error`를 점검합니다. `FAILED`이면 Run도 `KAFKA_PUBLISH_FAILED`로 실패 처리되어 새 요청이 가능합니다.
