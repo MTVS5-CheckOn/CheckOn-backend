@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
-	[string]$EnvironmentFile
+    [string]$EnvironmentFile,
+    [switch]$PrepareDemoData,
+    [string]$DemoAnalysisDate = (Get-Date -Format 'yyyy-MM-dd')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -71,11 +73,28 @@ else {
 }
 $env:CHECKON_KAFKA_ENABLED = 'true'
 
+if ($PrepareDemoData) {
+    # This applies only to the child process launched by this script. It makes
+    # the demo's fixed teacher principal match the idempotent local fixture.
+    $env:SPRING_PROFILES_ACTIVE = 'dev'
+    $env:TEST_AUTH_ENABLED = 'true'
+    $env:TEST_ACCOUNT_ID = '0198f000-0000-7000-8000-000000000000'
+    $env:TEST_TEACHER_PROFILE_ID = '0198f000-0000-7000-8000-000000000001'
+}
+
 Push-Location $projectRoot
 try {
 	Write-Host 'PostgreSQL과 Kafka를 시작합니다.'
 	docker compose up -d postgres kafka
 	if ($LASTEXITCODE -ne 0) { throw 'Docker Compose 시작에 실패했습니다.' }
+
+	if ($PrepareDemoData) {
+		& "$PSScriptRoot\seed-risk-detection-demo-data.ps1" `
+			-AnalysisDate $DemoAnalysisDate
+		if ($LASTEXITCODE -ne 0) { throw 'Kafka 시연용 학습 데이터 준비에 실패했습니다.' }
+		Write-Host "시연 데이터 준비 완료. Apidog에 analysisDate=$DemoAnalysisDate 를 사용하세요."
+		Write-Host 'dev 테스트 인증이 활성화되어 있으므로 Apidog Authorization 헤더는 비워 둡니다.'
+	}
 
 	# Gradle daemon은 과거 실행의 환경 변수를 보관할 수 있다. 새 프로세스로
 	# 실행해 .env와 위 호환 변수를 확실히 적용한다.
