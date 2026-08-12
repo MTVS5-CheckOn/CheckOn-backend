@@ -12,6 +12,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -32,14 +33,17 @@ class CheckOnApplicationTests {
 	@ServiceConnection
 	static final PostgreSQLContainer POSTGRESQL = new PostgreSQLContainer("postgres:18.4");
 	private final JdbcTemplate jdbcTemplate;
+	private final KafkaTemplate<?, ?> kafkaTemplate;
 
 	@Autowired
-	CheckOnApplicationTests(JdbcTemplate jdbcTemplate) {
+	CheckOnApplicationTests(JdbcTemplate jdbcTemplate, KafkaTemplate<?, ?> kafkaTemplate) {
 		this.jdbcTemplate = jdbcTemplate;
+		this.kafkaTemplate = kafkaTemplate;
 	}
 
 	@Test
 	void contextLoads() {
+		assertThat(kafkaTemplate).isNotNull();
 	}
 
 	@Test

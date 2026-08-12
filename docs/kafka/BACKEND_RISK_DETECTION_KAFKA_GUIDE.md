@@ -40,7 +40,7 @@ Backend Listener → Inbox 중복 방지 → 응답 검증·신호 저장 또는
 
 ## 설정과 로컬 실행
 
-1. 프로젝트 루트에서 `docker compose up -d`를 실행합니다. PostgreSQL과 Kafka가 함께 시작됩니다.
+1. `.env`를 한 번만 준비한 뒤 프로젝트 루트에서 `powershell -ExecutionPolicy Bypass -File .\scripts\run-local-kafka.ps1`을 실행합니다. 이 스크립트는 PostgreSQL·Kafka만 기동하고, `.env`를 현재 프로세스에 읽고, Gradle daemon을 새로 시작해 백엔드를 실행합니다. `FLYWAY_DB_USERNAME`을 이미 쓰는 기존 `.env`도 `FLYWAY_DB_USER`로 자동 호환합니다.
 2. 백엔드를 로컬에서 실행할 때 기본 broker는 `localhost:9094`입니다. Docker Compose 안에서 실행하는 백엔드는 `kafka:19092`를 사용합니다. 필요하면 `KAFKA_BOOTSTRAP_SERVERS`로 바꿉니다.
 3. 실제 Kafka 연동을 끄고 DB/웹 테스트만 실행하려면 `CHECKON_KAFKA_ENABLED=false`를 사용합니다. 이 경우 Outbox는 기록되지만 publisher/listener는 실행되지 않습니다.
 4. 토픽 확인은 `docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --list`로 합니다. 현재 개발 Compose는 토픽 자동 생성을 허용합니다. 운영은 토픽, 파티션 수, retention을 인프라에서 명시 생성해야 합니다.
