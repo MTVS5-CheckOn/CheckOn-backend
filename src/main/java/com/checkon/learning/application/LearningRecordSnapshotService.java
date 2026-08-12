@@ -27,6 +27,7 @@ import com.checkon.detection.infrastructure.persistence.DetectionEvidenceProject
 import com.checkon.detection.infrastructure.persistence.DetectionEvidenceProjectionRepository.AssignmentWeekSummary;
 import com.checkon.detection.infrastructure.persistence.DetectionEvidenceProjectionRepository.StudentStatusTransition;
 import com.checkon.detection.integration.ai.dto.AiDetectionRequest;
+import com.checkon.engagement.application.EngagementAlertContextService;
 import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 import com.checkon.learning.domain.LearningRecord;
 import com.checkon.learning.infrastructure.persistence.LearningRecordRepository;
@@ -57,6 +58,7 @@ public class LearningRecordSnapshotService {
 	private final ClassEnrollmentRepository enrollments;
 	private final TeacherStudentRelationshipRepository relationships;
 	private final DetectionEvidenceProjectionRepository evidenceProjections;
+	private final EngagementAlertContextService alertContexts;
 	private final AiStudentAliasService aliases;
 	private final AiDetectionConsentPolicy consentPolicy;
 	private final PrepareDetectionRunService prepareService;
@@ -66,11 +68,13 @@ public class LearningRecordSnapshotService {
 		ClassEnrollmentRepository enrollments,
 		TeacherStudentRelationshipRepository relationships,
 		DetectionEvidenceProjectionRepository evidenceProjections,
+		EngagementAlertContextService alertContexts,
 		AiStudentAliasService aliases,
 		AiDetectionConsentPolicy consentPolicy,
 		PrepareDetectionRunService prepareService, TeacherTenantDatabaseContext tenantContext) {
 		this.records = records; this.enrollments = enrollments; this.aliases = aliases;
 		this.relationships = relationships; this.evidenceProjections = evidenceProjections;
+		this.alertContexts = alertContexts;
 		this.consentPolicy = consentPolicy;
 		this.prepareService = prepareService; this.tenantContext = tenantContext;
 	}
@@ -116,12 +120,9 @@ public class LearningRecordSnapshotService {
 			.findAllByTeacherIdAndStatus(teacherId, RelationshipStatus.ACTIVE)
 			.stream().map(relationship -> relationship.studentId())
 			.sorted().toList();
-		// Keep the historical-record behavior: an ended relationship does not
-		// erase a record that was valid when it was created. Active students are
-		// additionally included even when their current-week activity is zero.
-		TreeSet<UUID> snapshotStudentIdSet = new TreeSet<>(activeStudentIds);
-		ordered.stream().map(LearningRecord::studentId).forEach(snapshotStudentIdSet::add);
-		List<UUID> snapshotStudentIds = List.copyOf(snapshotStudentIdSet);
+		// Historical records remain backend-owned, but an ended relationship must
+		// not make a former student part of the current AI request.
+		List<UUID> snapshotStudentIds = List.copyOf(new TreeSet<>(activeStudentIds));
 		Map<UUID, ClassEnrollment> activeEnrollments = new LinkedHashMap<>();
 		for (ClassEnrollment enrollment : enrollments.findAllByTeacherIdAndStatus(
 			teacherId, RelationshipStatus.ACTIVE)) {
@@ -162,7 +163,7 @@ public class LearningRecordSnapshotService {
 			int weeks = enrollment == null ? 0 : Math.max(0,
 				(int) (Duration.between(enrollment.enrolledAt(), toExclusive).toDays() / 7));
 			students.add(new AiDetectionRequest.StudentSnapshot(entry.getValue(),
-				classRef(classId), weeks, enrollment == null ? "recorded" : "enrolled",
+				classRef(classId), weeks, enrollment == null ? "paused" : "enrolled",
 				consentByStudent.get(studentId).requestConsent()));
 			if (Boolean.TRUE.equals(returnedThisWeek.get(studentId))) {
 				AiDetectionRequest.StudentSnapshot original = students.removeLast();
@@ -175,8 +176,7 @@ public class LearningRecordSnapshotService {
 		students.sort(Comparator.comparing(AiDetectionRequest.StudentSnapshot::studentRef));
 
 		List<AiDetectionRequest.LearningEventSnapshot> events = ordered.stream()
-			.filter(record -> consentByStudent.containsKey(record.studentId())
-				&& consentByStudent.get(record.studentId()).included())
+			.filter(record -> aliasByStudent.containsKey(record.studentId()))
 			.map(record -> new AiDetectionRequest.LearningEventSnapshot(
 				"le_" + compact(record.id()), aliasByStudent.get(record.studentId()),
 				record.recordType().aiValue(), record.occurredAt().atOffset(ZoneOffset.UTC),
@@ -193,10 +193,22 @@ public class LearningRecordSnapshotService {
 			teacherId, firstEvidenceWeek, weekStart, activityRecords, aliasByStudent,
 			transitions
 		);
+		List<AiDetectionRequest.AlertContext> alertContext = alertContexts
+			.latestByStudentAndSignalType(teacherId).stream()
+			.filter(history -> aliasByStudent.containsKey(history.studentId()))
+			.map(history -> new AiDetectionRequest.AlertContext(
+				aliasByStudent.get(history.studentId()), history.signalType(), history.status(),
+				history.resolvedAt() == null ? null
+					: history.resolvedAt().atOffset(ZoneOffset.UTC),
+				history.followedUp()
+			))
+			.sorted(Comparator.comparing(AiDetectionRequest.AlertContext::studentRef)
+				.thenComparing(AiDetectionRequest.AlertContext::signalType))
+			.toList();
 		// Deterministic ordering is required because snapshot_hash represents data,
 		// not the unspecified row order returned by JPA or PostgreSQL.
 		return new AiDetectionRequest(new AiDetectionRequest.SnapshotMeta(
-			weekStart, null, termContext.trim(), classes), students, events, List.of(), evidence);
+			weekStart, null, termContext.trim(), classes), students, events, alertContext, evidence);
 	}
 
 	private List<AiDetectionRequest.DetectionEvidence> buildDetectionEvidence(

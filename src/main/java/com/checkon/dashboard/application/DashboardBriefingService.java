@@ -53,12 +53,15 @@ public class DashboardBriefingService {
 				SELECT alert.id AS alert_id,
 				       alert.student_id,
 				       personal.real_name AS student_name,
+				       class_group.name AS class_name,
 				       signal.rule_id,
 				       signal.signal_type,
+				       signal.display_label,
 				       signal.rank,
 				       signal.brief_text,
 				       signal.fallback_used,
 				       alert.status,
+				       alert.created_at,
 				       evidence.record_id,
 				       evidence.summary
 				FROM engagement_alerts alert
@@ -70,6 +73,9 @@ public class DashboardBriefingService {
 				  ON evidence.detection_signal_result_id = signal.id
 				LEFT JOIN student_personal_information personal
 				  ON personal.student_id = alert.student_id
+				LEFT JOIN class_groups class_group
+				  ON class_group.teacher_id = alert.teacher_id
+				 AND signal.class_ref = 'cl_' || replace(class_group.id::text, '-', '')
 				WHERE alert.teacher_id = ?
 				  AND run.teacher_id = ?
 				  AND run.analysis_date = ?
@@ -84,14 +90,21 @@ public class DashboardBriefingService {
 				this::extractAlerts
 		);
 		List<Todo> todos = jdbcTemplate.query("""
-			SELECT id, kind, text, alert_id, due_date
-			FROM alert_follow_up_todos
-			WHERE teacher_id = ? AND status = 'OPEN' AND due_date <= ?
-			ORDER BY due_date ASC, created_at ASC, id ASC
+			SELECT todo.id, todo.kind, todo.text, todo.alert_id, todo.due_date,
+			       todo.created_at, signal.display_label
+			FROM alert_follow_up_todos todo
+			JOIN engagement_alerts alert
+			  ON alert.id = todo.alert_id AND alert.teacher_id = todo.teacher_id
+			JOIN detection_signal_results signal
+			  ON signal.id = alert.detection_signal_result_id
+			WHERE todo.teacher_id = ? AND todo.status = 'OPEN' AND todo.due_date <= ?
+			ORDER BY todo.due_date ASC, todo.created_at ASC, todo.id ASC
 			""", (resultSet, rowNumber) -> new Todo(
 			resultSet.getObject("id", UUID.class),
 			resultSet.getString("kind"),
 			resultSet.getString("text"),
+			resultSet.getString("display_label"),
+			resultSet.getTimestamp("created_at").toInstant(),
 			new Ref(resultSet.getObject("alert_id", UUID.class), "alert_detail"),
 			resultSet.getObject("due_date", LocalDate.class), false
 		), teacherProfileId, date);
@@ -151,12 +164,15 @@ public class DashboardBriefingService {
 				alertId,
 				resultSetUuid(resultSet, "student_id"),
 				resultSetString(resultSet, "student_name"),
+				resultSetString(resultSet, "class_name"),
 				resultSetString(resultSet, "rule_id"),
 				resultSetString(resultSet, "signal_type"),
+				resultSetString(resultSet, "display_label"),
 				resultSetInt(resultSet, "rank"),
 				resultSetString(resultSet, "brief_text"),
 				resultSetBoolean(resultSet, "fallback_used"),
-				resultSetString(resultSet, "status")
+				resultSetString(resultSet, "status"),
+				resultSetInstant(resultSet, "created_at")
 			));
 			alert.evidence().add(new Evidence(
 				resultSet.getString("record_id"), resultSet.getString("summary")
@@ -185,21 +201,28 @@ public class DashboardBriefingService {
 		catch (SQLException exception) { throw new IllegalStateException(exception); }
 	}
 
+	private Instant resultSetInstant(ResultSet rs, String column) {
+		try { return rs.getTimestamp(column).toInstant(); }
+		catch (SQLException exception) { throw new IllegalStateException(exception); }
+	}
+
 	private record AlertAccumulator(
-		UUID alertId, UUID studentId, String studentName, String ruleId, String signalType, int rank,
-		String brief, boolean briefFallback, String status, List<Evidence> evidence
+		UUID alertId, UUID studentId, String studentName, String className, String ruleId,
+		String signalType, String displayLabel, int rank, String brief, boolean briefFallback,
+		String status, Instant createdAt, List<Evidence> evidence
 	) {
 		AlertAccumulator(
-			UUID alertId, UUID studentId, String studentName, String ruleId, String signalType, int rank,
-			String brief, boolean briefFallback, String status
+			UUID alertId, UUID studentId, String studentName, String className, String ruleId,
+			String signalType, String displayLabel, int rank, String brief, boolean briefFallback,
+			String status, Instant createdAt
 		) {
-			this(alertId, studentId, studentName, ruleId, signalType, rank, brief, briefFallback,
-				status, new ArrayList<>());
+			this(alertId, studentId, studentName, className, ruleId, signalType, displayLabel,
+				rank, brief, briefFallback, status, createdAt, new ArrayList<>());
 		}
 
 		Alert toAlert() {
-			return new Alert(alertId, studentId, studentName, ruleId, signalType, rank, brief,
-				briefFallback, status, List.copyOf(evidence));
+			return new Alert(alertId, studentId, studentName, className, ruleId, signalType,
+				displayLabel, rank, brief, briefFallback, status, createdAt, List.copyOf(evidence));
 		}
 	}
 }

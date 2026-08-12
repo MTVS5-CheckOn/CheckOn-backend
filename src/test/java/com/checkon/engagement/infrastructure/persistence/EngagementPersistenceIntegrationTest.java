@@ -28,6 +28,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import com.checkon.support.RosterTestFixture;
+import com.checkon.engagement.application.EngagementAlertContextService;
+import com.checkon.engagement.application.EngagementCandidateService;
 
 @SpringBootTest
 @Testcontainers
@@ -58,6 +60,12 @@ class EngagementPersistenceIntegrationTest {
 
 	@Autowired
 	DataSource dataSource;
+
+	@Autowired
+	EngagementCandidateService engagementCandidateService;
+
+	@Autowired
+	EngagementAlertContextService alertContextService;
 
 	UUID approvedAlert;
 	UUID intervention;
@@ -143,6 +151,61 @@ class EngagementPersistenceIntegrationTest {
 			VALUES (?, ?, ?, 'PENDING_REVIEW', ?, ?)
 			""", OTHER_TEACHER, STUDENT, SIGNAL_WITH_EVIDENCE, offset(NOW), offset(NOW)))
 			.isInstanceOf(DataAccessException.class);
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given advisory 신호, When Alert 후보를 만들면, Then 신호만 보존하고 Alert와 Todo는 만들지 않는다")
+	void givenAdvisorySignal_whenCreatingCandidates_thenSkipsAlertAndTodo() {
+		UUID advisorySignal = UUID.fromString("0198e100-0000-7000-8000-000000000006");
+		UUID run = jdbc.queryForObject(
+			"SELECT id FROM detection_runs WHERE idempotency_key = 'engagement-db'", UUID.class
+		);
+		jdbc.update("""
+			INSERT INTO detection_signal_results (
+			    id, detection_run_id, external_signal_id, student_ref, class_ref,
+			    rule_id, signal_type, display_label, score, rank, advisory, lifecycle,
+			    brief_text, gate_passed, fallback_used, created_at
+			)
+			VALUES (?, ?, 'advisory-signal', 'st_cccccccccccccccccccccccccccccccc',
+			        'class', 'R6', 'advisory', '참고 신호', 0.5, 2, true, 'NEW',
+			        '학생 상세 참고용', true, false, ?)
+			""", advisorySignal, run, offset(NOW));
+		jdbc.update("""
+			INSERT INTO detection_result_evidence
+			    (detection_signal_result_id, source_hint, record_id, summary)
+			VALUES (?, 'learning_event', 'advisory-record', '참고 근거')
+			""", advisorySignal);
+
+		engagementCandidateService.createPendingAlerts(TEACHER, run, NOW);
+
+		assertThat(jdbc.queryForObject("""
+			SELECT count(*) FROM engagement_alerts
+			WHERE detection_signal_result_id = ?
+			""", Integer.class, advisorySignal)).isZero();
+		assertThat(jdbc.queryForObject(
+			"SELECT count(*) FROM alert_follow_up_todos", Integer.class
+		)).isZero();
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 완료된 후속 조치, When AI 경보 이력을 조회하면, Then resolved와 followed_up을 반환한다")
+	void givenCompletedIntervention_whenReadingAlertHistory_thenReturnsResolvedContext() {
+		Instant completedAt = NOW.plusSeconds(300);
+		jdbc.update("""
+			UPDATE interventions
+			SET status = 'COMPLETED', completed_at = ?, updated_at = ?
+			WHERE id = ?
+			""", offset(completedAt), offset(completedAt), intervention);
+
+		var history = alertContextService.latestByStudentAndSignalType(TEACHER);
+
+		assertThat(history).singleElement().satisfies(item -> {
+			assertThat(item.studentId()).isEqualTo(STUDENT);
+			assertThat(item.signalType()).isEqualTo("RISK");
+			assertThat(item.status()).isEqualTo("resolved");
+			assertThat(item.resolvedAt()).isEqualTo(completedAt);
+			assertThat(item.followedUp()).isTrue();
+		});
 	}
 
 	@Test

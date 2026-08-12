@@ -132,6 +132,7 @@ public class DetectionResponseStorageService {
 			signal.displayLabel(),
 			BigDecimal.valueOf(signal.score()),
 			signal.rank(),
+			Boolean.TRUE.equals(signal.advisory()),
 			toLifecycle(signal.lifecycle()),
 			signal.brief().text(),
 			signal.brief().gatePassed(),

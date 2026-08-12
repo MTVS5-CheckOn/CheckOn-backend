@@ -122,6 +122,36 @@ class DetectionResponseStorageServiceTest {
 	}
 
 	@Test
+	@DisplayName("Given AI advisory 신호, When 성공 응답을 저장하면, Then advisory 값을 영속화한다")
+	void givenAdvisorySignal_whenStoringResponse_thenRetainsAdvisory() throws IOException {
+		UUID runId = UUID.fromString("019846dc-7c00-7000-8000-000000000111");
+		UUID attemptId = UUID.fromString("019846dc-7c00-7000-8000-000000000112");
+		prepareRequestedRun(runId, attemptId, LocalDate.of(2026, 8, 10));
+		AiDetectionResponse response = readDemoResponse();
+		AiDetectionResponse.Signal signal = response.data().signals().getFirst();
+		AiDetectionResponse advisoryResponse = withSignals(response, List.of(
+			new AiDetectionResponse.Signal(
+				signal.signalId(), signal.studentRef(), signal.classRef(), signal.ruleId(),
+				signal.signalType(), signal.displayLabel(), signal.score(), signal.rank(), true,
+				signal.lifecycle(), signal.brief(), signal.evidence()
+			)
+		));
+
+		storageService.storeSuccessfulResponse(
+			TEACHER_ID, runId, attemptId, 200, advisoryResponse,
+			Instant.parse("2026-07-27T17:10:03Z")
+		);
+
+		assertThat(signalResultRepository
+			.findAllByDetectionRunIdAndDetectionRunTeacherIdOrderByClassRefAscRankAsc(
+				runId, TEACHER_ID
+			))
+			.singleElement()
+			.extracting(DetectionSignalResult::advisory)
+			.isEqualTo(true);
+	}
+
+	@Test
 	void rollsBackSignalRowsWhenRunSuccessTransitionFails() throws IOException {
 		UUID runId = UUID.fromString("019846dc-7c00-7000-8000-000000000201");
 		UUID attemptId = UUID.fromString("019846dc-7c00-7000-8000-000000000202");
@@ -429,6 +459,7 @@ class DetectionResponseStorageServiceTest {
 			signal.displayLabel(),
 			signal.score(),
 			signal.rank(),
+			signal.advisory(),
 			signal.lifecycle(),
 			signal.brief(),
 			evidence

@@ -58,6 +58,32 @@ public class EngagementService {
 	public AlertDetail detail(UUID teacherId, UUID alertId) {
 		setTenantScope(teacherId);
 		EngagementAlert alert = requireAlert(alertId, teacherId);
+		AlertMetadata metadata = jdbcTemplate.queryForObject("""
+			SELECT personal.real_name AS student_name,
+			       class_group.name AS class_name,
+			       signal.rule_id,
+			       signal.signal_type,
+			       signal.display_label,
+			       signal.brief_text,
+			       signal.fallback_used
+			FROM engagement_alerts engagement
+			JOIN detection_signal_results signal
+			  ON signal.id = engagement.detection_signal_result_id
+			LEFT JOIN student_personal_information personal
+			  ON personal.student_id = engagement.student_id
+			LEFT JOIN class_groups class_group
+			  ON class_group.teacher_id = engagement.teacher_id
+			 AND signal.class_ref = 'cl_' || replace(class_group.id::text, '-', '')
+			WHERE engagement.id = ? AND engagement.teacher_id = ?
+			""", (resultSet, rowNumber) -> new AlertMetadata(
+			resultSet.getString("student_name"),
+			resultSet.getString("class_name"),
+			resultSet.getString("rule_id"),
+			resultSet.getString("signal_type"),
+			resultSet.getString("display_label"),
+			resultSet.getString("brief_text"),
+			resultSet.getBoolean("fallback_used")
+		), alertId, teacherId);
 		List<EvidenceView> evidence = jdbcTemplate.query("""
 			SELECT id, source_hint, record_id, summary
 			FROM detection_result_evidence
@@ -69,7 +95,11 @@ public class EngagementService {
 			resultSet.getString("record_id"),
 			resultSet.getString("summary")
 		), alert.detectionSignalResultId());
-		return new AlertDetail(alertView(alert), evidence);
+		return new AlertDetail(
+			alert.id(), alert.studentId(), metadata.studentName(), metadata.className(),
+			metadata.ruleId(), metadata.signalType(), metadata.displayLabel(), metadata.brief(),
+			metadata.briefFallback(), alert.status(), alert.createdAt(), evidence
+		);
 	}
 
 	@Transactional
@@ -265,7 +295,31 @@ public class EngagementService {
 	public record EvidenceView(UUID id, String sourceHint, String recordId, String summary) {
 	}
 
-	public record AlertDetail(AlertView alert, List<EvidenceView> evidence) {
+	public record AlertDetail(
+		UUID alertId,
+		UUID studentId,
+		String studentName,
+		String className,
+		String ruleId,
+		String signalType,
+		String displayLabel,
+		String brief,
+		boolean briefFallback,
+		AlertStatus status,
+		Instant createdAt,
+		List<EvidenceView> evidence
+	) {
+	}
+
+	private record AlertMetadata(
+		String studentName,
+		String className,
+		String ruleId,
+		String signalType,
+		String displayLabel,
+		String brief,
+		boolean briefFallback
+	) {
 	}
 
 	public record InterventionView(

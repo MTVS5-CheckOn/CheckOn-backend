@@ -3,7 +3,7 @@ info:
   title: CheckOn Risk Detection Kafka Contract
   version: 1.1.0
   description: |
-    Versioned asynchronous contract between CheckOn Backend and the AI risk-detection service.
+    Versioned asynchronous contract between CheckOn Backend and its risk-detection HTTP Adapter.
     The v0.2 detection payload adds optional detection_evidence while preserving v1 envelopes.
     All timestamps are RFC 3339 instants. All identifiers are UUIDv7 except opaque aliases.
 servers:
@@ -14,19 +14,19 @@ servers:
 defaultContentType: application/json
 channels:
   checkon.risk-detection.requested.v1:
-    description: Backend emits a durable risk-detection request for AI consumption.
+    description: Backend emits a durable request for the HTTP Adapter to forward to AI POST /v1/detect.
     publish:
       operationId: backendPublishesRiskDetectionRequest
       message:
         $ref: '#/components/messages/RiskDetectionRequested'
   checkon.risk-detection.completed.v1:
-    description: AI emits one validated successful result for a requested attempt.
+    description: HTTP Adapter emits one AI HTTP 200 result for a requested attempt.
     subscribe:
       operationId: backendConsumesRiskDetectionCompleted
       message:
         $ref: '#/components/messages/RiskDetectionCompleted'
   checkon.risk-detection.failed.v1:
-    description: AI emits a terminal failed result for a requested attempt.
+    description: HTTP Adapter emits a terminal or retry-exhausted failure for a requested attempt.
     subscribe:
       operationId: backendConsumesRiskDetectionFailed
       message:
@@ -35,7 +35,7 @@ components:
   messages:
     RiskDetectionRequested:
       name: RiskDetectionRequested
-      title: Backend to AI risk-detection request
+      title: Backend to HTTP Adapter risk-detection request
       contentType: application/json
       correlationId:
         location: $message.payload#/correlation_id
@@ -55,7 +55,7 @@ components:
                 $ref: '#/components/schemas/DetectionRequest'
     RiskDetectionCompleted:
       name: RiskDetectionCompleted
-      title: AI to Backend successful risk-detection result
+      title: HTTP Adapter to Backend successful risk-detection result
       contentType: application/json
       correlationId:
         location: $message.payload#/correlation_id
@@ -75,7 +75,7 @@ components:
                 $ref: '#/components/schemas/DetectionResponse'
     RiskDetectionFailed:
       name: RiskDetectionFailed
-      title: AI to Backend failed risk-detection result
+      title: HTTP Adapter to Backend failed risk-detection result
       contentType: application/json
       correlationId:
         location: $message.payload#/correlation_id
@@ -283,6 +283,10 @@ components:
                   display_label: { type: string }
                   score: { type: number }
                   rank: { type: integer }
+                  advisory:
+                    type: boolean
+                    default: false
+                    description: Student-detail reference only; never creates an Alert or Todo.
                   lifecycle: { type: string }
                   brief:
                     type: object

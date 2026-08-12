@@ -358,11 +358,12 @@
 - 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
 - 정책: 운영 API는 인증된 강사와 `analysisDate`를 기준으로 서버가 테넌트 키와 56일 학습 기록 스냅샷을 만든다. 서비스 시간대는 `Asia/Seoul`이다.
 - 빈 기록 처리: 56일 `learning_events`가 비어도 활성·전송 가능 학생이 있으면 10주 `detection_evidence`를 포함해 분석한다. 활성·전송 가능 학생이 전혀 없을 때만 기존 `NO_LEARNING_RECORDS` 응답으로 거절한다.
+- 학생 상태: 현재 강사와의 관계가 `ACTIVE`인 학생만 AI 요청에 포함한다. 종료 관계의 과거 학습 기록은 보존하되 현재 Detection 요청에서는 제외한다. AI 계약에 없는 `recorded`는 만들지 않으며, 활성 반 등록이 있으면 `enrolled`, 활성 관계지만 활성 반 등록이 없으면 `paused`, 분석 주에 `paused → returned` 전이가 있으면 `returned`를 사용한다.
 - 코드 근거:
   - `src/main/java/com/checkon/detection/application/OperationalDetectionRunService.java`
   - `src/main/java/com/checkon/detection/application/DetectionTenantKey.java`
   - `src/main/java/com/checkon/detection/presentation/DetectionRunExceptionHandler.java`
-- 마지막 검증일: 2026-08-04
+- 마지막 검증일: 2026-08-13
 
 #### DET-002 외부 AI 호출과 트랜잭션 경계
 
@@ -401,8 +402,11 @@
 - 일별 멱등성: 같은 강사와 `analysisDate`에는 논리적인 Detection run 하나만 허용한다. 기존 `(teacher_id, analysis_date)` 및 `idempotency_key` 유일 제약과 일별 멱등 키를 재사용한다. 이미 `SUCCEEDED`인 run은 AI를 다시 호출하지 않으며 기존 `FAILED` run은 새 attempt로 재시도한다.
 - 실행 방식: 첫 구현은 강사를 정해진 순서로 순차 실행한다. 무제한 병렬 처리와 별도 비동기 executor를 사용하지 않는다.
 - 누락 실행: 정시 실행만 담당하며 서버 중단 시간의 자동 catch-up이나 과거 날짜 소급 실행은 하지 않는다. 누락분은 기존 운영 Detection API로 수동 실행한다.
-- Kafka 실행 경계: 스케줄러와 교사 요청 API는 기존처럼 `OperationalDetectionRunService`를 호출한다. 이 서비스가 AI HTTP 호출 대신 Kafka 요청 Outbox를 만든다. 따라서 스케줄러가 broker에 직접 접근하지 않으며 DB의 일별 유일 제약과 상태 전이는 중복 실행·저장의 최종 방어선으로 유지한다.
-- 이벤트 계약: Backend → AI `checkon.risk-detection.requested.v1`, AI → Backend `checkon.risk-detection.completed.v1`/`checkon.risk-detection.failed.v1`를 사용한다. 모든 메시지는 `schema_version=1.0` envelope와 `event_id`, `correlation_id(=run_id)`, `causation_id`, `tenant_alias`, `run_id`, `attempt_id`, `request_id`, `idempotency_key`, `snapshot_hash`를 가진다. 정본은 `docs/contracts/risk-detection-kafka.asyncapi.yaml`이다.
+- Kafka 실행 경계: 스케줄러와 교사 요청 API는 기존처럼 `OperationalDetectionRunService`를 호출한다. 이 서비스가 AI HTTP 호출 대신 Kafka 요청 Outbox를 만든다. HTTP Adapter Consumer는 requested 이벤트를 소비해 AI `POST /v1/detect`를 호출하고 completed 또는 failed 이벤트를 발행한다. 따라서 스케줄러가 broker나 AI HTTP에 직접 접근하지 않으며 DB의 일별 유일 제약과 상태 전이는 중복 실행·저장의 최종 방어선으로 유지한다.
+- 이벤트 계약: Backend → HTTP Adapter `checkon.risk-detection.requested.v1`, HTTP Adapter → Backend `checkon.risk-detection.completed.v1`/`checkon.risk-detection.failed.v1`를 사용한다. 모든 메시지는 `schema_version=1.0` envelope와 `event_id`, `correlation_id(=run_id)`, `causation_id`, `tenant_alias`, `run_id`, `attempt_id`, `request_id`, `idempotency_key`, `snapshot_hash`를 가진다. 정본은 `docs/contracts/risk-detection-kafka.asyncapi.yaml`이다.
+- HTTP 변환·실패: Adapter는 requested `payload`를 요청 body로 보내고 `tenant_alias`, `request_id`, `idempotency_key`를 각각 `X-Tenant-Id`, `X-Request-Id`, `Idempotency-Key`로 전달한다. read timeout 기본값은 65초다. 400·409는 즉시 terminal failed, 네트워크·timeout·5xx는 3회 제한 재시도 후 failed로 변환하며 결과 이벤트는 원래 run·attempt·request·idempotency·snapshot·tenant 식별자를 유지한다.
+- 과거 경보 컨텍스트: AI 요청의 `alert_context`는 현재 분석 대상 학생의 기존 Engagement Alert를 학생 AI alias와 `signal_type` 기준으로 제공한다. 미검토 또는 후속 조치가 끝나지 않은 Alert는 `open`, 거절 또는 완료된 Intervention이 있는 Alert는 `resolved`로 보낸다. 완료 Intervention이 있으면 `followed_up=true`와 완료 시각을, 거절이면 `followed_up=false`와 결정 시각을 사용한다. 같은 학생·신호 유형에 open 이력이 있으면 가장 최근 open을 우선하고, 없으면 가장 최근 resolved만 보낸다.
+- advisory 신호: AI 응답의 `advisory`를 저장한다. `true`는 학생 상세 참고용으로만 보존하고 Engagement Alert·오늘 할 일·대시보드 확인 필요 신호 후보에서 제외하며 TOP N 슬롯을 소비하지 않는다.
 - 부재·복귀 근거: `payload.detection_evidence`는 선택 필드이며 기존 v1 request도 계속 읽는다. 전송 시 활성·동의 허용 학생별 최근 10주 `assignment_window`·`weekly_activity`를 모두 만들고, 분석 주의 `paused → returned`만 `enrollment_transition`으로 추가한다. 활동이 0건이어도 행을 생략하지 않는다. 논리 `source_table`은 `assignment_week_summary`, `student_week_activity`, `student_status_history`로 고정하고 실제 PostgreSQL 물리 테이블명은 외부에 노출하지 않는다.
 - 근거 조회: AI 완료 결과의 `(source_table, record_id)`는 해당 run의 불변 요청 스냅샷에 존재하는 정확한 쌍만 저장한다. 기존 학습 기록의 legacy source name은 호환을 위해 record_id 기준으로 읽되, 새 부재·복귀 근거는 쌍을 엄격히 대조한다. 강사 Alert 상세 화면은 저장된 source·record_id·AI 요약을 제공한다.
 - hash: `detection_evidence`는 `snapshot_hash` 대상이다. 누락과 빈 배열은 동일하고, 배열은 `(kind, student_ref, at, source_table, record_id)`, JSON key는 오름차순, UTF-8·공백 없는 JSON으로 정규화한다. `snapshot_hash` 자신과 `classes`는 hash 입력에서 제외한다.
@@ -420,8 +424,10 @@
   - `src/main/java/com/checkon/detection/application/DetectionAttemptCoordinator.java`
   - `src/main/java/com/checkon/detection/application/KafkaDetectionRequestService.java`
   - `src/main/java/com/checkon/detection/application/KafkaDetectionResultConsumer.java`
+  - `src/main/java/com/checkon/detection/application/KafkaDetectionHttpAdapter.java`
   - `src/main/java/com/checkon/detection/integration/kafka/KafkaOutboxPublisher.java`
   - `src/main/java/com/checkon/detection/integration/kafka/KafkaDetectionResultListener.java`
+	  - `src/main/java/com/checkon/detection/integration/kafka/KafkaDetectionHttpAdapterListener.java`
 	  - `src/main/java/com/checkon/detection/infrastructure/persistence/DetectionEvidenceProjectionRepository.java`
   - `src/main/resources/db/migration/V14__add_risk_detection_kafka_outbox.sql`
 	  - `src/main/resources/db/migration/V15__create_detection_evidence_projections.sql`
@@ -429,7 +435,7 @@
   - `src/test/java/com/checkon/detection/infrastructure/scheduling/DetectionSchedulerTest.java`
   - `src/test/java/com/checkon/detection/application/ScheduledDetectionJobTest.java`
   - `src/test/java/com/checkon/detection/application/ScheduledDetectionTargetProviderIntegrationTest.java`
-- 마지막 검증일: 2026-08-12
+- 마지막 검증일: 2026-08-13
 
 #### DET-005 동의 기능 전 AI 분석 임시 정책
 
@@ -571,11 +577,13 @@
 - 테넌트·상태: 테넌트는 인증 주체의 `teacherProfileId`에서만 결정하며 PostgreSQL RLS를 함께 적용한다. 경보 상태는 `PENDING_REVIEW`, `APPROVED`, `REJECTED`를 별도 변환 없이 반환한다.
 - 개인정보: Alert와 Reminder의 `studentName`은 nullable이며, `student_personal_information.real_name` 미등록 시 JSON key를 유지한 채 null을 반환한다. `student_profiles.alias` 또는 AI alias로 대체하지 않는다. 실명 저장은 `PUT /api/v1/students/{studentId}/personal-information/name`이 담당한다(ROS-004).
 - 함께 제공하는 대시보드 데이터: `alerts`, 조회일까지 이월된 미완료 `todos`(ENG-004), 조회일 기준 대상 `reminders`(ENG-005)를 한 응답에서 제공한다. 주간 캘린더는 별도 `GET /api/v1/dashboard/calendar` 계약(DASH-002)이다.
+- 화면 복원 필드: `alerts[]`는 기존 값에 `className`, `displayLabel`, `createdAt`을 추가한다. `todos[]`는 연결 신호의 `displayLabel`과 Todo `createdAt`을 추가한다. 반 이름은 Alert가 가리키는 AI `class_ref`와 같은 강사 소유 반을 해석하며 찾을 수 없으면 nullable key로 반환한다.
 - 이번 범위가 아닌 것: `feedbackGiven`, observing, 통계. 상담 일정·문의·리포트 승인 대기 Todo와 Reminder 실제 알림 발송도 구현하지 않는다.
 - 코드 근거:
   - `src/main/java/com/checkon/dashboard/application/DashboardBriefingService.java`
   - `src/main/java/com/checkon/dashboard/presentation/DashboardController.java`
-- 마지막 검증일: 2026-08-05
+  - `src/main/resources/openapi/dashboard-api.yaml`
+- 마지막 검증일: 2026-08-13
 
 #### DASH-002 주간 캘린더의 브리핑 경보 집계
 
@@ -613,17 +621,27 @@
 - 결정 상태: `CONFIRMED`
 - 구현 상태: `IMPLEMENTED`
 - 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_VERIFIED`
-- 종류·생성: 이번 범위는 `ALERT_FOLLOW_UP`만 구현하며, Evidence가 있는 `PENDING_REVIEW` 경보 한 건마다 같은 업무 흐름에서 Todo 한 건을 이벤트 기반으로 생성한다. Detection 스케줄러는 Todo를 직접 생성하지 않는다.
+- 종류·생성: 이번 범위는 `ALERT_FOLLOW_UP`만 구현하며, Evidence가 있고 `advisory=false`인 `PENDING_REVIEW` 경보 한 건마다 같은 업무 흐름에서 Todo 한 건을 이벤트 기반으로 생성한다. Detection 스케줄러는 Todo를 직접 생성하지 않는다.
 - 날짜·이월: `dueDate`는 주입된 `Clock`과 `Asia/Seoul`로 계산한 경보 생성일이다. 원래 날짜를 수정하거나 이월 스케줄러를 두지 않고, `OPEN AND due_date <= 조회일` 조건으로 조회한다.
 - 상태·완료: 상태는 `OPEN`, `DONE`이며 `done=true` 완료 요청은 멱등이다. 완료 취소와 재개는 지원하지 않는다. 연결 경보가 승인 또는 거절되면 같은 트랜잭션에서 미완료 Todo를 완료한다.
 - 개인정보: Todo 문구에는 학생 실명, 학생 alias, 학습 기록 내용을 포함하지 않고 고정 문장을 사용한다.
 - 테넌트·보안: 인증 주체의 `teacherProfileId`만 테넌트 경계로 사용하며 애플리케이션 조건과 PostgreSQL FORCE RLS를 함께 적용한다.
-- API·조회: `GET /api/v1/dashboard/briefing`은 조회일 이전까지의 미완료 Todo를 `dueDate`, `createdAt`, `id` 순으로 반환한다. `PATCH /api/v1/todos/{todoId}`는 `done=true`만 허용하며, 없음과 다른 테넌트 접근은 동일한 `TODO_NOT_FOUND` 404로 처리한다.
+- API·조회: `GET /api/v1/dashboard/briefing`은 조회일 이전까지의 미완료 Todo를 `dueDate`, `createdAt`, `id` 순으로 반환하고 연결 신호의 `displayLabel`과 Todo `createdAt`을 함께 제공한다. `PATCH /api/v1/todos/{todoId}`는 `done=true`만 허용하며, 없음과 다른 테넌트 접근은 동일한 `TODO_NOT_FOUND` 404로 처리한다.
 - 기존 데이터: V10 적용 시 기존 `PENDING_REVIEW` 경보만 경보 생성 시각의 `Asia/Seoul` 날짜로 backfill한다. 확정된 경보에는 OPEN Todo를 추가하지 않으며 `(alert_id, kind)` UNIQUE로 재삽입을 차단한다.
 - 후속 범위: inquiry, report, 상담 일정 Todo는 구현하지 않는다.
 - 코드 근거: `V10__create_alert_follow_up_todos.sql`, `AlertFollowUpTodo`, `TodoService`, `DashboardBriefingService`
-- 검증: Todo 단위 테스트, Engagement·Dashboard 집중 테스트 22건, 전체 Gradle 빌드 130건이 통과했다. 실제 운영 데이터가 채워진 V9→V10 승격 리허설과 Todo 전용 제한 역할 DML 검증은 아직 수행하지 않았다.
-- 마지막 검증일: 2026-08-05
+- 검증: advisory 제외, Engagement·Dashboard·Detection 집중 테스트와 최신 dev 기준 전체 Gradle 빌드 220건이 통과했다. 실제 운영 데이터가 채워진 V9→V10 승격 리허설과 Todo 전용 제한 역할 DML 검증은 아직 수행하지 않았다.
+- 마지막 검증일: 2026-08-13
+
+#### ENG-006 위험신호 상세 화면 복원 계약
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
+- API: `GET /api/v1/engagement/alerts/{alertId}` 하나로 상세 화면을 복원할 수 있도록 `alertId`, `studentId`, nullable `studentName`, nullable `className`, `ruleId`, `signalType`, `displayLabel`, `brief`, `briefFallback`, `status`, `createdAt`, `evidence[]`를 반환한다.
+- Evidence: 각 항목은 저장된 `sourceHint`, `recordId`, `summary`를 제공하며 원본 학습 기록이나 학생 개인정보를 새로 조합하지 않는다.
+- 테넌트·보안: 인증 주체의 `teacherProfileId`와 PostgreSQL RLS를 함께 적용하고, 없음과 다른 테넌트 접근은 동일한 404로 처리한다.
+- 마지막 검증일: 2026-08-13
 
 #### UX-001 배포 프론트의 화면 프레임 기준
 
@@ -658,6 +676,7 @@
 
 | 날짜 | 변경 | 검증 |
 | --- | --- | --- |
+| 2026-08-13 | 위험신호 화면 계약, 과거 Alert context, 종료 학생 제외, advisory 소비 규칙, Kafka HTTP Adapter 경로를 등록·구현 | 집중 단위·PostgreSQL 통합 테스트와 최신 dev 기준 전체 Gradle 빌드 220건 통과 |
 | 2026-08-12 | 문제 출제 studio 요청을 target별 child Outbox 이벤트로 fan-out하고 child 결과 멱등 처리·AI ID 고정·부모 `PARTIAL_SUCCESS` 집계를 구현 | child DB·화면 통합 테스트와 임베디드 Kafka fan-out·기존 단일 요청 호환 테스트, 전체 211건 및 Gradle build 통과 |
 | 2026-08-12 | 위험탐지 `DET-004`를 AI 기능 공통 Kafka 신뢰성 정본으로 확정하고, 문제 출제 fan-out·21분 관찰·문항 전량 이벤트·부분 성공을 기능별 예외로 분리해 PG-002·003·005 확정 | 사용자 승인과 AI 최종 회신을 정책 문서에 정적 반영. 코드·DB·테스트는 변경하지 않음 |
 | 2026-08-12 | Kafka-HTTP adapter를 별도 서버로 확정하고 AI HTTP 호출·polling·items 정규화를 adapter 책임으로 배치. Step 1→2 정보 이동과 12/7 화면 예시 충돌 해소 | 사용자 확정사항을 전달 문서·PG-002~005에 정적 반영. 코드 테스트는 재실행하지 않음 |

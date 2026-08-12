@@ -49,6 +49,7 @@ class DashboardControllerIntegrationTest {
 	private static final UUID OTHER_TEACHER = UUID.fromString("0198f000-0000-7000-8000-000000000002");
 	private static final UUID STUDENT = UUID.fromString("0198f000-0000-7000-8000-000000000003");
 	private static final UUID OTHER_STUDENT = UUID.fromString("0198f000-0000-7000-8000-000000000004");
+	private static final UUID CLASS = UUID.fromString("0198f000-0000-7000-8000-000000000005");
 	private static final Instant NOW = Instant.parse("2026-08-05T00:00:00Z");
 	private static final LocalDate TODAY = LocalDate.of(2026, 8, 5);
 	private static final LocalDate WEEK_START = TODAY.with(
@@ -80,7 +81,9 @@ class DashboardControllerIntegrationTest {
 		jdbc.update("DELETE FROM detection_runs");
 		jdbc.update("DELETE FROM ai_student_aliases");
 		jdbc.update("DELETE FROM student_personal_information");
+		jdbc.update("DELETE FROM class_enrollments");
 		jdbc.update("DELETE FROM teacher_student_relationships");
+		jdbc.update("DELETE FROM class_groups");
 		jdbc.update("DELETE FROM student_profiles");
 		RosterTestFixture.insertTeacher(jdbc, TEACHER);
 		RosterTestFixture.insertTeacher(jdbc, OTHER_TEACHER);
@@ -88,10 +91,25 @@ class DashboardControllerIntegrationTest {
 		insertStudent(OTHER_STUDENT, "다른 강사 학생", "st_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", OTHER_TEACHER);
 		insertRelationship(TEACHER, STUDENT);
 		insertRelationship(OTHER_TEACHER, OTHER_STUDENT);
+		jdbc.update("""
+			INSERT INTO class_groups(id, teacher_id, name, subject, status, created_at, updated_at)
+			VALUES (?, ?, '고1 수능 국어반', '국어', 'ACTIVE', ?, ?)
+			""", CLASS, TEACHER, NOW.atOffset(ZoneOffset.UTC), NOW.atOffset(ZoneOffset.UTC));
 		insertRealName(TEACHER, STUDENT, "김서연");
 		insertRunWithAlerts(TEACHER, STUDENT, TODAY, "today", "st_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 		insertRunWithAlerts(OTHER_TEACHER, OTHER_STUDENT, TODAY, "other", "st_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
 		insertRunWithAlerts(TEACHER, STUDENT, TODAY.minusDays(2), "past", "st_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+		UUID todoAlert = jdbc.queryForObject("""
+			SELECT alert.id FROM engagement_alerts alert
+			JOIN detection_signal_results signal ON signal.id = alert.detection_signal_result_id
+			JOIN detection_runs run ON run.id = signal.detection_run_id
+			WHERE alert.teacher_id = ? AND run.analysis_date = ? AND signal.rule_id = 'R1'
+			""", UUID.class, TEACHER, TODAY);
+		jdbc.update("""
+			INSERT INTO alert_follow_up_todos(
+			 teacher_id, kind, alert_id, text, due_date, status, created_at, updated_at
+			) VALUES (?, 'ALERT_FOLLOW_UP', ?, '확인이 필요한 경보를 검토해 주세요.', ?, 'OPEN', ?, ?)
+			""", TEACHER, todoAlert, TODAY, NOW.atOffset(ZoneOffset.UTC), NOW.atOffset(ZoneOffset.UTC));
 	}
 
 	@Test
@@ -106,6 +124,9 @@ class DashboardControllerIntegrationTest {
 			.andExpect(jsonPath("$.alerts[2].rank").value(3))
 			.andExpect(jsonPath("$.alerts[0].ruleId").value("R1"))
 			.andExpect(jsonPath("$.alerts[0].signalType").value("hidden_risk"))
+			.andExpect(jsonPath("$.alerts[0].displayLabel").value("위험"))
+			.andExpect(jsonPath("$.alerts[0].className").value("고1 수능 국어반"))
+			.andExpect(jsonPath("$.alerts[0].createdAt").value("2026-08-05T00:00:00Z"))
 			.andExpect(jsonPath("$.alerts[0].brief").value("브리핑 today 1"))
 			.andExpect(jsonPath("$.alerts[0].briefFallback").value(false))
 			.andExpect(jsonPath("$.alerts[0].evidence[0].recordId").value("record-today-1"))
@@ -114,6 +135,8 @@ class DashboardControllerIntegrationTest {
 			.andExpect(jsonPath("$.alerts[1].status").value("APPROVED"))
 			.andExpect(jsonPath("$.alerts[2].status").value("REJECTED"))
 			.andExpect(jsonPath("$.alerts[0].studentName").value("김서연"))
+			.andExpect(jsonPath("$.todos[0].displayLabel").value("위험"))
+			.andExpect(jsonPath("$.todos[0].createdAt").value("2026-08-05T00:00:00Z"))
 			.andExpect(jsonPath("$.alerts[0].feedbackGiven").doesNotExist());
 	}
 
@@ -357,6 +380,9 @@ class DashboardControllerIntegrationTest {
 		int rank, String status, String ruleId, boolean fallback
 	) {
 		String suffix = ruleId.substring(1);
+		String classRef = teacherId.equals(TEACHER)
+			? "cl_" + CLASS.toString().replace("-", "")
+			: "class";
 		UUID signalId = UUID.nameUUIDFromBytes(("signal:" + key + ruleId).getBytes());
 		UUID alertId = UUID.nameUUIDFromBytes(("alert:" + key + ruleId).getBytes());
 		jdbc.update("""
@@ -364,7 +390,7 @@ class DashboardControllerIntegrationTest {
 			 class_ref,rule_id,signal_type,display_label,score,rank,lifecycle,brief_text,
 			 gate_passed,fallback_used,created_at)
 			VALUES (?,?,?,?,?,?,?,?,0.8,?,'NEW',?,true,?,?)
-			""", signalId, runId, "signal-" + key + ruleId, alias, "class", ruleId,
+			""", signalId, runId, "signal-" + key + ruleId, alias, classRef, ruleId,
 			"hidden_risk", "위험", rank, "브리핑 " + key + " " + suffix, fallback,
 			NOW.atOffset(ZoneOffset.UTC));
 		jdbc.update("INSERT INTO detection_result_evidence(detection_signal_result_id,source_hint,record_id,summary) VALUES (?,'learning_records',?,?)",
