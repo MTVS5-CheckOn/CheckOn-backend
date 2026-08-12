@@ -10,12 +10,15 @@ spring:
       properties:
         acks: all
         enable.idempotence: true
+        # 40명 evidence snapshot(약 1.59 MiB)과 Kafka envelope를 수용한다.
+        max.request.size: 3145728
     consumer:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       enable-auto-commit: false
       properties:
         isolation.level: read_committed
+        max.partition.fetch.bytes: 3145728
 
   jpa:
     hibernate:

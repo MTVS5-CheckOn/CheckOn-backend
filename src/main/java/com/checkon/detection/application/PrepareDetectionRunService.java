@@ -163,7 +163,8 @@ public class PrepareDetectionRunService {
 			),
 			request.students(),
 			request.learningEvents(),
-			request.alertContext()
+			request.alertContext(),
+			request.detectionEvidence()
 		);
 	}
 

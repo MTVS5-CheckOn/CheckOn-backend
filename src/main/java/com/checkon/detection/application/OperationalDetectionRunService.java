@@ -63,7 +63,9 @@ public class OperationalDetectionRunService {
 			fromInclusive,
 			toExclusive
 		);
-		if (snapshot.learningEvents().isEmpty()) {
+		// A zero-activity week is now a citable fact in detection_evidence. Only
+		// skip a run when there is no active, consent-eligible student at all.
+		if (snapshot.students().isEmpty()) {
 			throw new NoLearningRecordsException();
 		}
 

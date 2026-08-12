@@ -38,12 +38,27 @@ Backend Listener → Inbox 중복 방지 → 응답 검증·신호 저장 또는
 - `KafkaInboxRepository`: AI가 같은 결과를 여러 번 보내도 `event_id` 한 번만 반영합니다.
 - `DetectionResponseStorageService`: HTTP 시절과 같은 강한 응답 검증과 원자적 저장을 계속 담당합니다.
 
+## v0.2 부재·복귀 근거는 어떻게 만드는가
+
+새 `detection_evidence`는 학습 기록이 없는 사실도 AI가 근거로 사용할 수 있게 합니다. 그래서 **학습 이벤트가 0개라는 이유만으로 Run을 거절하지 않습니다.** 활성이고 AI 전송이 허용된 학생이 한 명이라도 있으면 요청과 Outbox가 생성됩니다.
+
+| AI 논리 source | 현재 백엔드 생성 방식 | 안정적 `record_id` | 근거 보기 |
+| --- | --- | --- | --- |
+| `assignment_week_summary` | `detection_assignment_week_summaries` projection에서 최근 10주 조회 | `assignment-summary:{student_alias}:{week_start}` | Alert 상세에 저장된 source/id/AI 요약 |
+| `student_week_activity` | 백엔드 소유 `learning_records`를 학생·서울 기준 주차별로 세고, 없는 주도 0 행 생성 | `activity-summary:{student_alias}:{week_start}` | Alert 상세에 저장된 source/id/AI 요약 |
+| `student_status_history` | `detection_student_status_history`의 분석 주 `paused → returned` 조회 | `status-history:{student_alias}:{occurred_at}` | Alert 상세에 저장된 source/id/AI 요약 |
+
+`V15__create_detection_evidence_projections.sql`이 과제 projection과 상태 이력의 테넌트/RLS 경계를 만듭니다. 현재 Assignment·휴원 업무 도메인은 아직 없으므로, 그 기능이 생길 때 해당 업무 저장 트랜잭션에서 이 projection/history를 채우는 writer를 추가해야 합니다. 그 전에는 과제 projection의 없는 주가 `0/0`으로 전송되므로 실제 과제 미제출 운영 판단에는 사용하면 안 됩니다. 활동 수는 현재 존재하는 `learning_records`만 포함합니다. 출결·상담 도메인이 추가되면 같은 주간 집계에 포함할지 제품 정책과 함께 확장합니다.
+
+AI 결과는 새 근거에서 `(source_table, record_id)`가 당시 Run의 immutable snapshot에 **정확히 존재할 때만** 저장됩니다. 이는 AI가 다른 학생·다른 주의 근거를 인용하는 것을 막습니다. 기존 `learning_event` source 명칭은 이미 저장된 v0.1 응답을 읽기 위한 호환 예외입니다.
+
 ## 설정과 로컬 실행
 
 1. `.env`를 한 번만 준비한 뒤 프로젝트 루트에서 `powershell -ExecutionPolicy Bypass -File .\scripts\run-local-kafka.ps1`을 실행합니다. 이 스크립트는 PostgreSQL·Kafka만 기동하고, `.env`를 현재 프로세스에 읽고, Gradle daemon을 새로 시작해 백엔드를 실행합니다. `FLYWAY_DB_USERNAME`을 이미 쓰는 기존 `.env`도 `FLYWAY_DB_USER`로 자동 호환합니다.
 2. 백엔드를 로컬에서 실행할 때 기본 broker는 `localhost:9094`입니다. Docker Compose 안에서 실행하는 백엔드는 `kafka:19092`를 사용합니다. 필요하면 `KAFKA_BOOTSTRAP_SERVERS`로 바꿉니다.
 3. 실제 Kafka 연동을 끄고 DB/웹 테스트만 실행하려면 `CHECKON_KAFKA_ENABLED=false`를 사용합니다. 이 경우 Outbox는 기록되지만 publisher/listener는 실행되지 않습니다.
 4. 토픽 확인은 `docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --list`로 합니다. 현재 개발 Compose는 토픽 자동 생성을 허용합니다. 운영은 토픽, 파티션 수, retention을 인프라에서 명시 생성해야 합니다.
+5. v0.2 40명 요청은 약 1.59 MiB이므로 Compose broker, Spring producer `max.request.size`, Spring consumer `max.partition.fetch.bytes`를 모두 3 MiB로 올려 두었습니다. AI 서비스의 producer/consumer와 운영 broker도 같은 값 이상이어야 합니다. HTTP 직접 호출 경로를 나중에 만들면 Nginx `client_max_body_size`도 3 MiB 이상으로 맞춥니다.
 
 ## 운영에서 특히 확인할 것
 
@@ -52,6 +67,7 @@ Backend Listener → Inbox 중복 방지 → 응답 검증·신호 저장 또는
 - **순서**: key가 `tenant_alias`이므로 같은 강사의 메시지는 같은 partition에 들어갑니다. 전체 강사 간 순서는 보장하지도 필요하지도 않습니다.
 - **중복**: producer와 consumer 모두 at-least-once입니다. 중복은 장애가 아니라 정상 경우로 보고 Inbox/상태 전이로 안전하게 처리합니다.
 - **보안**: `tenant_alias`는 가명 식별자입니다. 메시지에 teacher ID, student ID, 실명, 연락처를 넣지 않습니다. 운영 TLS/SASL, ACL, retention은 배포 인프라에서 별도 설정합니다.
+- **근거가 거절됨**: AI 완료 payload의 `source_table`과 `record_id`가 요청 snapshot에 있던 정확한 쌍인지 먼저 확인합니다. 새 부재·복귀 근거는 `record_id`만 맞아도 통과하지 않습니다.
 
 ## 변경 시 순서
 
