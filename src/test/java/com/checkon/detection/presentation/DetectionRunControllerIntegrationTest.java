@@ -160,15 +160,22 @@ class DetectionRunControllerIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("Given 학습 기록이 없거나 강사 권한이 없을 때, When 탐지를 요청하면, Then 이벤트를 발행하지 않는다")
-	void givenNoDataOrInvalidRole_whenRequestingDetection_thenRejectsWithoutOutbox()
+	@DisplayName("Given 활성 학생의 학습 기록이 0건일 때, When 탐지를 요청하면, Then 0건 근거를 담은 Kafka Outbox를 만든다")
+	void givenActiveStudentWithoutLearningRecords_whenRequestingDetection_thenQueuesZeroActivityEvidence()
 		throws Exception {
 		mockMvc.perform(post("/api/v1/detection-runs")
 				.with(teacherAuthentication(TEACHER))
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"analysisDate\":\"2026-08-03\"}"))
-			.andExpect(status().isUnprocessableEntity())
-			.andExpect(jsonPath("$.code").value("NO_LEARNING_RECORDS"));
+			.andExpect(status().isAccepted())
+			.andExpect(jsonPath("$.status").value("REQUESTED"));
+
+		String payload = jdbc.queryForObject("SELECT payload FROM kafka_outbox_events",
+			String.class);
+		assertThat(payload)
+			.contains("detection_evidence")
+			.contains("student_week_activity")
+			.contains("\"activity_count\":0");
 		mockMvc.perform(post("/api/v1/detection-runs")
 				.with(roleAuthentication(AccountRole.PARENT))
 				.contentType(MediaType.APPLICATION_JSON)
@@ -176,7 +183,7 @@ class DetectionRunControllerIntegrationTest {
 			.andExpect(status().isForbidden());
 
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM kafka_outbox_events",
-			Integer.class)).isZero();
+			Integer.class)).isEqualTo(1);
 	}
 
 	private void insertRoster(UUID teacherId, UUID studentId, String alias) {

@@ -357,7 +357,7 @@
 - 구현 상태: `IMPLEMENTED`
 - 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
 - 정책: 운영 API는 인증된 강사와 `analysisDate`를 기준으로 서버가 테넌트 키와 56일 학습 기록 스냅샷을 만든다. 서비스 시간대는 `Asia/Seoul`이다.
-- 빈 기록 처리: 분석할 학습 기록이 없으면 `NO_LEARNING_RECORDS`로 거절한다.
+- 빈 기록 처리: 56일 `learning_events`가 비어도 활성·전송 가능 학생이 있으면 10주 `detection_evidence`를 포함해 분석한다. 활성·전송 가능 학생이 전혀 없을 때만 기존 `NO_LEARNING_RECORDS` 응답으로 거절한다.
 - 코드 근거:
   - `src/main/java/com/checkon/detection/application/OperationalDetectionRunService.java`
   - `src/main/java/com/checkon/detection/application/DetectionTenantKey.java`
@@ -396,13 +396,17 @@
 - 실행 시각: 매일 `02:10`, `Asia/Seoul`. Spring cron은 초를 포함한 `0 10 2 * * *`를 사용하고 JVM 기본 시간대에 의존하지 않는다.
 - 분석 날짜: 주입된 `Clock`으로 실행 시각의 `Asia/Seoul` 날짜를 계산하고 그 당일을 `analysisDate`로 사용한다.
 - 실행 대상: `teacher_profiles`가 존재하며 연결된 Account의 역할과 상태가 각각 `TEACHER`, `ACTIVE`인 강사다. 활성 학생 관계나 학습 기록 존재 여부를 대상 목록 SQL에 중복 구현하지 않는다.
-- 빈 기록: 기존 Detection 정책과 같이 `NO_LEARNING_RECORDS`로 건너뛰고 다음 강사를 계속 처리한다.
+- 빈 기록: 56일 학습 기록이 0건이어도 활성·전송 가능 학생이 있으면 주간 활동 `0` 근거를 넣어 실행한다. 활성·전송 가능 학생도 없을 때만 `NO_LEARNING_RECORDS`로 건너뛰고 다음 강사를 계속 처리한다.
 - 실패 격리: 강사별 실행을 독립적으로 처리하고 한 강사의 실패가 나머지 강사의 실행을 중단시키지 않는다. 성공, 이미 완료·중복, 학습 기록 없음, 실패를 집계한다. 복구 불가능한 JVM `Error`는 삼키지 않는다.
 - 일별 멱등성: 같은 강사와 `analysisDate`에는 논리적인 Detection run 하나만 허용한다. 기존 `(teacher_id, analysis_date)` 및 `idempotency_key` 유일 제약과 일별 멱등 키를 재사용한다. 이미 `SUCCEEDED`인 run은 AI를 다시 호출하지 않으며 기존 `FAILED` run은 새 attempt로 재시도한다.
 - 실행 방식: 첫 구현은 강사를 정해진 순서로 순차 실행한다. 무제한 병렬 처리와 별도 비동기 executor를 사용하지 않는다.
 - 누락 실행: 정시 실행만 담당하며 서버 중단 시간의 자동 catch-up이나 과거 날짜 소급 실행은 하지 않는다. 누락분은 기존 운영 Detection API로 수동 실행한다.
 - Kafka 실행 경계: 스케줄러와 교사 요청 API는 기존처럼 `OperationalDetectionRunService`를 호출한다. 이 서비스가 AI HTTP 호출 대신 Kafka 요청 Outbox를 만든다. 따라서 스케줄러가 broker에 직접 접근하지 않으며 DB의 일별 유일 제약과 상태 전이는 중복 실행·저장의 최종 방어선으로 유지한다.
 - 이벤트 계약: Backend → AI `checkon.risk-detection.requested.v1`, AI → Backend `checkon.risk-detection.completed.v1`/`checkon.risk-detection.failed.v1`를 사용한다. 모든 메시지는 `schema_version=1.0` envelope와 `event_id`, `correlation_id(=run_id)`, `causation_id`, `tenant_alias`, `run_id`, `attempt_id`, `request_id`, `idempotency_key`, `snapshot_hash`를 가진다. 정본은 `docs/contracts/risk-detection-kafka.asyncapi.yaml`이다.
+- 부재·복귀 근거: `payload.detection_evidence`는 선택 필드이며 기존 v1 request도 계속 읽는다. 전송 시 활성·동의 허용 학생별 최근 10주 `assignment_window`·`weekly_activity`를 모두 만들고, 분석 주의 `paused → returned`만 `enrollment_transition`으로 추가한다. 활동이 0건이어도 행을 생략하지 않는다. 논리 `source_table`은 `assignment_week_summary`, `student_week_activity`, `student_status_history`로 고정하고 실제 PostgreSQL 물리 테이블명은 외부에 노출하지 않는다.
+- 근거 조회: AI 완료 결과의 `(source_table, record_id)`는 해당 run의 불변 요청 스냅샷에 존재하는 정확한 쌍만 저장한다. 기존 학습 기록의 legacy source name은 호환을 위해 record_id 기준으로 읽되, 새 부재·복귀 근거는 쌍을 엄격히 대조한다. 강사 Alert 상세 화면은 저장된 source·record_id·AI 요약을 제공한다.
+- hash: `detection_evidence`는 `snapshot_hash` 대상이다. 누락과 빈 배열은 동일하고, 배열은 `(kind, student_ref, at, source_table, record_id)`, JSON key는 오름차순, UTF-8·공백 없는 JSON으로 정규화한다. `snapshot_hash` 자신과 `classes`는 hash 입력에서 제외한다.
+- 메시지 크기: 40명 기준 약 1.59 MiB payload와 Kafka envelope를 수용하도록 개발 Compose broker와 Spring producer/consumer는 3 MiB로 설정한다. 운영 broker·AI consumer도 같은 값 이상을 배포 설정에서 보장해야 한다.
 - 기존 Run 호환: Kafka 도입 전 `teacher_<uuid>:date` 형식으로 저장된 기존 `idempotency_key`는 데이터 마이그레이션으로 일괄 수정하지 않는다. 백엔드 내부에서만 legacy key를 인정해 기존 run의 상태·재시도를 보존하고, 새 Kafka 메시지에는 항상 `tenant_alias:date`만 넣는다.
 - 요청 내구성: Detection run·attempt·Outbox 행을 같은 DB 트랜잭션으로 저장한다. Outbox publisher는 `PENDING`을 at-least-once로 발행하고 최대 8회 전송 실패하면 Outbox와 해당 run을 `KAFKA_PUBLISH_FAILED`로 실패 처리한다. 같은 날짜의 후속 수동/스케줄 요청은 새 attempt로 재시도할 수 있다.
 - 결과 내구성: 완료·실패 Consumer는 Inbox의 `event_id` unique 제약으로 멱등 처리한다. 처리·검증·결과 저장은 한 트랜잭션이고, 실패 시 1초·2초 간격 총 3회 재시도한 뒤 `<topic>.dlt`로 보낸다. 오래되었거나 이미 대체된 attempt 결과는 저장하지 않는다.
@@ -418,7 +422,9 @@
   - `src/main/java/com/checkon/detection/application/KafkaDetectionResultConsumer.java`
   - `src/main/java/com/checkon/detection/integration/kafka/KafkaOutboxPublisher.java`
   - `src/main/java/com/checkon/detection/integration/kafka/KafkaDetectionResultListener.java`
+	  - `src/main/java/com/checkon/detection/infrastructure/persistence/DetectionEvidenceProjectionRepository.java`
   - `src/main/resources/db/migration/V14__add_risk_detection_kafka_outbox.sql`
+	  - `src/main/resources/db/migration/V15__create_detection_evidence_projections.sql`
   - `docs/contracts/risk-detection-kafka.asyncapi.yaml`
   - `src/test/java/com/checkon/detection/infrastructure/scheduling/DetectionSchedulerTest.java`
   - `src/test/java/com/checkon/detection/application/ScheduledDetectionJobTest.java`
@@ -579,6 +585,7 @@
 | 2026-08-09 | SCREEN-CLASS-001·002와 SCREEN-PAGE-001 승인 정책 등록, ROS-003 구현 상태 정정 및 중복 SEC-003을 SEC-004로 정정 | 사용자 승인 대화와 현재 정책·스키마를 정적 대조. 기능 구현 전 상태 기록 |
 | 2026-08-06 | LR-003 구현 상태 정정 및 LR-005~LR-009 Import 프로파일링·매핑 확정·검증·결과·미확정 계약 정책 등록 | 정책 레지스트리, Gap 분석, 현재 백엔드 Import 구현 부재를 정적 대조. 코드·테스트 변경 없음 |
 | 2026-08-12 | DET-004 실행 시각을 02:10으로 변경하고 DET-005 동의 기능 전 임시 AI 분석 정책 등록 | 사용자 확정 정책과 Detection 스냅샷·스케줄 코드 동기화. 집중 테스트와 전체 빌드 176건 통과 |
+| 2026-08-12 | DET-001·004에 AI 계약 v0.2 `detection_evidence`(10주 과제·활동, 복귀 이력), hash 정규화, 3 MiB Kafka 메시지 한도를 등록 | AI 제공 고정 샘플·계약을 기준으로 구현·BDD 검증 예정 |
 | 2026-08-05 | ENG-005 개입 기반 Reminder 자동 생성·취소 연동과 Alert 단위 대시보드 집계 정책 등록 및 구현 | Reminder, Engagement·Dashboard, Detection·Scheduler 집중 테스트 통과. 전체 빌드 결과는 최종 보고 참조 |
 | 2026-08-05 | ENG-004 경보 후속 조치 Todo 정책 등록 및 구현 | Todo 단위 테스트, Engagement·Dashboard 22건, 전체 빌드 130건 통과. 운영 데이터 승격 리허설과 Todo 전용 제한 역할 DML은 미실행 |
 | 2026-08-05 | DET-004 후속 확장 대상을 Redis에서 Kafka 비동기 실행으로 정정 | 정책 문구 정적 확인. Kafka 구현은 현재 범위에서 제외 |

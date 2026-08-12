@@ -175,9 +175,23 @@ public class DetectionResponseStorageService {
 				AiDetectionRequest.StudentSnapshot::studentRef,
 				AiDetectionRequest.StudentSnapshot::classRef
 			));
-		Set<String> requestedRecords = request.learningEvents().stream()
-			.map(AiDetectionRequest.LearningEventSnapshot::recordId)
-			.collect(java.util.stream.Collectors.toUnmodifiableSet());
+		Map<String, String> requestedLearningRecordStudents = request.learningEvents().stream()
+			.collect(java.util.stream.Collectors.toUnmodifiableMap(
+				AiDetectionRequest.LearningEventSnapshot::recordId,
+				AiDetectionRequest.LearningEventSnapshot::studentRef
+			));
+		Map<EvidenceReference, String> requestedEvidenceStudents = new java.util.HashMap<>();
+		for (AiDetectionRequest.LearningEventSnapshot event : request.learningEvents()) {
+			requestedEvidenceStudents.put(
+				new EvidenceReference("learning_records", event.recordId()), event.studentRef()
+			);
+		}
+		for (AiDetectionRequest.DetectionEvidence evidence : request.detectionEvidence()) {
+			requestedEvidenceStudents.put(
+				new EvidenceReference(evidence.sourceTable(), evidence.recordId()),
+				evidence.studentRef()
+			);
+		}
 		Set<String> signalIds = new HashSet<>();
 		for (AiDetectionResponse.Signal signal : response.data().signals()) {
 			if (signal == null || signal.brief() == null || signal.evidence() == null) {
@@ -226,20 +240,36 @@ public class DetectionResponseStorageService {
 				);
 			}
 			toLifecycle(signal.lifecycle());
-			Set<String> evidenceRecordIds = new HashSet<>();
+			Set<EvidenceReference> evidenceReferences = new HashSet<>();
 			for (AiDetectionResponse.Evidence evidence : signal.evidence()) {
 				if (evidence == null || isBlank(evidence.recordId())
-					|| !requestedRecords.contains(evidence.recordId())) {
+					|| isBlank(evidence.sourceTable())) {
 					throw new DetectionResponseStorageException(
-						"AI evidence record_id must belong to the request snapshot"
+						"AI evidence source_table and record_id must belong to the request snapshot"
 					);
 				}
-				if (!evidenceRecordIds.add(evidence.recordId())) {
+				EvidenceReference reference = new EvidenceReference(
+					evidence.sourceTable(), evidence.recordId()
+				);
+				// Earlier AI contract versions used learning_event as the logical
+				// source name. Keep those learning-record results readable while
+				// requiring an exact (source_table, record_id) pair for the new
+				// absence and return evidence.
+				String evidenceStudentRef = requestedEvidenceStudents.get(reference);
+				if (evidenceStudentRef == null) {
+					evidenceStudentRef = requestedLearningRecordStudents.get(evidence.recordId());
+				}
+				if (!Objects.equals(signal.studentRef(), evidenceStudentRef)) {
 					throw new DetectionResponseStorageException(
-						"AI evidence record_id must be unique inside a signal"
+						"AI evidence must belong to the signal student inside the request snapshot"
 					);
 				}
-				if (isBlank(evidence.sourceTable()) || isBlank(evidence.summary())) {
+				if (!evidenceReferences.add(reference)) {
+					throw new DetectionResponseStorageException(
+						"AI evidence source_table and record_id must be unique inside a signal"
+					);
+				}
+				if (isBlank(evidence.summary())) {
 					throw new DetectionResponseStorageException(
 						"AI evidence source and summary must not be blank"
 					);
@@ -309,5 +339,8 @@ public class DetectionResponseStorageService {
 
 	private boolean isBlank(String value) {
 		return value == null || value.isBlank();
+	}
+
+	private record EvidenceReference(String sourceTable, String recordId) {
 	}
 }

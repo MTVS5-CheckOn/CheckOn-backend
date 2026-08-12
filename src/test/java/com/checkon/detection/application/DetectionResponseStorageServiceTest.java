@@ -11,6 +11,7 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -28,6 +29,7 @@ import com.checkon.detection.domain.DetectionSignalResult;
 import com.checkon.detection.infrastructure.persistence.DetectionRunRepository;
 import com.checkon.detection.infrastructure.persistence.DetectionSignalResultRepository;
 import com.checkon.detection.integration.ai.dto.AiDetectionResponse;
+import com.checkon.detection.integration.ai.dto.AiDetectionRequest;
 import com.checkon.support.RosterTestFixture;
 
 import tools.jackson.databind.ObjectMapper;
@@ -251,6 +253,63 @@ class DetectionResponseStorageServiceTest {
 		);
 	}
 
+	@Test
+	@DisplayName("Given a requested v0.2 evidence snapshot, When AI cites its exact pair, Then the result is stored")
+	void givenEvidenceSnapshot_whenAiCitesExactPair_thenStoresResult() throws IOException {
+		UUID runId = UUID.fromString("019846dc-7c00-7000-8000-000000000251");
+		UUID attemptId = UUID.fromString("019846dc-7c00-7000-8000-000000000252");
+		prepareRequestedRunWithEvidence(runId, attemptId, LocalDate.of(2026, 8, 3));
+		AiDetectionResponse response = readDemoResponse();
+		AiDetectionResponse.Signal first = response.data().signals().getFirst();
+		AiDetectionResponse evidenceResponse = withSignals(response, List.of(copySignal(
+			first,
+			first.studentRef(),
+			List.of(new AiDetectionResponse.Evidence(
+				"assignment_week_summary",
+				"assignment-summary:st_10:2026-07-20",
+				"해당 주 과제 3건 중 0건 제출"
+			))
+		)));
+
+		storageService.storeSuccessfulResponse(
+			TEACHER_ID, runId, attemptId, 200, evidenceResponse,
+			Instant.parse("2026-07-27T17:10:03Z")
+		);
+
+		assertThat(signalResultRepository
+			.findAllByDetectionRunIdAndDetectionRunTeacherIdOrderByClassRefAscRankAsc(
+				runId, TEACHER_ID
+			)).singleElement().satisfies(signal ->
+			assertThat(signal.evidence()).singleElement().satisfies(evidence -> {
+				assertThat(evidence.sourceHint()).isEqualTo("assignment_week_summary");
+				assertThat(evidence.recordId()).isEqualTo(
+					"assignment-summary:st_10:2026-07-20"
+				);
+			})
+		);
+	}
+
+	@Test
+	@DisplayName("Given a requested v0.2 evidence snapshot, When AI changes source_table, Then the result is rejected")
+	void givenEvidenceSnapshot_whenAiChangesSourceTable_thenRejectsResult() throws IOException {
+		UUID runId = UUID.fromString("019846dc-7c00-7000-8000-000000000261");
+		UUID attemptId = UUID.fromString("019846dc-7c00-7000-8000-000000000262");
+		prepareRequestedRunWithEvidence(runId, attemptId, LocalDate.of(2026, 8, 4));
+		AiDetectionResponse response = readDemoResponse();
+		AiDetectionResponse.Signal first = response.data().signals().getFirst();
+		AiDetectionResponse mismatchedSource = withSignals(response, List.of(copySignal(
+			first,
+			first.studentRef(),
+			List.of(new AiDetectionResponse.Evidence(
+				"student_week_activity",
+				"assignment-summary:st_10:2026-07-20",
+				"다른 logical source"
+			))
+		)));
+
+		assertRejectedWithoutPartialRows(runId, attemptId, mismatchedSource);
+	}
+
 	private void prepareRequestedRun(
 		UUID runId,
 		UUID attemptId,
@@ -275,6 +334,35 @@ class DetectionResponseStorageServiceTest {
 				"request-" + attemptId,
 				Instant.parse("2026-07-27T17:10:00Z")
 			);
+			runRepository.save(run);
+		});
+	}
+
+	private void prepareRequestedRunWithEvidence(
+		UUID runId,
+		UUID attemptId,
+		LocalDate analysisDate
+	) throws IOException {
+		AiDetectionRequest base = objectMapper.readValue(new ClassPathResource(
+			"ai/detect-contract-request.json"
+		).getContentAsString(java.nio.charset.StandardCharsets.UTF_8), AiDetectionRequest.class);
+		AiDetectionRequest snapshot = new AiDetectionRequest(
+			base.snapshotMeta(), base.students(), base.learningEvents(), base.alertContext(),
+			List.of(AiDetectionRequest.DetectionEvidence.assignmentWindow(
+				"assignment_week_summary",
+				"assignment-summary:st_10:2026-07-20",
+				"st_10", LocalDate.of(2026, 7, 20), 3, 0
+			))
+		);
+		String snapshotPayload = objectMapper.writeValueAsString(snapshot);
+		transactionTemplate.executeWithoutResult(status -> {
+			DetectionRun run = DetectionRun.prepare(
+				runId, TEACHER_ID, analysisDate, LocalDate.of(2026, 7, 20),
+				"tn_demo_teacher:" + runId, SNAPSHOT_HASH, snapshotPayload,
+				Instant.parse("2026-07-27T17:09:59Z")
+			);
+			run.startAttempt(attemptId, "request-" + attemptId,
+				Instant.parse("2026-07-27T17:10:00Z"));
 			runRepository.save(run);
 		});
 	}

@@ -1,10 +1,11 @@
 asyncapi: 2.6.0
 info:
   title: CheckOn Risk Detection Kafka Contract
-  version: 1.0.0
+  version: 1.1.0
   description: |
     Versioned asynchronous contract between CheckOn Backend and the AI risk-detection service.
-    All timestamps are RFC 3339 UTC instants. All identifiers are UUIDv7 except opaque aliases.
+    The v0.2 detection payload adds optional detection_evidence while preserving v1 envelopes.
+    All timestamps are RFC 3339 instants. All identifiers are UUIDv7 except opaque aliases.
 servers:
   local:
     url: localhost:9094
@@ -212,6 +213,54 @@ components:
               status: { type: string }
               resolved_at: { type: [string, 'null'], format: date-time }
               followed_up: { type: boolean }
+        detection_evidence:
+          type: array
+          description: |
+            Optional v0.2 absence/return facts. The backend emits ten assignment_window
+            and ten weekly_activity entries per eligible student, including activity_count=0.
+            Array omission and [] have the same snapshot_hash meaning.
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/AssignmentWindowEvidence'
+              - $ref: '#/components/schemas/WeeklyActivityEvidence'
+              - $ref: '#/components/schemas/EnrollmentTransitionEvidence'
+            discriminator:
+              propertyName: kind
+    AssignmentWindowEvidence:
+      type: object
+      additionalProperties: false
+      required: [kind, source_table, record_id, student_ref, week_start, expected_count, submitted_count]
+      properties:
+        kind: { const: assignment_window }
+        source_table: { const: assignment_week_summary }
+        record_id: { type: string, minLength: 1 }
+        student_ref: { type: string, pattern: '^st_[0-9a-f]{32}$' }
+        week_start: { type: string, format: date, description: Monday in Asia/Seoul }
+        expected_count: { type: integer, minimum: 0 }
+        submitted_count: { type: integer, minimum: 0 }
+    WeeklyActivityEvidence:
+      type: object
+      additionalProperties: false
+      required: [kind, source_table, record_id, student_ref, week_start, activity_count]
+      properties:
+        kind: { const: weekly_activity }
+        source_table: { const: student_week_activity }
+        record_id: { type: string, minLength: 1 }
+        student_ref: { type: string, pattern: '^st_[0-9a-f]{32}$' }
+        week_start: { type: string, format: date, description: Monday in Asia/Seoul }
+        activity_count: { type: integer, minimum: 0 }
+    EnrollmentTransitionEvidence:
+      type: object
+      additionalProperties: false
+      required: [kind, source_table, record_id, student_ref, occurred_at, from_status, to_status]
+      properties:
+        kind: { const: enrollment_transition }
+        source_table: { const: student_status_history }
+        record_id: { type: string, minLength: 1 }
+        student_ref: { type: string, pattern: '^st_[0-9a-f]{32}$' }
+        occurred_at: { type: string, format: date-time }
+        from_status: { const: paused }
+        to_status: { const: returned }
     DetectionResponse:
       type: object
       required: [data, error, meta]

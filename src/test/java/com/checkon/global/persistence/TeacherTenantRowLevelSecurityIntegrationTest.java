@@ -84,6 +84,8 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 	private static final UUID INTERVENTION_B = UUID.fromString("019846dc-7c00-7000-8000-0000000010a2");
 	private static final UUID REMINDER_A = UUID.fromString("019846dc-7c00-7000-8000-0000000010b1");
 	private static final UUID REMINDER_B = UUID.fromString("019846dc-7c00-7000-8000-0000000010b2");
+	private static final UUID STATUS_HISTORY_A = UUID.fromString("019846dc-7c00-7000-8000-0000000010c1");
+	private static final UUID STATUS_HISTORY_B = UUID.fromString("019846dc-7c00-7000-8000-0000000010c2");
 	private static final String RESTRICTED_ROLE = "checkon_rls_test_runtime";
 
 	@Container
@@ -118,6 +120,8 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			   detection_signal_results,
 			   detection_result_evidence,
 			   learning_records,
+			   detection_assignment_week_summaries,
+			   detection_student_status_history,
 			   ai_student_aliases,
 			   student_personal_information,
 			   engagement_alerts,
@@ -181,13 +185,15 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'detection_signal_results',
 				    'detection_result_evidence',
 				    'learning_records',
+				    'detection_assignment_week_summaries',
+				    'detection_student_status_history',
 				    'ai_student_aliases',
 				    'student_personal_information',
 				    'engagement_alerts','interventions','intervention_reminders'
 				  )
 				  AND table_metadata.relrowsecurity
 				  AND table_metadata.relforcerowsecurity
-				""")).isEqualTo(13);
+				""")).isEqualTo(15);
 			assertThat(queryInt(statement, """
 				SELECT count(*) FROM pg_policies
 				WHERE schemaname = 'public'
@@ -200,11 +206,13 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'detection_signal_results',
 				    'detection_result_evidence',
 				    'learning_records',
+				    'detection_assignment_week_summaries',
+				    'detection_student_status_history',
 				    'ai_student_aliases',
 				    'student_personal_information',
 				    'engagement_alerts','interventions','intervention_reminders'
 				  )
-				""")).isEqualTo(52);
+				""")).isEqualTo(60);
 			assertThat(queryInt(statement, """
 				SELECT count(*)
 				FROM pg_class table_metadata
@@ -226,6 +234,8 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThat(count(connection, "class_enrollments")).isZero();
 			assertThat(count(connection, "detection_request_attempts")).isZero();
 			assertThat(count(connection, "learning_records")).isZero();
+			assertThat(count(connection, "detection_assignment_week_summaries")).isZero();
+			assertThat(count(connection, "detection_student_status_history")).isZero();
 			assertThat(count(connection, "ai_student_aliases")).isZero();
 			assertThat(count(connection, "student_personal_information")).isZero();
 			assertThat(count(connection, "engagement_alerts")).isZero();
@@ -259,6 +269,8 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThat(ids(connection, "detection_signal_results"))
 				.containsExactly(SIGNAL_A);
 			assertThat(ids(connection, "learning_records")).containsExactly(LEARNING_A);
+			assertThat(count(connection, "detection_assignment_week_summaries")).isEqualTo(1);
+			assertThat(count(connection, "detection_student_status_history")).isEqualTo(1);
 			assertThat(ids(connection, "ai_student_aliases")).containsExactly(AI_ALIAS_A);
 			assertThat(studentPersonalInformationCount(connection)).isEqualTo(1);
 			assertThat(ids(connection, "engagement_alerts")).containsExactly(ALERT_A);
@@ -471,6 +483,19 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			"st_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 		insertLearningFixture(LEARNING_B, AI_ALIAS_B, TEACHER_B, STUDENT_B,
 			"st_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+		administrator.update("""
+			INSERT INTO detection_assignment_week_summaries
+			    (teacher_id, student_id, week_start, expected_count, submitted_count, calculated_at)
+			VALUES (?, ?, DATE '2026-07-27', 3, 0, ?),
+			       (?, ?, DATE '2026-07-27', 3, 3, ?)
+			""", TEACHER_A, STUDENT_A, now, TEACHER_B, STUDENT_B, now);
+		administrator.update("""
+			INSERT INTO detection_student_status_history
+			    (id, teacher_id, student_id, occurred_at, from_status, to_status, created_at)
+			VALUES (?, ?, ?, ?, 'paused', 'returned', ?),
+			       (?, ?, ?, ?, 'paused', 'returned', ?)
+			""", STATUS_HISTORY_A, TEACHER_A, STUDENT_A, now, now,
+			STATUS_HISTORY_B, TEACHER_B, STUDENT_B, now, now);
 		insertEngagementFixture(ALERT_A, INTERVENTION_A, REMINDER_A, TEACHER_A, STUDENT_A, SIGNAL_A);
 		insertEngagementFixture(ALERT_B, INTERVENTION_B, REMINDER_B, TEACHER_B, STUDENT_B, SIGNAL_B);
 	}

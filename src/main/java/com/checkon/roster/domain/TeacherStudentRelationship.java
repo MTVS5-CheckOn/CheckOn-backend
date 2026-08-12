@@ -94,6 +94,10 @@ public class TeacherStudentRelationship {
 		return id;
 	}
 
+	public UUID studentId() {
+		return studentId;
+	}
+
 	public RelationshipStatus status() {
 		return status;
 	}

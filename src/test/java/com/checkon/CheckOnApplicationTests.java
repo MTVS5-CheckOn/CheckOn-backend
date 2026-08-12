@@ -100,6 +100,14 @@ class CheckOnApplicationTests {
 			"SELECT to_regclass('public.kafka_inbox_events')::text",
 			String.class
 		);
+		String assignmentEvidenceProjection = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.detection_assignment_week_summaries')::text",
+			String.class
+		);
+		String statusEvidenceHistory = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.detection_student_status_history')::text",
+			String.class
+		);
 		Integer classManagementColumns = jdbcTemplate.queryForObject("""
 			SELECT count(*)
 			FROM information_schema.columns
@@ -115,11 +123,14 @@ class CheckOnApplicationTests {
 		assertThat(studentPersonalInformation).isEqualTo("student_personal_information");
 		assertThat(kafkaOutbox).isEqualTo("kafka_outbox_events");
 		assertThat(kafkaInbox).isEqualTo("kafka_inbox_events");
+		assertThat(assignmentEvidenceProjection)
+			.isEqualTo("detection_assignment_week_summaries");
+		assertThat(statusEvidenceHistory).isEqualTo("detection_student_status_history");
 		assertThat(classManagementColumns).isEqualTo(2);
 		assertThat(jdbcTemplate.queryForObject(
 			"SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1",
 			String.class
-		)).isEqualTo("14");
+		)).isEqualTo("15");
 	}
 
 	@Test
