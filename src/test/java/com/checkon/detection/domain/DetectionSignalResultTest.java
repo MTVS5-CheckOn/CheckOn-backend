@@ -81,6 +81,7 @@ class DetectionSignalResultTest {
 			"정답률 하락",
 			score,
 			1,
+			false,
 			DetectionLifecycle.NEW,
 			"정답률이 평소보다 떨어졌어요.",
 			true,

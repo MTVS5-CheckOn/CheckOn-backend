@@ -38,6 +38,7 @@ public class EngagementCandidateService {
 			  ON alias.teacher_id = run.teacher_id
 			 AND alias.alias = signal.student_ref
 			WHERE run.id = ? AND run.teacher_id = ?
+			  AND signal.advisory = false
 			  AND EXISTS (
 			      SELECT 1
 			      FROM detection_result_evidence evidence

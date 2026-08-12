@@ -10,6 +10,7 @@ public record RiskDetectionKafkaProperties(
 	String requestedTopic,
 	String completedTopic,
 	String failedTopic,
+	String requestedConsumerGroupId,
 	String consumerGroupId,
 	Duration outboxPollDelay,
 	Duration outboxLockTimeout,
@@ -22,8 +23,8 @@ public record RiskDetectionKafkaProperties(
 		if (isBlank(requestedTopic) || isBlank(completedTopic) || isBlank(failedTopic)) {
 			throw new IllegalArgumentException("Risk detection Kafka topics must not be blank");
 		}
-		if (isBlank(consumerGroupId)) {
-			throw new IllegalArgumentException("Risk detection Kafka consumerGroupId must not be blank");
+		if (isBlank(requestedConsumerGroupId) || isBlank(consumerGroupId)) {
+			throw new IllegalArgumentException("Risk detection Kafka consumer group IDs must not be blank");
 		}
 		outboxPollDelay = positive(outboxPollDelay, "outboxPollDelay");
 		outboxLockTimeout = positive(outboxLockTimeout, "outboxLockTimeout");

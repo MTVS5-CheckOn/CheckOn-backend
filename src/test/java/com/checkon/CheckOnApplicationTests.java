@@ -153,6 +153,13 @@ class CheckOnApplicationTests {
 			  AND table_name = 'class_groups'
 			  AND column_name IN ('subject', 'memo')
 			""", Integer.class);
+		Integer advisoryColumns = jdbcTemplate.queryForObject("""
+			SELECT count(*)
+			FROM information_schema.columns
+			WHERE table_schema = 'public'
+			  AND table_name = 'detection_signal_results'
+			  AND column_name = 'advisory'
+			""", Integer.class);
 
 		assertThat(detectionRuns).isEqualTo("detection_runs");
 		assertThat(detectionAttempts).isEqualTo("detection_request_attempts");
@@ -174,10 +181,11 @@ class CheckOnApplicationTests {
 		assertThat(savedProblemSets).isEqualTo("saved_problem_sets");
 		assertThat(problemAssignments).isEqualTo("problem_assignments");
 		assertThat(classManagementColumns).isEqualTo(2);
+		assertThat(advisoryColumns).isEqualTo(1);
 		assertThat(jdbcTemplate.queryForObject(
 			"SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1",
 			String.class
-		)).isEqualTo("19");
+		)).isEqualTo("20");
 	}
 
 	@Test

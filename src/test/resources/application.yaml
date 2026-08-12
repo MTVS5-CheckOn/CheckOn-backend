@@ -11,6 +11,7 @@ checkon:
       requested-topic: checkon.risk-detection.requested.v1
       completed-topic: checkon.risk-detection.completed.v1
       failed-topic: checkon.risk-detection.failed.v1
+      requested-consumer-group-id: checkon-backend-risk-detection-http-adapter-test
       consumer-group-id: checkon-backend-risk-detection-test
       outbox-poll-delay: 1s
       outbox-lock-timeout: 30s

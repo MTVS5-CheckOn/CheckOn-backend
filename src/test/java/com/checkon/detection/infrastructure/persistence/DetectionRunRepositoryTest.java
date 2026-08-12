@@ -309,6 +309,7 @@ class DetectionRunRepositoryTest {
 			ruleId + " 표시명",
 			score,
 			rank,
+			false,
 			lifecycle,
 			signalType + " 브리핑",
 			true,

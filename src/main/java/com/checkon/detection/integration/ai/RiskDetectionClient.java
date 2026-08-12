@@ -9,4 +9,10 @@ public interface RiskDetectionClient {
 		AiDetectionRequest request,
 		AiDetectionRequestHeaders headers
 	);
+
+	/** Sends an already validated canonical request without DTO reserialization. */
+	AiDetectionResponse detectRaw(
+		String requestBody,
+		AiDetectionRequestHeaders headers
+	);
 }
