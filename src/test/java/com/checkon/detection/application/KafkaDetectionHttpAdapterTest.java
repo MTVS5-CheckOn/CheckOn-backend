@@ -3,6 +3,7 @@ package com.checkon.detection.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -74,7 +75,7 @@ class KafkaDetectionHttpAdapterTest {
 	@DisplayName("Given requested 이벤트가 있을 때, When AI HTTP가 200이면, Then 필수 헤더로 호출하고 completed를 발행한다")
 	void givenRequestedEvent_whenAiReturns200_thenCallsWithHeadersAndPublishesCompleted() throws Exception {
 		AiDetectionResponse response = successResponse();
-		when(client.detect(any(), any())).thenReturn(response);
+		when(client.detectRaw(anyString(), any())).thenReturn(response);
 		when(kafkaTemplate.send(eq("completed"), eq(TENANT), any()))
 			.thenReturn(CompletableFuture.completedFuture(null));
 
@@ -82,7 +83,10 @@ class KafkaDetectionHttpAdapterTest {
 
 		ArgumentCaptor<AiDetectionRequestHeaders> headers =
 			ArgumentCaptor.forClass(AiDetectionRequestHeaders.class);
-		verify(client).detect(any(AiDetectionRequest.class), headers.capture());
+		ArgumentCaptor<String> requestBody = ArgumentCaptor.forClass(String.class);
+		verify(client).detectRaw(requestBody.capture(), headers.capture());
+		assertThat(objectMapper.readTree(requestBody.getValue()))
+			.isEqualTo(objectMapper.readTree(requestedEvent()).get("payload"));
 		assertThat(headers.getValue().tenantId()).isEqualTo(TENANT);
 		assertThat(headers.getValue().requestId()).isEqualTo("original-request-id");
 		assertThat(headers.getValue().idempotencyKey().value()).isEqualTo(TENANT + ":2026-08-12");
@@ -99,7 +103,15 @@ class KafkaDetectionHttpAdapterTest {
 	@Test
 	@DisplayName("Given requested 이벤트가 있을 때, When AI HTTP가 400이면, Then 재시도하지 않고 failed를 발행한다")
 	void givenRequestedEvent_whenAiReturns400_thenPublishesTerminalFailure() throws Exception {
-		when(client.detect(any(), any())).thenThrow(RiskDetectionClientException.httpError(400, null));
+		when(client.detectRaw(anyString(), any())).thenThrow(RiskDetectionClientException.httpError(
+			400,
+			"""
+				{"error":{"code":"INVALID_SCHEMA","detail":[
+				  {"field":"learning_events.0.source","message":"invalid source"}
+				]}}
+				""",
+			null
+		));
 		when(kafkaTemplate.send(eq("failed"), eq(TENANT), any()))
 			.thenReturn(CompletableFuture.completedFuture(null));
 
@@ -110,12 +122,18 @@ class KafkaDetectionHttpAdapterTest {
 		JsonNode published = objectMapper.readTree(event.getValue());
 		assertThat(published.get("payload").get("code").asText()).isEqualTo("AI_HTTP_400");
 		assertThat(published.get("payload").get("retryable").asBoolean()).isFalse();
+		assertThat(published.at("/payload/detail/ai_error_code").asText())
+			.isEqualTo("INVALID_SCHEMA");
+		assertThat(published.at("/payload/detail/invalid_fields/0").asText())
+			.isEqualTo("learning_events.0.source");
 	}
 
 	@Test
 	@DisplayName("Given requested 이벤트가 있을 때, When AI HTTP가 409이면, Then 재시도하지 않고 멱등 충돌 failed를 발행한다")
 	void givenRequestedEvent_whenAiReturns409_thenPublishesIdempotencyConflict() throws Exception {
-		when(client.detect(any(), any())).thenThrow(RiskDetectionClientException.idempotencyConflict(null));
+		when(client.detectRaw(anyString(), any())).thenThrow(
+			RiskDetectionClientException.idempotencyConflict(null)
+		);
 		when(kafkaTemplate.send(eq("failed"), eq(TENANT), any()))
 			.thenReturn(CompletableFuture.completedFuture(null));
 
@@ -131,7 +149,9 @@ class KafkaDetectionHttpAdapterTest {
 	@Test
 	@DisplayName("Given requested 이벤트가 있을 때, When AI HTTP가 500이면, Then Kafka retry를 위해 예외를 다시 던진다")
 	void givenRequestedEvent_whenAiReturns500_thenRethrowsForKafkaRetry() {
-		when(client.detect(any(), any())).thenThrow(RiskDetectionClientException.httpError(500, null));
+		when(client.detectRaw(anyString(), any())).thenThrow(
+			RiskDetectionClientException.httpError(500, null)
+		);
 
 		assertThatThrownBy(() -> adapter.handleRequested(TENANT, requestedEvent()))
 			.isInstanceOf(RiskDetectionClientException.class);

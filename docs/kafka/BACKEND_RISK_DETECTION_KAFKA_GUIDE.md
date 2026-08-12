@@ -7,7 +7,7 @@ HTTP는 백엔드가 요청을 보내고 같은 연결에서 AI 응답을 받습
 | 관심사 | HTTP 동기 호출 | 현재 Kafka 설계 |
 | --- | --- | --- |
 | 요청 성공의 의미 | AI가 즉시 200 응답 | DB에 Run/Attempt/Outbox를 함께 저장 |
-| 실제 AI 전송 | 호출 트랜잭션 중 | Outbox 발행 후 백엔드 Adapter가 HTTP 호출 |
+| 실제 AI 전송 | 호출 트랜잭션 중 | Outbox 발행 후 독립 Adapter가 HTTP 호출 |
 | 결과 수신 | 호출 반환값 | Adapter가 `completed`/`failed`로 변환 후 consumer가 반영 |
 | 중복 | HTTP 재호출 위험 | event ID Inbox + request idempotency |
 | 실패 복구 | 호출자 재시도 | producer retry, consumer retry/DLT, Run 상태 조회 |
@@ -74,7 +74,11 @@ AI 결과는 새 근거에서 `(source_table, record_id)`가 당시 Run의 immut
 powershell -ExecutionPolicy Bypass -File .\scripts\run-local-kafka.ps1 -PrepareDemoData
 ```
 
-이 옵션은 **로컬 dev 프로세스에서만** 고정 가명 교사·학생·반과 기준일 학습 기록 하나를 idempotent하게 준비하고, dev 테스트 인증을 켭니다. 운영 API의 `NO_LEARNING_RECORDS` 규칙이나 `.env`는 바꾸지 않습니다. 로컬 DB에는 `Kafka 시연`으로 식별되는 전용 fixture 행만 생성·갱신하며 기존 행은 삭제하거나 변경하지 않습니다. 콘솔에 표시된 날짜를 Apidog `analysisDate`에 넣고, `Authorization` 헤더 없이 `POST /api/v1/detection-runs`를 호출합니다. 성공하면 먼저 `202 REQUESTED`가 반환되고, 백엔드 Adapter가 AI HTTP를 호출한 뒤 상태 조회에서 `SUCCEEDED` 또는 `FAILED`를 확인할 수 있습니다.
+이 옵션은 **로컬 dev 프로세스에서만** 고정 가명 교사·학생·반과 기준일 학습 기록 하나를 idempotent하게 준비하고, dev 테스트 인증을 켭니다. 시연 학습 기록의 AI `source`는 OpenAPI enum에 포함된 `studentHome`을 사용합니다. 운영 API의 `NO_LEARNING_RECORDS` 규칙이나 `.env`는 바꾸지 않습니다. 로컬 DB에는 `Kafka 시연`으로 식별되는 전용 fixture 행만 생성·갱신하며 기존 행은 삭제하거나 변경하지 않습니다. 콘솔에 표시된 날짜를 Apidog `analysisDate`에 넣고, `Authorization` 헤더 없이 `POST /api/v1/detection-runs`를 호출합니다. 성공하면 먼저 `202 REQUESTED`가 반환되고, 독립 Adapter가 AI HTTP를 호출한 뒤 상태 조회에서 `SUCCEEDED` 또는 `FAILED`를 확인할 수 있습니다.
+
+위 명령은 Backend 내장 HTTP Adapter를 명시적으로 끕니다. 별도 `C:\work\project\checkon-kafka-adapter`를 실행해야 requested 이벤트가 AI HTTP로 전달됩니다. 독립 Adapter와 Backend 내장 fallback을 동시에 켜면 서로 다른 consumer group이 같은 요청을 각각 처리하므로 금지합니다.
+
+로컬에서는 반드시 Backend 실행이 완료된 뒤 독립 Adapter를 실행합니다. Backend 실행 스크립트가 Gradle daemon을 정리하므로 순서를 반대로 하면 먼저 실행한 Adapter가 종료될 수 있습니다. 정상 실행 시 포트는 Backend `8080`, 독립 Adapter `8081`, Kafka `9094`입니다.
 
 ## 운영에서 특히 확인할 것
 
@@ -86,6 +90,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run-local-kafka.ps1 -PrepareD
 - **advisory 신호**: `advisory=true`는 DB에 보존하되 Alert와 Todo를 만들지 않습니다. 강사에게 즉시 할 일을 만들지 않는 학생 상세 참고 정보입니다.
 - **보안**: `tenant_alias`는 가명 식별자입니다. 메시지에 teacher ID, student ID, 실명, 연락처를 넣지 않습니다. 운영 TLS/SASL, ACL, retention은 배포 인프라에서 별도 설정합니다.
 - **근거가 거절됨**: AI 완료 payload의 `source_table`과 `record_id`가 요청 snapshot에 있던 정확한 쌍인지 먼저 확인합니다. 새 부재·복귀 근거는 `record_id`만 맞아도 통과하지 않습니다.
+- **`AI_HTTP_400`이고 `learning_events.*.source`가 거절됨**: AI OpenAPI는 `trackA`, `trackB`, `studentHome`만 허용합니다. 시연 fixture는 `studentHome`을 사용합니다. 운영 학습 기록의 백엔드 `sourceType=MANUAL`을 어느 AI 값으로 변환할지는 의미가 다른 필드이므로 AI·기획과 매핑을 확정한 뒤 별도 변환 계층에 반영해야 합니다.
 
 ## 변경 시 순서
 

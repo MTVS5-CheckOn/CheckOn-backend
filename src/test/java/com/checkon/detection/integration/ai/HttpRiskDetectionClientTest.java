@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.http.HttpMethod.POST;
 import static org.springframework.http.HttpStatus.CONFLICT;
+import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
@@ -42,7 +44,9 @@ class HttpRiskDetectionClientTest {
 		RestClient.Builder builder = RestClient.builder()
 			.baseUrl("http://ai.example.test");
 		server = MockRestServiceServer.bindTo(builder).build();
-		client = new HttpRiskDetectionClient(builder.build(), "/v1/detect");
+		client = new HttpRiskDetectionClient(
+			builder.build(), "/v1/detect", objectMapper
+		);
 	}
 
 	@Test
@@ -53,7 +57,8 @@ class HttpRiskDetectionClientTest {
 			MockRestServiceServer.bindTo(builder).build();
 		HttpRiskDetectionClient apidogClient = new HttpRiskDetectionClient(
 			builder.build(),
-			"/m2/1340877-1342815-default/40459817"
+			"/m2/1340877-1342815-default/40459817",
+			objectMapper
 		);
 		apidogServer.expect(once(), requestTo(
 				"http://127.0.0.1:3658"
@@ -83,6 +88,7 @@ class HttpRiskDetectionClientTest {
 
 	@Test
 	void sendsRequiredHeadersAndReadsSuccessfulResponse() throws Exception {
+		AiDetectionRequest request = readRequestFixture();
 		server.expect(once(), requestTo("http://ai.example.test/v1/detect"))
 			.andExpect(method(POST))
 			.andExpect(header(HttpRiskDetectionClient.TENANT_ID_HEADER, "tn_demo_teacher"))
@@ -91,6 +97,7 @@ class HttpRiskDetectionClientTest {
 				HttpRiskDetectionClient.IDEMPOTENCY_KEY_HEADER,
 				"tn_demo_teacher:2026-07-28"
 			))
+			.andExpect(content().string(objectMapper.writeValueAsString(request)))
 			.andRespond(withSuccess(
 				readFixture("ai/detect-contract-response.json"),
 				APPLICATION_JSON
@@ -111,6 +118,38 @@ class HttpRiskDetectionClientTest {
 		assertThat(response.error()).isNull();
 		assertThat(response.data().signals()).hasSize(2);
 		assertThat(response.meta().executionId()).isNotBlank();
+		server.verify();
+	}
+
+	@Test
+	void givenAiReturns400_whenDetecting_thenPreservesResponseForSafeDiagnosis() throws Exception {
+		String responseBody = """
+			{"data":null,"error":{"code":"INVALID_SCHEMA","detail":[
+			  {"field":"learning_events.0.source","message":"invalid source"}
+			]},"meta":null}
+			""";
+		server.expect(once(), requestTo("http://ai.example.test/v1/detect"))
+			.andExpect(method(POST))
+			.andRespond(withStatus(BAD_REQUEST)
+				.contentType(APPLICATION_JSON)
+				.body(responseBody));
+
+		assertThatThrownBy(() -> client.detect(
+			readRequestFixture(),
+			new AiDetectionRequestHeaders(
+				"tn_demo_teacher", "request-400",
+				DetectionExecutionKey.daily(
+					"tn_demo_teacher", LocalDate.of(2026, 7, 28)
+				)
+			)
+		))
+			.isInstanceOf(RiskDetectionClientException.class)
+			.satisfies(exception -> {
+				var clientException = (RiskDetectionClientException) exception;
+				assertThat(clientException.httpStatus()).isEqualTo(400);
+				assertThat(clientException.responseBody()).contains("INVALID_SCHEMA");
+			});
+
 		server.verify();
 	}
 

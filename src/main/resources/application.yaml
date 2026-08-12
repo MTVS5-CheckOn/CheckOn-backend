@@ -67,6 +67,8 @@ checkon:
   kafka:
     risk-detection:
       enabled: ${CHECKON_KAFKA_ENABLED:true}
+      # 독립 checkon-kafka-adapter가 정본이다. 동시에 true로 실행하지 않는다.
+      http-adapter-enabled: ${RISK_DETECTION_HTTP_ADAPTER_ENABLED:false}
       requested-topic: ${RISK_DETECTION_REQUESTED_TOPIC:checkon.risk-detection.requested.v1}
       completed-topic: ${RISK_DETECTION_COMPLETED_TOPIC:checkon.risk-detection.completed.v1}
       failed-topic: ${RISK_DETECTION_FAILED_TOPIC:checkon.risk-detection.failed.v1}

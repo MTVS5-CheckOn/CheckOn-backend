@@ -101,7 +101,7 @@ class KafkaDetectionResultConsumerIntegrationTest {
 	void givenRequestedOutbox_whenBackendAdapterReceivesAi200_thenRoundTripSucceeds() throws Exception {
 		var requested = runService.execute(TEACHER, ANALYSIS_DATE);
 		JsonNode request = requestEnvelope(requested.runId());
-		when(riskDetectionClient.detect(any(), any())).thenReturn(successResponse());
+		when(riskDetectionClient.detectRaw(anyString(), any())).thenReturn(successResponse());
 		when(kafkaTemplate.send(anyString(), anyString(), anyString()))
 			.thenReturn(CompletableFuture.completedFuture(null));
 
@@ -125,7 +125,7 @@ class KafkaDetectionResultConsumerIntegrationTest {
 	void givenDuplicateRequestedEvent_whenAiReturnsSameResponse_thenResultIsStoredOnce() throws Exception {
 		var requested = runService.execute(TEACHER, ANALYSIS_DATE);
 		JsonNode request = requestEnvelope(requested.runId());
-		when(riskDetectionClient.detect(any(), any())).thenReturn(successResponse());
+		when(riskDetectionClient.detectRaw(anyString(), any())).thenReturn(successResponse());
 		when(kafkaTemplate.send(anyString(), anyString(), anyString()))
 			.thenReturn(CompletableFuture.completedFuture(null));
 
@@ -169,7 +169,7 @@ class KafkaDetectionResultConsumerIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("Given 요청 Outbox가 있을 때, When AI 실패 이벤트를 받으면, Then 해당 attempt와 Run을 실패로 기록한다")
+	@DisplayName("Given 문자열 상세가 있는 AI 실패 이벤트 When 백엔드가 받으면 Then 해당 attempt와 Run을 실패로 기록한다")
 	void givenRequestedOutbox_whenFailedEventArrives_thenMarksRunFailed() throws Exception {
 		var requested = runService.execute(TEACHER, ANALYSIS_DATE);
 		consumer.consumeFailed(kafkaProperties.failedTopic(), failureEvent(requested.runId()));
@@ -191,7 +191,7 @@ class KafkaDetectionResultConsumerIntegrationTest {
 	private String failureEvent(UUID runId) throws Exception {
 		JsonNode request = requestEnvelope(runId);
 		return outcomeEnvelope(request, "risk-detection.failed", """
-			{"code":"AI_TIMEOUT","message":"AI processing timed out","detail":null,"retryable":false}
+			{"code":"AI_TIMEOUT","message":"AI processing timed out","detail":"upstream detail","retryable":false}
 			""");
 	}
 

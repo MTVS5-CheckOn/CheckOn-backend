@@ -72,6 +72,9 @@ else {
 	'localhost:9094'
 }
 $env:CHECKON_KAFKA_ENABLED = 'true'
+# The standalone checkon-kafka-adapter owns requested-topic consumption.
+# Keeping the embedded fallback off prevents duplicate completed/failed events.
+$env:RISK_DETECTION_HTTP_ADAPTER_ENABLED = 'false'
 
 if ($PrepareDemoData) {
     # This applies only to the child process launched by this script. It makes
