@@ -14,7 +14,7 @@ import com.checkon.detection.application.KafkaDetectionHttpAdapter;
 @Component
 @ConditionalOnProperty(
 	prefix = "checkon.kafka.risk-detection",
-	name = "adapter-enabled",
+	name = {"enabled", "http-adapter-enabled"},
 	havingValue = "true"
 )
 public class KafkaDetectionHttpAdapterListener {

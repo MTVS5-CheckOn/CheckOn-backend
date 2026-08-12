@@ -61,6 +61,7 @@ checkon:
     base-url: ${AI_BASE_URL:http://localhost:8000}
     detect-path: ${AI_DETECT_PATH:/v1/detect}
     connect-timeout: ${AI_CONNECT_TIMEOUT:2s}
+    # AI 위험 탐지는 대량 snapshot을 처리할 수 있으므로 외부 계약의 최소 60초보다 길게 둔다.
     read-timeout: ${AI_READ_TIMEOUT:65s}
     detection:
       consent:
@@ -82,7 +83,8 @@ checkon:
   kafka:
     risk-detection:
       enabled: ${CHECKON_KAFKA_ENABLED:true}
-      adapter-enabled: ${RISK_DETECTION_HTTP_ADAPTER_ENABLED:${CHECKON_KAFKA_ENABLED:true}}
+      # 독립 checkon-kafka-adapter가 정본이다. 동시에 true로 실행하지 않는다.
+      http-adapter-enabled: ${RISK_DETECTION_HTTP_ADAPTER_ENABLED:false}
       requested-topic: ${RISK_DETECTION_REQUESTED_TOPIC:checkon.risk-detection.requested.v1}
       completed-topic: ${RISK_DETECTION_COMPLETED_TOPIC:checkon.risk-detection.completed.v1}
       failed-topic: ${RISK_DETECTION_FAILED_TOPIC:checkon.risk-detection.failed.v1}

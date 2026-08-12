@@ -402,20 +402,21 @@
 - 일별 멱등성: 같은 강사와 `analysisDate`에는 논리적인 Detection run 하나만 허용한다. 기존 `(teacher_id, analysis_date)` 및 `idempotency_key` 유일 제약과 일별 멱등 키를 재사용한다. 이미 `SUCCEEDED`인 run은 AI를 다시 호출하지 않으며 기존 `FAILED` run은 새 attempt로 재시도한다.
 - 실행 방식: 첫 구현은 강사를 정해진 순서로 순차 실행한다. 무제한 병렬 처리와 별도 비동기 executor를 사용하지 않는다.
 - 누락 실행: 정시 실행만 담당하며 서버 중단 시간의 자동 catch-up이나 과거 날짜 소급 실행은 하지 않는다. 누락분은 기존 운영 Detection API로 수동 실행한다.
-- Kafka 실행 경계: 스케줄러와 교사 요청 API는 기존처럼 `OperationalDetectionRunService`를 호출한다. 이 서비스가 AI HTTP 호출 대신 Kafka 요청 Outbox를 만든다. HTTP Adapter Consumer는 requested 이벤트를 소비해 AI `POST /v1/detect`를 호출하고 completed 또는 failed 이벤트를 발행한다. 따라서 스케줄러가 broker나 AI HTTP에 직접 접근하지 않으며 DB의 일별 유일 제약과 상태 전이는 중복 실행·저장의 최종 방어선으로 유지한다.
-- 이벤트 계약: Backend → HTTP Adapter `checkon.risk-detection.requested.v1`, HTTP Adapter → Backend `checkon.risk-detection.completed.v1`/`checkon.risk-detection.failed.v1`를 사용한다. 모든 메시지는 `schema_version=1.0` envelope와 `event_id`, `correlation_id(=run_id)`, `causation_id`, `tenant_alias`, `run_id`, `attempt_id`, `request_id`, `idempotency_key`, `snapshot_hash`를 가진다. 정본은 `docs/contracts/risk-detection-kafka.asyncapi.yaml`이다.
-- HTTP 변환·실패: Adapter는 requested `payload`를 요청 body로 보내고 `tenant_alias`, `request_id`, `idempotency_key`를 각각 `X-Tenant-Id`, `X-Request-Id`, `Idempotency-Key`로 전달한다. read timeout 기본값은 65초다. 400·409는 즉시 terminal failed, 네트워크·timeout·5xx는 3회 제한 재시도 후 failed로 변환하며 결과 이벤트는 원래 run·attempt·request·idempotency·snapshot·tenant 식별자를 유지한다.
+- Kafka 실행 경계: 스케줄러와 교사 요청 API는 `OperationalDetectionRunService`를 호출하고 Kafka 요청 Outbox를 만든다. 독립 `checkon-kafka-adapter` 애플리케이션이 requested topic을 소비해 AI `POST /v1/detect`를 호출한다. AI 서버는 Kafka를 직접 소비·발행하지 않는다. 독립 Adapter는 HTTP 결과를 completed/failed topic으로 변환하고 Backend Result Consumer가 최종 상태와 신호를 저장한다. Backend 내장 HTTP Adapter Consumer는 fallback 코드로만 유지하며 기본 비활성화한다. 두 Adapter를 동시에 활성화하지 않는다.
+- 이벤트 계약: Backend `checkon.risk-detection.requested.v1` → 독립 Adapter, 독립 Adapter → Backend Result Consumer `checkon.risk-detection.completed.v1`/`checkon.risk-detection.failed.v1`를 사용한다. 모든 메시지는 `schema_version=1.0` envelope와 `event_id`, `correlation_id(=run_id)`, `causation_id`, `tenant_alias`, `run_id`, `attempt_id`, `request_id`, `idempotency_key`, `snapshot_hash`를 가진다. AI와의 외부 계약 정본은 AI OpenAPI `POST /v1/detect`, Backend-Adapter Kafka 정본은 `docs/contracts/risk-detection-kafka.asyncapi.yaml`이다.
+- HTTP 변환: Adapter는 `payload` 전체를 요청 body로 보내고 envelope의 `tenant_alias`를 `X-Tenant-Id`, `request_id`를 `X-Request-Id`, `idempotency_key`를 `Idempotency-Key`로 그대로 보낸다. 동일 requested 이벤트의 재전달은 세 값과 body·snapshot hash를 유지한다. Read timeout은 AI 계약의 최소 60초보다 긴 65초를 기본으로 둔다. HTTP 200은 completed, 400·409는 재시도하지 않는 failed로 변환한다. 네트워크·timeout·빈 응답·5xx는 Kafka 재시도 후 DLT에 보존하고 최종 failed 이벤트를 발행한다.
 - 과거 경보 컨텍스트: AI 요청의 `alert_context`는 현재 분석 대상 학생의 기존 Engagement Alert를 학생 AI alias와 `signal_type` 기준으로 제공한다. 미검토 또는 후속 조치가 끝나지 않은 Alert는 `open`, 거절 또는 완료된 Intervention이 있는 Alert는 `resolved`로 보낸다. 완료 Intervention이 있으면 `followed_up=true`와 완료 시각을, 거절이면 `followed_up=false`와 결정 시각을 사용한다. 같은 학생·신호 유형에 open 이력이 있으면 가장 최근 open을 우선하고, 없으면 가장 최근 resolved만 보낸다.
-- advisory 신호: AI 응답의 `advisory`를 저장한다. `true`는 학생 상세 참고용으로만 보존하고 Engagement Alert·오늘 할 일·대시보드 확인 필요 신호 후보에서 제외하며 TOP N 슬롯을 소비하지 않는다.
 - 부재·복귀 근거: `payload.detection_evidence`는 선택 필드이며 기존 v1 request도 계속 읽는다. 전송 시 활성·동의 허용 학생별 최근 10주 `assignment_window`·`weekly_activity`를 모두 만들고, 분석 주의 `paused → returned`만 `enrollment_transition`으로 추가한다. 활동이 0건이어도 행을 생략하지 않는다. 논리 `source_table`은 `assignment_week_summary`, `student_week_activity`, `student_status_history`로 고정하고 실제 PostgreSQL 물리 테이블명은 외부에 노출하지 않는다.
 - 근거 조회: AI 완료 결과의 `(source_table, record_id)`는 해당 run의 불변 요청 스냅샷에 존재하는 정확한 쌍만 저장한다. 기존 학습 기록의 legacy source name은 호환을 위해 record_id 기준으로 읽되, 새 부재·복귀 근거는 쌍을 엄격히 대조한다. 강사 Alert 상세 화면은 저장된 source·record_id·AI 요약을 제공한다.
+- advisory 신호: AI 응답의 `advisory`는 `detection_signal_results`에 보존한다. `true`이면 학생 상세 참고용으로만 유지하며 Engagement Alert·오늘 할 일(Todo)·대시보드 확인 필요 신호 후보에서 제외하고 TOP N 슬롯을 소비하지 않는다. `false`만 기존 Alert 후보 흐름을 따른다.
 - hash: `detection_evidence`는 `snapshot_hash` 대상이다. 누락과 빈 배열은 동일하고, 배열은 `(kind, student_ref, at, source_table, record_id)`, JSON key는 오름차순, UTF-8·공백 없는 JSON으로 정규화한다. `snapshot_hash` 자신과 `classes`는 hash 입력에서 제외한다.
 - 메시지 크기: 40명 기준 약 1.59 MiB payload와 Kafka envelope를 수용하도록 개발 Compose broker와 Spring producer/consumer는 3 MiB로 설정한다. 운영 broker·AI consumer도 같은 값 이상을 배포 설정에서 보장해야 한다.
 - 기존 Run 호환: Kafka 도입 전 `teacher_<uuid>:date` 형식으로 저장된 기존 `idempotency_key`는 데이터 마이그레이션으로 일괄 수정하지 않는다. 백엔드 내부에서만 legacy key를 인정해 기존 run의 상태·재시도를 보존하고, 새 Kafka 메시지에는 항상 `tenant_alias:date`만 넣는다.
 - 요청 내구성: Detection run·attempt·Outbox 행을 같은 DB 트랜잭션으로 저장한다. Outbox publisher는 `PENDING`을 at-least-once로 발행하고 최대 8회 전송 실패하면 Outbox와 해당 run을 `KAFKA_PUBLISH_FAILED`로 실패 처리한다. 같은 날짜의 후속 수동/스케줄 요청은 새 attempt로 재시도할 수 있다.
 - 결과 내구성: 완료·실패 Consumer는 Inbox의 `event_id` unique 제약으로 멱등 처리한다. 처리·검증·결과 저장은 한 트랜잭션이고, 실패 시 1초·2초 간격 총 3회 재시도한 뒤 `<topic>.dlt`로 보낸다. 오래되었거나 이미 대체된 attempt 결과는 저장하지 않는다.
+- Adapter 전달 보장: 독립 Adapter requested Consumer는 Inbox에 요청을 먼저 저장하고 AI의 `Idempotency-Key` 계약으로 HTTP 중복 호출을 안전하게 만든다. completed/failed는 Adapter Outbox와 Kafka broker 확인을 거쳐 발행하고, Backend Result Consumer의 현재 attempt 검사와 Inbox로 한 번만 반영한다.
 - partition key·순서: 요청과 응답의 Kafka key는 opaque `tenant_alias`다. 같은 강사 내 순서는 보장하되, 강사 간 전체 순서는 보장하지 않는다.
-- 운영 제외: 자동 catch-up, 제한 병렬 처리, 신규 분산락 라이브러리, 운영 모니터링 대시보드, 운영 broker TLS/SASL·ACL·retention 수치와 AI Consumer 동시 처리량은 이번 애플리케이션 구현 범위 밖이며 배포 환경에서 확정한다.
+- 운영 제외: 자동 catch-up, 제한 병렬 처리, 신규 분산락 라이브러리, 운영 모니터링 대시보드, 운영 broker TLS/SASL·ACL·retention 수치와 Backend HTTP Adapter 동시 처리량은 이번 애플리케이션 구현 범위 밖이며 배포 환경에서 확정한다.
 - 코드 근거:
   - `src/main/java/com/checkon/detection/infrastructure/scheduling/DetectionScheduler.java`
   - `src/main/java/com/checkon/detection/application/ScheduledDetectionJob.java`
@@ -427,7 +428,7 @@
   - `src/main/java/com/checkon/detection/application/KafkaDetectionHttpAdapter.java`
   - `src/main/java/com/checkon/detection/integration/kafka/KafkaOutboxPublisher.java`
   - `src/main/java/com/checkon/detection/integration/kafka/KafkaDetectionResultListener.java`
-	  - `src/main/java/com/checkon/detection/integration/kafka/KafkaDetectionHttpAdapterListener.java`
+  - `src/main/java/com/checkon/detection/integration/kafka/KafkaDetectionHttpAdapterListener.java`
 	  - `src/main/java/com/checkon/detection/infrastructure/persistence/DetectionEvidenceProjectionRepository.java`
   - `src/main/resources/db/migration/V14__add_risk_detection_kafka_outbox.sql`
 	  - `src/main/resources/db/migration/V15__create_detection_evidence_projections.sql`
@@ -582,7 +583,6 @@
 - 코드 근거:
   - `src/main/java/com/checkon/dashboard/application/DashboardBriefingService.java`
   - `src/main/java/com/checkon/dashboard/presentation/DashboardController.java`
-  - `src/main/resources/openapi/dashboard-api.yaml`
 - 마지막 검증일: 2026-08-13
 
 #### DASH-002 주간 캘린더의 브리핑 경보 집계
@@ -630,7 +630,7 @@
 - 기존 데이터: V10 적용 시 기존 `PENDING_REVIEW` 경보만 경보 생성 시각의 `Asia/Seoul` 날짜로 backfill한다. 확정된 경보에는 OPEN Todo를 추가하지 않으며 `(alert_id, kind)` UNIQUE로 재삽입을 차단한다.
 - 후속 범위: inquiry, report, 상담 일정 Todo는 구현하지 않는다.
 - 코드 근거: `V10__create_alert_follow_up_todos.sql`, `AlertFollowUpTodo`, `TodoService`, `DashboardBriefingService`
-- 검증: advisory 제외, Engagement·Dashboard·Detection 집중 테스트와 최신 dev 기준 전체 Gradle 빌드 220건이 통과했다. 실제 운영 데이터가 채워진 V9→V10 승격 리허설과 Todo 전용 제한 역할 DML 검증은 아직 수행하지 않았다.
+- 검증: advisory 제외와 화면 복원 계약을 포함해 전체 Gradle 빌드 224건이 통과했다. 실제 운영 데이터가 채워진 V9→V10 승격 리허설과 Todo 전용 제한 역할 DML 검증은 아직 수행하지 않았다.
 - 마지막 검증일: 2026-08-13
 
 #### ENG-006 위험신호 상세 화면 복원 계약
@@ -676,7 +676,7 @@
 
 | 날짜 | 변경 | 검증 |
 | --- | --- | --- |
-| 2026-08-13 | 위험신호 화면 계약, 과거 Alert context, 종료 학생 제외, advisory 소비 규칙, Kafka HTTP Adapter 경로를 등록·구현 | 집중 단위·PostgreSQL 통합 테스트와 최신 dev 기준 전체 Gradle 빌드 220건 통과 |
+| 2026-08-13 | PR #43의 독립 Kafka Adapter 경계를 정본으로 유지하면서 위험신호 화면 계약, 과거 Alert context, 종료 학생 제외, advisory 소비 규칙을 통합 | 집중 단위·PostgreSQL 통합 테스트와 전체 Gradle build 224건 통과 |
 | 2026-08-12 | 문제 출제 studio 요청을 target별 child Outbox 이벤트로 fan-out하고 child 결과 멱등 처리·AI ID 고정·부모 `PARTIAL_SUCCESS` 집계를 구현 | child DB·화면 통합 테스트와 임베디드 Kafka fan-out·기존 단일 요청 호환 테스트, 전체 211건 및 Gradle build 통과 |
 | 2026-08-12 | 위험탐지 `DET-004`를 AI 기능 공통 Kafka 신뢰성 정본으로 확정하고, 문제 출제 fan-out·21분 관찰·문항 전량 이벤트·부분 성공을 기능별 예외로 분리해 PG-002·003·005 확정 | 사용자 승인과 AI 최종 회신을 정책 문서에 정적 반영. 코드·DB·테스트는 변경하지 않음 |
 | 2026-08-12 | Kafka-HTTP adapter를 별도 서버로 확정하고 AI HTTP 호출·polling·items 정규화를 adapter 책임으로 배치. Step 1→2 정보 이동과 12/7 화면 예시 충돌 해소 | 사용자 확정사항을 전달 문서·PG-002~005에 정적 반영. 코드 테스트는 재실행하지 않음 |

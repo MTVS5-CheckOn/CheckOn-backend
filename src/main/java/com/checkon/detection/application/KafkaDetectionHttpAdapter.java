@@ -2,12 +2,17 @@ package com.checkon.detection.application;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.checkon.detection.integration.ai.AiDetectionRequestHeaders;
 import com.checkon.detection.integration.ai.RiskDetectionClient;
@@ -22,9 +27,12 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-/** Bridges a requested Kafka event to the AI HTTP API and back to Kafka. */
+/** Bridges an internal requested Kafka event to the AI HTTP API and back to Kafka. */
 @Service
 public class KafkaDetectionHttpAdapter {
+	private static final Logger log = LoggerFactory.getLogger(
+		KafkaDetectionHttpAdapter.class
+	);
 
 	private final RiskDetectionClient riskDetectionClient;
 	private final DetectionIdGenerator idGenerator;
@@ -52,37 +60,41 @@ public class KafkaDetectionHttpAdapter {
 	public void handleRequested(String messageKey, String rawEvent) {
 		RequestedEvent request = parseRequested(messageKey, rawEvent);
 		try {
-			AiDetectionResponse response = riskDetectionClient.detect(
-				request.payload(),
+			AiDetectionResponse response = riskDetectionClient.detectRaw(
+				request.payloadJson(),
 				new AiDetectionRequestHeaders(
-					request.tenantAlias(), request.requestId(),
+					request.tenantAlias(),
+					request.requestId(),
 					new DetectionExecutionKey(request.idempotencyKey())
 				)
 			);
-			publishOutcome(
-				request, RiskDetectionKafkaEvent.COMPLETED, properties.completedTopic(), response
-			);
+			publishOutcome(request, RiskDetectionKafkaEvent.COMPLETED,
+				properties.completedTopic(), response);
 		}
 		catch (RiskDetectionClientException exception) {
 			if (isRetryable(exception)) throw exception;
-			publishOutcome(
-				request, RiskDetectionKafkaEvent.FAILED, properties.failedTopic(),
-				terminalFailure(exception)
+			Map<String, Object> detail = terminalFailureDetail(exception);
+			log.warn(
+				"AI detection request rejected: runId={}, httpStatus={}, aiErrorCode={}, invalidFields={}",
+				request.runId(),
+				exception.httpStatus(),
+				detail.get("ai_error_code"),
+				detail.get("invalid_fields")
 			);
+			publishOutcome(request, RiskDetectionKafkaEvent.FAILED,
+				properties.failedTopic(), terminalFailure(exception, detail));
 		}
 	}
 
 	public void handleRetryExhausted(String messageKey, String rawEvent) {
 		RequestedEvent request = parseRequested(messageKey, rawEvent);
-		publishOutcome(
-			request, RiskDetectionKafkaEvent.FAILED, properties.failedTopic(),
+		publishOutcome(request, RiskDetectionKafkaEvent.FAILED, properties.failedTopic(),
 			new AiDetectionFailure(
 				"AI_HTTP_RETRY_EXHAUSTED",
-				"AI HTTP request failed after limited retries",
+				"AI HTTP request failed after Kafka retries",
 				Map.of("transport", "http"),
 				true
-			)
-		);
+			));
 	}
 
 	private boolean isRetryable(RiskDetectionClientException exception) {
@@ -93,16 +105,54 @@ public class KafkaDetectionHttpAdapter {
 		};
 	}
 
-	private AiDetectionFailure terminalFailure(RiskDetectionClientException exception) {
+	private AiDetectionFailure terminalFailure(
+		RiskDetectionClientException exception,
+		Map<String, Object> detail
+	) {
 		String code = exception.reason() == RiskDetectionClientException.Reason.IDEMPOTENCY_CONFLICT
 			? "IDEMPOTENCY_CONFLICT"
-			: "INVALID_SCHEMA";
+			: "AI_HTTP_" + exception.httpStatus();
 		return new AiDetectionFailure(
 			code,
 			"AI rejected the detection request",
-			Map.of("http_status", exception.httpStatus()),
+			detail,
 			false
 		);
+	}
+
+	private Map<String, Object> terminalFailureDetail(
+		RiskDetectionClientException exception
+	) {
+		Map<String, Object> detail = new LinkedHashMap<>();
+		if (exception.httpStatus() != null) {
+			detail.put("http_status", exception.httpStatus());
+		}
+		String responseBody = exception.responseBody();
+		if (responseBody == null || responseBody.isBlank()) return Map.copyOf(detail);
+		try {
+			JsonNode error = objectMapper.readTree(responseBody).get("error");
+			if (error == null || error.isNull()) return Map.copyOf(detail);
+			String aiErrorCode = text(error, "code");
+			if (aiErrorCode != null && !aiErrorCode.isBlank()) {
+				detail.put("ai_error_code", aiErrorCode);
+			}
+			JsonNode violations = error.get("detail");
+			if (violations != null && violations.isArray()) {
+				List<String> invalidFields = new ArrayList<>();
+				for (JsonNode violation : violations) {
+					String field = text(violation, "field");
+					if (field != null && !field.isBlank()) invalidFields.add(field);
+				}
+				if (!invalidFields.isEmpty()) {
+					detail.put("invalid_fields", List.copyOf(invalidFields));
+				}
+			}
+		}
+		catch (JacksonException ignored) {
+			// The remote body can be HTML or malformed JSON. Never copy the raw
+			// response into Kafka or logs because it may contain request values.
+		}
+		return Map.copyOf(detail);
 	}
 
 	private void publishOutcome(
@@ -119,9 +169,8 @@ public class KafkaDetectionHttpAdapter {
 			request.snapshotHash(), Instant.now(clock), payload
 		);
 		try {
-			kafkaTemplate.send(
-				topic, request.tenantAlias(), objectMapper.writeValueAsString(outcome)
-			).get(properties.producerSendTimeout().toMillis(), TimeUnit.MILLISECONDS);
+			kafkaTemplate.send(topic, request.tenantAlias(), objectMapper.writeValueAsString(outcome))
+				.get(properties.producerSendTimeout().toMillis(), TimeUnit.MILLISECONDS);
 		}
 		catch (InterruptedException exception) {
 			Thread.currentThread().interrupt();
@@ -154,6 +203,7 @@ public class KafkaDetectionHttpAdapter {
 				throw new IllegalArgumentException("correlation_id must equal run_id");
 			}
 			AiDetectionRequest aiRequest = objectMapper.treeToValue(payload, AiDetectionRequest.class);
+			String payloadJson = objectMapper.writeValueAsString(payload);
 			String snapshotHash = requiredText(text(root, "snapshot_hash"), "snapshot_hash");
 			if (aiRequest.snapshotMeta() == null
 				|| !snapshotHash.equals(aiRequest.snapshotMeta().snapshotHash())) {
@@ -162,10 +212,10 @@ public class KafkaDetectionHttpAdapter {
 				);
 			}
 			return new RequestedEvent(
-				uuid(root, "event_id"), tenantAlias, runId, uuid(root, "attempt_id"),
-				requiredText(text(root, "request_id"), "request_id"),
+				uuid(root, "event_id"), tenantAlias, runId,
+				uuid(root, "attempt_id"), requiredText(text(root, "request_id"), "request_id"),
 				requiredText(text(root, "idempotency_key"), "idempotency_key"),
-				snapshotHash, aiRequest
+				snapshotHash, aiRequest, payloadJson
 			);
 		}
 		catch (JacksonException exception) {
@@ -174,12 +224,7 @@ public class KafkaDetectionHttpAdapter {
 	}
 
 	private UUID uuid(JsonNode root, String field) {
-		try {
-			return UUID.fromString(requiredText(text(root, field), field));
-		}
-		catch (IllegalArgumentException exception) {
-			throw new IllegalArgumentException(field + " must be a UUID", exception);
-		}
+		return UUID.fromString(requiredText(text(root, field), field));
 	}
 
 	private String text(JsonNode root, String field) {
@@ -202,7 +247,8 @@ public class KafkaDetectionHttpAdapter {
 		String requestId,
 		String idempotencyKey,
 		String snapshotHash,
-		AiDetectionRequest payload
+		AiDetectionRequest payload,
+		String payloadJson
 	) {
 	}
 }

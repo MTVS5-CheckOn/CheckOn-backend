@@ -1,9 +1,11 @@
 asyncapi: 2.6.0
 info:
   title: CheckOn Risk Detection Kafka Contract
-  version: 1.1.0
+  version: 1.2.0
   description: |
-    Versioned asynchronous contract between CheckOn Backend and its risk-detection HTTP Adapter.
+    Internal asynchronous contract between CheckOn control/outbox, its HTTP adapter,
+    and its result consumer. The AI service itself exposes POST /v1/detect and does
+    not connect to Kafka.
     The v0.2 detection payload adds optional detection_evidence while preserving v1 envelopes.
     All timestamps are RFC 3339 instants. All identifiers are UUIDv7 except opaque aliases.
 servers:
@@ -14,19 +16,19 @@ servers:
 defaultContentType: application/json
 channels:
   checkon.risk-detection.requested.v1:
-    description: Backend emits a durable request for the HTTP Adapter to forward to AI POST /v1/detect.
+    description: Backend Outbox emits a durable request for the Backend HTTP Adapter.
     publish:
       operationId: backendPublishesRiskDetectionRequest
       message:
         $ref: '#/components/messages/RiskDetectionRequested'
   checkon.risk-detection.completed.v1:
-    description: HTTP Adapter emits one AI HTTP 200 result for a requested attempt.
+    description: Backend HTTP Adapter emits the AI HTTP 200 response.
     subscribe:
       operationId: backendConsumesRiskDetectionCompleted
       message:
         $ref: '#/components/messages/RiskDetectionCompleted'
   checkon.risk-detection.failed.v1:
-    description: HTTP Adapter emits a terminal or retry-exhausted failure for a requested attempt.
+    description: Backend HTTP Adapter emits a terminal or retry-exhausted HTTP failure.
     subscribe:
       operationId: backendConsumesRiskDetectionFailed
       message:
@@ -35,7 +37,7 @@ components:
   messages:
     RiskDetectionRequested:
       name: RiskDetectionRequested
-      title: Backend to HTTP Adapter risk-detection request
+      title: Backend Outbox to Backend HTTP Adapter request
       contentType: application/json
       correlationId:
         location: $message.payload#/correlation_id
@@ -55,7 +57,7 @@ components:
                 $ref: '#/components/schemas/DetectionRequest'
     RiskDetectionCompleted:
       name: RiskDetectionCompleted
-      title: HTTP Adapter to Backend successful risk-detection result
+      title: Backend HTTP Adapter to Backend successful result
       contentType: application/json
       correlationId:
         location: $message.payload#/correlation_id
@@ -75,7 +77,7 @@ components:
                 $ref: '#/components/schemas/DetectionResponse'
     RiskDetectionFailed:
       name: RiskDetectionFailed
-      title: HTTP Adapter to Backend failed risk-detection result
+      title: Backend HTTP Adapter to Backend failed result
       contentType: application/json
       correlationId:
         location: $message.payload#/correlation_id
