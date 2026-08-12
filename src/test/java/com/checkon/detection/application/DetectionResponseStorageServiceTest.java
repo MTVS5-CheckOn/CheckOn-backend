@@ -290,6 +290,33 @@ class DetectionResponseStorageServiceTest {
 	}
 
 	@Test
+	@DisplayName("Given advisory AI signal, When the response is stored, Then advisory value is retained")
+	void givenAdvisorySignal_whenStored_thenRetainsAdvisory() throws IOException {
+		UUID runId = UUID.fromString("019846dc-7c00-7000-8000-000000000271");
+		UUID attemptId = UUID.fromString("019846dc-7c00-7000-8000-000000000272");
+		prepareRequestedRun(runId, attemptId, LocalDate.of(2026, 8, 5));
+		AiDetectionResponse response = readDemoResponse();
+		AiDetectionResponse.Signal signal = response.data().signals().getFirst();
+		AiDetectionResponse advisoryResponse = withSignals(response, List.of(
+			new AiDetectionResponse.Signal(
+				signal.signalId(), signal.studentRef(), signal.classRef(), signal.ruleId(),
+				signal.signalType(), signal.displayLabel(), signal.score(), signal.rank(), true,
+				signal.lifecycle(), signal.brief(), signal.evidence()
+			)
+		));
+
+		storageService.storeSuccessfulResponse(
+			TEACHER_ID, runId, attemptId, 200, advisoryResponse,
+			Instant.parse("2026-07-27T17:10:03Z")
+		);
+
+		assertThat(signalResultRepository
+			.findAllByDetectionRunIdAndDetectionRunTeacherIdOrderByClassRefAscRankAsc(
+				runId, TEACHER_ID
+			)).singleElement().extracting(DetectionSignalResult::advisory).isEqualTo(true);
+	}
+
+	@Test
 	@DisplayName("Given a requested v0.2 evidence snapshot, When AI changes source_table, Then the result is rejected")
 	void givenEvidenceSnapshot_whenAiChangesSourceTable_thenRejectsResult() throws IOException {
 		UUID runId = UUID.fromString("019846dc-7c00-7000-8000-000000000261");
@@ -429,6 +456,7 @@ class DetectionResponseStorageServiceTest {
 			signal.displayLabel(),
 			signal.score(),
 			signal.rank(),
+			signal.advisory(),
 			signal.lifecycle(),
 			signal.brief(),
 			evidence

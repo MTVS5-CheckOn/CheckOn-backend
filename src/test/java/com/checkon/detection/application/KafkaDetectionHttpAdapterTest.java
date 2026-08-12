@@ -41,7 +41,6 @@ class KafkaDetectionHttpAdapterTest {
 	private static final UUID RUN_ID = UUID.fromString("019b0000-0000-7000-8000-000000000001");
 	private static final UUID REQUEST_EVENT_ID = UUID.fromString("019b0000-0000-7000-8000-000000000002");
 	private static final UUID ATTEMPT_ID = UUID.fromString("019b0000-0000-7000-8000-000000000003");
-	private static final UUID HTTP_REQUEST_ID = UUID.fromString("019b0000-0000-7000-8000-000000000004");
 	private static final UUID OUTCOME_EVENT_ID = UUID.fromString("019b0000-0000-7000-8000-000000000005");
 
 	private RiskDetectionClient client;
@@ -60,11 +59,9 @@ class KafkaDetectionHttpAdapterTest {
 			Duration.ofSeconds(1), Duration.ofSeconds(1), Duration.ofSeconds(1),
 			Duration.ofSeconds(1), 10, 3
 		);
-		// The first ID is used for the HTTP attempt and the second for the outcome event.
 		DetectionIdGenerator ids = new DetectionIdGenerator() {
-			private int invocation;
 			@Override public List<UUID> nextIds(int count) {
-				return List.of(invocation++ == 0 ? HTTP_REQUEST_ID : OUTCOME_EVENT_ID);
+				return List.of(OUTCOME_EVENT_ID);
 			}
 		};
 		adapter = new KafkaDetectionHttpAdapter(
@@ -87,7 +84,7 @@ class KafkaDetectionHttpAdapterTest {
 			ArgumentCaptor.forClass(AiDetectionRequestHeaders.class);
 		verify(client).detect(any(AiDetectionRequest.class), headers.capture());
 		assertThat(headers.getValue().tenantId()).isEqualTo(TENANT);
-		assertThat(headers.getValue().requestId()).isEqualTo(HTTP_REQUEST_ID.toString());
+		assertThat(headers.getValue().requestId()).isEqualTo("original-request-id");
 		assertThat(headers.getValue().idempotencyKey().value()).isEqualTo(TENANT + ":2026-08-12");
 
 		ArgumentCaptor<String> event = ArgumentCaptor.forClass(String.class);
@@ -112,6 +109,22 @@ class KafkaDetectionHttpAdapterTest {
 		verify(kafkaTemplate).send(eq("failed"), eq(TENANT), event.capture());
 		JsonNode published = objectMapper.readTree(event.getValue());
 		assertThat(published.get("payload").get("code").asText()).isEqualTo("AI_HTTP_400");
+		assertThat(published.get("payload").get("retryable").asBoolean()).isFalse();
+	}
+
+	@Test
+	@DisplayName("Given requested 이벤트가 있을 때, When AI HTTP가 409이면, Then 재시도하지 않고 멱등 충돌 failed를 발행한다")
+	void givenRequestedEvent_whenAiReturns409_thenPublishesIdempotencyConflict() throws Exception {
+		when(client.detect(any(), any())).thenThrow(RiskDetectionClientException.idempotencyConflict(null));
+		when(kafkaTemplate.send(eq("failed"), eq(TENANT), any()))
+			.thenReturn(CompletableFuture.completedFuture(null));
+
+		adapter.handleRequested(TENANT, requestedEvent());
+
+		ArgumentCaptor<String> event = ArgumentCaptor.forClass(String.class);
+		verify(kafkaTemplate).send(eq("failed"), eq(TENANT), event.capture());
+		JsonNode published = objectMapper.readTree(event.getValue());
+		assertThat(published.get("payload").get("code").asText()).isEqualTo("IDEMPOTENCY_CONFLICT");
 		assertThat(published.get("payload").get("retryable").asBoolean()).isFalse();
 	}
 

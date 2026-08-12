@@ -56,6 +56,9 @@ public class DetectionSignalResult {
 	@Column(nullable = false)
 	private int rank;
 
+	@Column(nullable = false)
+	private boolean advisory;
+
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 20)
 	private DetectionLifecycle lifecycle;
@@ -94,6 +97,7 @@ public class DetectionSignalResult {
 		String displayLabel,
 		BigDecimal score,
 		int rank,
+		boolean advisory,
 		DetectionLifecycle lifecycle,
 		String briefText,
 		boolean gatePassed,
@@ -117,6 +121,7 @@ public class DetectionSignalResult {
 			throw new IllegalArgumentException("rank must be at least 1");
 		}
 		this.rank = rank;
+		this.advisory = advisory;
 		this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle must not be null");
 		this.briefText = requireText(briefText, "briefText");
 		this.gatePassed = gatePassed;
@@ -141,6 +146,7 @@ public class DetectionSignalResult {
 		String displayLabel,
 		BigDecimal score,
 		int rank,
+		boolean advisory,
 		DetectionLifecycle lifecycle,
 		String briefText,
 		boolean gatePassed,
@@ -159,6 +165,7 @@ public class DetectionSignalResult {
 			displayLabel,
 			score,
 			rank,
+			advisory,
 			lifecycle,
 			briefText,
 			gatePassed,
@@ -221,6 +228,10 @@ public class DetectionSignalResult {
 
 	public int rank() {
 		return rank;
+	}
+
+	public boolean advisory() {
+		return advisory;
 	}
 
 	public DetectionLifecycle lifecycle() {

@@ -214,6 +214,7 @@ class RiskDetectionExecutionServiceTest {
 			signal.displayLabel(),
 			signal.score(),
 			signal.rank(),
+			signal.advisory(),
 			signal.lifecycle(),
 			signal.brief(),
 			evidence

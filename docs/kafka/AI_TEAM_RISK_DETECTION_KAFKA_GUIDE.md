@@ -22,11 +22,11 @@ Backend Result Consumer ← completed/failed Kafka ← Backend HTTP Adapter
 
 | 헤더 | 백엔드가 넣는 값 | 재시도 규칙 |
 | --- | --- | --- |
-| `X-Tenant-Id` | Kafka 요청의 가명 `tenant_alias` | 같은 업무 요청에서 유지 |
-| `X-Request-Id` | HTTP 시도마다 새 UUID | HTTP 재시도마다 새 값 |
-| `Idempotency-Key` | Kafka 요청의 `idempotency_key` | 같은 업무 요청에서 반드시 유지 |
+| `X-Tenant-Id` | Kafka 요청의 가명 `tenant_alias` | 동일 requested 이벤트에서 유지 |
+| `X-Request-Id` | Kafka 요청의 `request_id` | 동일 requested 이벤트의 재전달에서도 유지 |
+| `Idempotency-Key` | Kafka 요청의 `idempotency_key` | 동일 requested 이벤트에서 유지 |
 
-`Idempotency-Key`가 같고 `snapshot_hash`도 같으면 AI는 저장된 성공 응답을 다시 반환할 수 있어야 합니다. 같은 키에 다른 `snapshot_hash`가 오면 `409`를 반환합니다.
+같은 `Idempotency-Key`, 요청 body, `snapshot_hash`의 재전달에는 AI가 같은 `execution_id`의 성공 응답을 반환할 수 있어야 합니다. 같은 키에 다른 body·`snapshot_hash`가 오면 `409`를 반환합니다. 백엔드 read timeout 기본값은 65초입니다.
 
 ## `detection_evidence`와 hash
 
@@ -46,6 +46,8 @@ AI는 Kafka envelope를 만들 필요가 없습니다. HTTP 응답만 OpenAPI에
 - `400`: 잘못된 요청이므로 백엔드가 재시도 없이 실패 처리
 - `409`: 멱등 키 충돌이므로 백엔드가 재시도 없이 실패 처리
 - `500` 또는 연결 실패: 백엔드가 HTTP 호출을 재시도하고, 모두 실패하면 실패 처리
+
+`signals[].advisory=true`는 백엔드가 학생 상세 참고 신호로 저장하지만 Alert와 Todo를 만들지 않습니다. `lifecycle`과 evidence의 `source_table`·`record_id`·`summary`, `meta.execution_id`·`meta.versions`는 모두 저장합니다.
 
 ## AI 팀 확인 체크리스트
 

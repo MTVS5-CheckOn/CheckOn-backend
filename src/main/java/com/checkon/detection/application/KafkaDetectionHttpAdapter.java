@@ -56,7 +56,7 @@ public class KafkaDetectionHttpAdapter {
 				request.payload(),
 				new AiDetectionRequestHeaders(
 					request.tenantAlias(),
-					idGenerator.nextIds(1).getFirst().toString(),
+					request.requestId(),
 					new DetectionExecutionKey(request.idempotencyKey())
 				)
 			);

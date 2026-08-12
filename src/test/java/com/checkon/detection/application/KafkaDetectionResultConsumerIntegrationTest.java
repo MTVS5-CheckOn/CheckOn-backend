@@ -121,6 +121,35 @@ class KafkaDetectionResultConsumerIntegrationTest {
 	}
 
 	@Test
+	@DisplayName("Given 같은 requested 이벤트가 두 번 전달될 때, When AI가 동일 응답을 반환하면, Then Run 결과는 한 번만 저장된다")
+	void givenDuplicateRequestedEvent_whenAiReturnsSameResponse_thenResultIsStoredOnce() throws Exception {
+		var requested = runService.execute(TEACHER, ANALYSIS_DATE);
+		JsonNode request = requestEnvelope(requested.runId());
+		when(riskDetectionClient.detect(any(), any())).thenReturn(successResponse());
+		when(kafkaTemplate.send(anyString(), anyString(), anyString()))
+			.thenReturn(CompletableFuture.completedFuture(null));
+
+		httpAdapter.handleRequested(request.get("tenant_alias").asText(), request.toString());
+		httpAdapter.handleRequested(request.get("tenant_alias").asText(), request.toString());
+
+		ArgumentCaptor<String> completedEvents = ArgumentCaptor.forClass(String.class);
+		verify(kafkaTemplate, org.mockito.Mockito.times(2)).send(
+			org.mockito.ArgumentMatchers.eq(kafkaProperties.completedTopic()),
+			org.mockito.ArgumentMatchers.eq(request.get("tenant_alias").asText()),
+			completedEvents.capture()
+		);
+		for (String completedEvent : completedEvents.getAllValues()) {
+			consumer.consumeCompleted(kafkaProperties.completedTopic(), completedEvent);
+		}
+
+		var run = runRepository.findByTeacherIdAndAnalysisDate(TEACHER, ANALYSIS_DATE)
+			.orElseThrow();
+		assertThat(run.status()).isEqualTo(DetectionRunStatus.SUCCEEDED);
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM detection_request_attempts "
+			+ "WHERE status = 'SUCCEEDED'", Integer.class)).isEqualTo(1);
+	}
+
+	@Test
 	@DisplayName("Given 요청 Outbox가 있을 때, When AI 완료 이벤트를 두 번 받으면, Then 결과는 한 번만 저장되고 Run은 성공한다")
 	void givenRequestedOutbox_whenCompletedEventArrivesTwice_thenStoresOnceAndSucceeds()
 		throws Exception {

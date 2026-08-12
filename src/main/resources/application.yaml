@@ -57,7 +57,8 @@ checkon:
     base-url: ${AI_BASE_URL:http://localhost:8000}
     detect-path: ${AI_DETECT_PATH:/v1/detect}
     connect-timeout: ${AI_CONNECT_TIMEOUT:2s}
-    read-timeout: ${AI_READ_TIMEOUT:10s}
+    # AI 위험 탐지는 대량 snapshot을 처리할 수 있으므로 외부 계약의 최소 60초보다 길게 둔다.
+    read-timeout: ${AI_READ_TIMEOUT:65s}
     detection:
       consent:
         # 동의 UI·저장 기능이 아직 없는 구현/시연 단계의 명시적 임시 정책이다.

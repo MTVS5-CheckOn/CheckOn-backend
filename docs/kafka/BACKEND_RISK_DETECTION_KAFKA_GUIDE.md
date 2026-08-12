@@ -82,7 +82,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run-local-kafka.ps1 -PrepareD
 - **requested DLT가 쌓임**: AI 서버 연결 또는 5xx가 재시도 후에도 실패했거나 Adapter 내부 오류가 발생한 것입니다. DLT handler가 내부 failed 이벤트를 발행하지만, 원문과 AI 로그를 함께 확인합니다.
 - **completed/failed DLT가 쌓임**: 결과 계약 검증 또는 DB 저장이 실패한 것입니다. DLT 원문과 `event_id`로 원인을 고친 뒤 재처리합니다. DLT를 바로 비우지 않습니다.
 - **순서**: key가 `tenant_alias`이므로 같은 강사의 메시지는 같은 partition에 들어갑니다. 전체 강사 간 순서는 보장하지도 필요하지도 않습니다.
-- **중복**: producer와 consumer 모두 at-least-once입니다. Adapter의 HTTP 재호출은 동일 `Idempotency-Key`와 새 `X-Request-Id`를 사용하고, 결과 중복은 Inbox/상태 전이로 안전하게 처리합니다.
+- **중복**: producer와 consumer 모두 at-least-once입니다. Adapter의 HTTP 재호출은 requested envelope의 동일 `tenant_alias`·`request_id`·`idempotency_key`와 body·snapshot hash를 유지합니다. 결과 중복은 Inbox/상태 전이로 안전하게 처리합니다.
+- **advisory 신호**: `advisory=true`는 DB에 보존하되 Alert와 Todo를 만들지 않습니다. 강사에게 즉시 할 일을 만들지 않는 학생 상세 참고 정보입니다.
 - **보안**: `tenant_alias`는 가명 식별자입니다. 메시지에 teacher ID, student ID, 실명, 연락처를 넣지 않습니다. 운영 TLS/SASL, ACL, retention은 배포 인프라에서 별도 설정합니다.
 - **근거가 거절됨**: AI 완료 payload의 `source_table`과 `record_id`가 요청 snapshot에 있던 정확한 쌍인지 먼저 확인합니다. 새 부재·복귀 근거는 `record_id`만 맞아도 통과하지 않습니다.
 
