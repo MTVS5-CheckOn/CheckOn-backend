@@ -26,7 +26,9 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-flyway'
     implementation 'org.flywaydb:flyway-database-postgresql'
-    implementation 'org.springframework.kafka:spring-kafka'
+    // Spring Kafka client alone does not create KafkaTemplate. The Boot starter
+    // adds Kafka auto-configuration required by @RetryableTopic/DLT listeners.
+    implementation 'org.springframework.boot:spring-boot-starter-kafka'
 
     compileOnly 'org.projectlombok:lombok'
     runtimeOnly 'org.postgresql:postgresql'
