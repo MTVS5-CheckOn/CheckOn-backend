@@ -60,7 +60,7 @@ public class DetectionResponseStorageService {
 		UUID teacherId,
 		UUID runId,
 		UUID attemptId,
-		int httpStatus,
+		Integer httpStatus,
 		AiDetectionResponse response,
 		Instant completedAt
 	) {

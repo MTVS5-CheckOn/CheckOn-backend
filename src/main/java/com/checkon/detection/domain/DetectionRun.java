@@ -158,7 +158,7 @@ public class DetectionRun {
 	public void markSucceeded(
 		UUID attemptId,
 		String aiExecutionId,
-		int httpStatus,
+		Integer httpStatus,
 		Instant completedAt,
 		String aiVersionsPayload,
 		String responseStatsPayload
@@ -209,6 +209,14 @@ public class DetectionRun {
 		this.aiExecutionId = null;
 		this.aiVersionsPayload = null;
 		this.responseStatsPayload = null;
+	}
+
+	/** A stale Kafka response must never overwrite a newer retry attempt. */
+	public boolean isCurrentRequestedAttempt(UUID attemptId, String requestId) {
+		return status == DetectionRunStatus.REQUESTED
+			&& !attempts.isEmpty()
+			&& attempts.getLast().id().equals(attemptId)
+			&& attempts.getLast().requestId().equals(requestId);
 	}
 
 	private DetectionRequestAttempt requireCurrentAttempt(UUID attemptId) {

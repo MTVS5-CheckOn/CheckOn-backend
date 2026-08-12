@@ -401,15 +401,25 @@
 - 일별 멱등성: 같은 강사와 `analysisDate`에는 논리적인 Detection run 하나만 허용한다. 기존 `(teacher_id, analysis_date)` 및 `idempotency_key` 유일 제약과 일별 멱등 키를 재사용한다. 이미 `SUCCEEDED`인 run은 AI를 다시 호출하지 않으며 기존 `FAILED` run은 새 attempt로 재시도한다.
 - 실행 방식: 첫 구현은 강사를 정해진 순서로 순차 실행한다. 무제한 병렬 처리와 별도 비동기 executor를 사용하지 않는다.
 - 누락 실행: 정시 실행만 담당하며 서버 중단 시간의 자동 catch-up이나 과거 날짜 소급 실행은 하지 않는다. 누락분은 기존 운영 Detection API로 수동 실행한다.
-- 현재 제외: 자동 catch-up, 제한 병렬 처리, 신규 분산락 라이브러리, Kafka 기반 비동기 Detection 실행, 운영 모니터링 대시보드.
-- 후속 운영 검토: Kafka 도입 시 스케줄러는 강사별 Detection 요청 이벤트를 발행하고 Consumer가 기존 `OperationalDetectionRunService`를 호출하는 구조를 검토한다. Kafka는 분산락을 대신하지 않으며 DB의 일별 유일 제약과 상태 전이는 중복 실행·저장의 최종 방어선으로 유지한다.
-- Kafka 미확정 정책: 이벤트 계약과 버전, event·correlation·causation ID, Outbox 적용 여부, 발행 실패 복구, Consumer 멱등성, 재시도 횟수·간격, DLQ, 오래된 이벤트 처리, 파티션 키와 순서 보장, Consumer 동시 처리량 및 AI 서버 허용량은 도입 전에 별도로 확정한다.
+- Kafka 실행 경계: 스케줄러와 교사 요청 API는 기존처럼 `OperationalDetectionRunService`를 호출한다. 이 서비스가 AI HTTP 호출 대신 Kafka 요청 Outbox를 만든다. 따라서 스케줄러가 broker에 직접 접근하지 않으며 DB의 일별 유일 제약과 상태 전이는 중복 실행·저장의 최종 방어선으로 유지한다.
+- 이벤트 계약: Backend → AI `checkon.risk-detection.requested.v1`, AI → Backend `checkon.risk-detection.completed.v1`/`checkon.risk-detection.failed.v1`를 사용한다. 모든 메시지는 `schema_version=1.0` envelope와 `event_id`, `correlation_id(=run_id)`, `causation_id`, `tenant_alias`, `run_id`, `attempt_id`, `request_id`, `idempotency_key`, `snapshot_hash`를 가진다. 정본은 `docs/contracts/risk-detection-kafka.asyncapi.yaml`이다.
+- 기존 Run 호환: Kafka 도입 전 `teacher_<uuid>:date` 형식으로 저장된 기존 `idempotency_key`는 데이터 마이그레이션으로 일괄 수정하지 않는다. 백엔드 내부에서만 legacy key를 인정해 기존 run의 상태·재시도를 보존하고, 새 Kafka 메시지에는 항상 `tenant_alias:date`만 넣는다.
+- 요청 내구성: Detection run·attempt·Outbox 행을 같은 DB 트랜잭션으로 저장한다. Outbox publisher는 `PENDING`을 at-least-once로 발행하고 최대 8회 전송 실패하면 Outbox와 해당 run을 `KAFKA_PUBLISH_FAILED`로 실패 처리한다. 같은 날짜의 후속 수동/스케줄 요청은 새 attempt로 재시도할 수 있다.
+- 결과 내구성: 완료·실패 Consumer는 Inbox의 `event_id` unique 제약으로 멱등 처리한다. 처리·검증·결과 저장은 한 트랜잭션이고, 실패 시 1초·2초 간격 총 3회 재시도한 뒤 `<topic>.dlt`로 보낸다. 오래되었거나 이미 대체된 attempt 결과는 저장하지 않는다.
+- partition key·순서: 요청과 응답의 Kafka key는 opaque `tenant_alias`다. 같은 강사 내 순서는 보장하되, 강사 간 전체 순서는 보장하지 않는다.
+- 운영 제외: 자동 catch-up, 제한 병렬 처리, 신규 분산락 라이브러리, 운영 모니터링 대시보드, 운영 broker TLS/SASL·ACL·retention 수치와 AI Consumer 동시 처리량은 이번 애플리케이션 구현 범위 밖이며 배포 환경에서 확정한다.
 - 코드 근거:
   - `src/main/java/com/checkon/detection/infrastructure/scheduling/DetectionScheduler.java`
   - `src/main/java/com/checkon/detection/application/ScheduledDetectionJob.java`
   - `src/main/java/com/checkon/detection/application/ScheduledDetectionTargetProvider.java`
   - `src/main/java/com/checkon/detection/application/OperationalDetectionRunService.java`
   - `src/main/java/com/checkon/detection/application/DetectionAttemptCoordinator.java`
+  - `src/main/java/com/checkon/detection/application/KafkaDetectionRequestService.java`
+  - `src/main/java/com/checkon/detection/application/KafkaDetectionResultConsumer.java`
+  - `src/main/java/com/checkon/detection/integration/kafka/KafkaOutboxPublisher.java`
+  - `src/main/java/com/checkon/detection/integration/kafka/KafkaDetectionResultListener.java`
+  - `src/main/resources/db/migration/V14__add_risk_detection_kafka_outbox.sql`
+  - `docs/contracts/risk-detection-kafka.asyncapi.yaml`
   - `src/test/java/com/checkon/detection/infrastructure/scheduling/DetectionSchedulerTest.java`
   - `src/test/java/com/checkon/detection/application/ScheduledDetectionJobTest.java`
   - `src/test/java/com/checkon/detection/application/ScheduledDetectionTargetProviderIntegrationTest.java`

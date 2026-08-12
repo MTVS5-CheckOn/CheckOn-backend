@@ -1,0 +1,272 @@
+asyncapi: 2.6.0
+info:
+  title: CheckOn Risk Detection Kafka Contract
+  version: 1.0.0
+  description: |
+    Versioned asynchronous contract between CheckOn Backend and the AI risk-detection service.
+    All timestamps are RFC 3339 UTC instants. All identifiers are UUIDv7 except opaque aliases.
+servers:
+  local:
+    url: localhost:9094
+    protocol: kafka
+    description: Local Docker Compose broker. Container-to-container clients use kafka:9092.
+defaultContentType: application/json
+channels:
+  checkon.risk-detection.requested.v1:
+    description: Backend emits a durable risk-detection request for AI consumption.
+    publish:
+      operationId: backendPublishesRiskDetectionRequest
+      message:
+        $ref: '#/components/messages/RiskDetectionRequested'
+  checkon.risk-detection.completed.v1:
+    description: AI emits one validated successful result for a requested attempt.
+    subscribe:
+      operationId: backendConsumesRiskDetectionCompleted
+      message:
+        $ref: '#/components/messages/RiskDetectionCompleted'
+  checkon.risk-detection.failed.v1:
+    description: AI emits a terminal failed result for a requested attempt.
+    subscribe:
+      operationId: backendConsumesRiskDetectionFailed
+      message:
+        $ref: '#/components/messages/RiskDetectionFailed'
+components:
+  messages:
+    RiskDetectionRequested:
+      name: RiskDetectionRequested
+      title: Backend to AI risk-detection request
+      contentType: application/json
+      correlationId:
+        location: $message.payload#/correlation_id
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: Must be the tenant_alias value.
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/RiskDetectionEvent'
+          - type: object
+            properties:
+              event_type:
+                const: risk-detection.requested
+              payload:
+                $ref: '#/components/schemas/DetectionRequest'
+    RiskDetectionCompleted:
+      name: RiskDetectionCompleted
+      title: AI to Backend successful risk-detection result
+      contentType: application/json
+      correlationId:
+        location: $message.payload#/correlation_id
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: Must be the tenant_alias copied from the request.
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/RiskDetectionEvent'
+          - type: object
+            properties:
+              event_type:
+                const: risk-detection.completed
+              payload:
+                $ref: '#/components/schemas/DetectionResponse'
+    RiskDetectionFailed:
+      name: RiskDetectionFailed
+      title: AI to Backend failed risk-detection result
+      contentType: application/json
+      correlationId:
+        location: $message.payload#/correlation_id
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: Must be the tenant_alias copied from the request.
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/RiskDetectionEvent'
+          - type: object
+            properties:
+              event_type:
+                const: risk-detection.failed
+              payload:
+                $ref: '#/components/schemas/DetectionFailure'
+  schemas:
+    RiskDetectionEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - event_id
+        - event_type
+        - schema_version
+        - correlation_id
+        - causation_id
+        - tenant_alias
+        - run_id
+        - attempt_id
+        - request_id
+        - idempotency_key
+        - snapshot_hash
+        - occurred_at
+        - payload
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Unique event identity; consumers must deduplicate it.
+        event_type:
+          type: string
+          enum: [risk-detection.requested, risk-detection.completed, risk-detection.failed]
+        schema_version:
+          type: string
+          const: '1.0'
+        correlation_id:
+          type: string
+          format: uuid
+          description: Equals run_id for all messages in one detection run.
+        causation_id:
+          type: string
+          format: uuid
+          description: For completed/failed, the consumed requested event_id. Request events use their own event_id.
+        tenant_alias:
+          type: string
+          pattern: '^tn_[0-9a-f]{32}$'
+          description: Opaque teacher tenant alias; never a teacher UUID or PII.
+        run_id:
+          type: string
+          format: uuid
+        attempt_id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+          description: Equals attempt_id as a string in v1.
+        idempotency_key:
+          type: string
+          description: tenant_alias plus analysis date; same run retries preserve it.
+        snapshot_hash:
+          type: string
+          description: SHA-256 hash of the immutable request payload.
+        occurred_at:
+          type: string
+          format: date-time
+        payload: {}
+    DetectionRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshot_meta, students, learning_events, alert_context]
+      properties:
+        snapshot_meta:
+          type: object
+          required: [week_start, snapshot_hash, term_context, classes]
+          properties:
+            week_start: { type: string, format: date }
+            snapshot_hash: { type: string }
+            term_context: { type: string }
+            classes:
+              type: array
+              items:
+                type: object
+                required: [class_ref]
+                properties:
+                  class_ref: { type: string }
+        students:
+          type: array
+          items:
+            type: object
+            required: [student_ref, class_ref, enrolled_weeks, status, consent]
+            properties:
+              student_ref: { type: string, pattern: '^st_[0-9a-f]{32}$' }
+              class_ref: { type: string }
+              enrolled_weeks: { type: integer, minimum: 0 }
+              status: { type: string }
+              consent: { type: string, enum: [granted, denied, unknown] }
+        learning_events:
+          type: array
+          items:
+            type: object
+            required: [record_id, student_ref, type, occurred_at]
+            properties:
+              record_id: { type: string }
+              student_ref: { type: string, pattern: '^st_[0-9a-f]{32}$' }
+              type: { type: string }
+              occurred_at: { type: string, format: date-time }
+              correct: { type: [boolean, 'null'] }
+              duration_sec: { type: [integer, 'null'], minimum: 0 }
+              passage_word_count: { type: [integer, 'null'], minimum: 0 }
+              area_tag: { type: [string, 'null'] }
+              subject_track: { type: [string, 'null'] }
+              type_tag: { type: [string, 'null'] }
+              item_format: { type: [string, 'null'] }
+              assignment_title_text: { type: [string, 'null'] }
+              source: { type: [string, 'null'] }
+        alert_context:
+          type: array
+          items:
+            type: object
+            required: [student_ref, signal_type, status, followed_up]
+            properties:
+              student_ref: { type: string }
+              signal_type: { type: string }
+              status: { type: string }
+              resolved_at: { type: [string, 'null'], format: date-time }
+              followed_up: { type: boolean }
+    DetectionResponse:
+      type: object
+      required: [data, error, meta]
+      properties:
+        data:
+          type: object
+          required: [signals, stats]
+          properties:
+            signals:
+              type: array
+              items:
+                type: object
+                required: [signal_id, student_ref, class_ref, rule_id, signal_type, display_label, score, rank, lifecycle, brief, evidence]
+                properties:
+                  signal_id: { type: string }
+                  student_ref: { type: string }
+                  class_ref: { type: string }
+                  rule_id: { type: string }
+                  signal_type: { type: string }
+                  display_label: { type: string }
+                  score: { type: number }
+                  rank: { type: integer }
+                  lifecycle: { type: string }
+                  brief:
+                    type: object
+                    required: [text, gate_passed, fallback_used]
+                    properties:
+                      text: { type: string }
+                      gate_passed: { type: boolean }
+                      fallback_used: { type: boolean }
+                  evidence:
+                    type: array
+                    items:
+                      type: object
+                      required: [source_table, record_id, summary]
+                      properties:
+                        source_table: { type: string }
+                        record_id: { type: string }
+                        summary: { type: string }
+            stats:
+              type: object
+        error:
+          type: 'null'
+        meta:
+          type: object
+          required: [execution_id, versions]
+          properties:
+            execution_id: { type: string }
+            versions: { type: object, additionalProperties: { type: string } }
+    DetectionFailure:
+      type: object
+      additionalProperties: false
+      required: [code, message, detail, retryable]
+      properties:
+        code: { type: string, maxLength: 60 }
+        message: { type: string }
+        detail: {}
+        retryable: { type: boolean }
