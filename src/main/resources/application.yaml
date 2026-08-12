@@ -69,6 +69,7 @@ checkon:
       requested-topic: ${RISK_DETECTION_REQUESTED_TOPIC:checkon.risk-detection.requested.v1}
       completed-topic: ${RISK_DETECTION_COMPLETED_TOPIC:checkon.risk-detection.completed.v1}
       failed-topic: ${RISK_DETECTION_FAILED_TOPIC:checkon.risk-detection.failed.v1}
+      requested-consumer-group-id: ${RISK_DETECTION_ADAPTER_CONSUMER_GROUP:checkon-backend-risk-detection-http-adapter-v1}
       consumer-group-id: ${RISK_DETECTION_CONSUMER_GROUP:checkon-backend-risk-detection-v1}
       outbox-poll-delay: ${RISK_DETECTION_OUTBOX_POLL_DELAY:1s}
       outbox-lock-timeout: ${RISK_DETECTION_OUTBOX_LOCK_TIMEOUT:30s}

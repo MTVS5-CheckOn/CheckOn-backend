@@ -1,11 +1,18 @@
 package com.checkon.detection.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -14,12 +21,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.mockito.ArgumentCaptor;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import com.checkon.detection.domain.DetectionRunStatus;
 import com.checkon.detection.infrastructure.persistence.DetectionRunRepository;
+import com.checkon.detection.integration.ai.RiskDetectionClient;
+import com.checkon.detection.integration.ai.dto.AiDetectionResponse;
 import com.checkon.detection.integration.kafka.RiskDetectionKafkaProperties;
 import com.checkon.support.RosterTestFixture;
 
@@ -42,11 +54,15 @@ class KafkaDetectionResultConsumerIntegrationTest {
 	private static final LocalDate ANALYSIS_DATE = LocalDate.of(2026, 8, 3);
 
 	@Autowired OperationalDetectionRunService runService;
+	@Autowired KafkaDetectionHttpAdapter httpAdapter;
 	@Autowired KafkaDetectionResultConsumer consumer;
 	@Autowired DetectionRunRepository runRepository;
 	@Autowired RiskDetectionKafkaProperties kafkaProperties;
 	@Autowired JdbcTemplate jdbc;
 	@Autowired ObjectMapper objectMapper;
+
+	@MockitoBean RiskDetectionClient riskDetectionClient;
+	@MockitoBean KafkaTemplate<String, String> kafkaTemplate;
 
 	@BeforeEach
 	void fixtures() {
@@ -78,6 +94,30 @@ class KafkaDetectionResultConsumerIntegrationTest {
 			 correct, duration_sec, created_at, updated_at)
 			VALUES (uuidv7(), ?, ?, 'SOLVE', '2026-07-20T01:00:00Z', 'test', true, 120, now(), now())
 			""", TEACHER, STUDENT);
+	}
+
+	@Test
+	@DisplayName("Given 요청 Outbox가 있을 때, When 백엔드 어댑터가 AI HTTP 200을 받으면, Then Kafka 완료 이벤트를 거쳐 Run이 성공한다")
+	void givenRequestedOutbox_whenBackendAdapterReceivesAi200_thenRoundTripSucceeds() throws Exception {
+		var requested = runService.execute(TEACHER, ANALYSIS_DATE);
+		JsonNode request = requestEnvelope(requested.runId());
+		when(riskDetectionClient.detect(any(), any())).thenReturn(successResponse());
+		when(kafkaTemplate.send(anyString(), anyString(), anyString()))
+			.thenReturn(CompletableFuture.completedFuture(null));
+
+		httpAdapter.handleRequested(request.get("tenant_alias").asText(), request.toString());
+
+		ArgumentCaptor<String> completedEvent = ArgumentCaptor.forClass(String.class);
+		verify(kafkaTemplate).send(
+			org.mockito.ArgumentMatchers.eq(kafkaProperties.completedTopic()),
+			org.mockito.ArgumentMatchers.eq(request.get("tenant_alias").asText()),
+			completedEvent.capture()
+		);
+		consumer.consumeCompleted(kafkaProperties.completedTopic(), completedEvent.getValue());
+
+		var run = runRepository.findByTeacherIdAndAnalysisDate(TEACHER, ANALYSIS_DATE)
+			.orElseThrow();
+		assertThat(run.status()).isEqualTo(DetectionRunStatus.SUCCEEDED);
 	}
 
 	@Test
@@ -124,6 +164,17 @@ class KafkaDetectionResultConsumerIntegrationTest {
 		return outcomeEnvelope(request, "risk-detection.failed", """
 			{"code":"AI_TIMEOUT","message":"AI processing timed out","detail":null,"retryable":false}
 			""");
+	}
+
+	private AiDetectionResponse successResponse() {
+		return new AiDetectionResponse(
+			new AiDetectionResponse.Data(
+				List.of(),
+				new AiDetectionResponse.Stats(1, 0, 0, 0, List.of())
+			),
+			null,
+			new AiDetectionResponse.Meta("ai-http-round-trip", Map.of("pipeline", "test"))
+		);
 	}
 
 	private JsonNode requestEnvelope(UUID runId) throws Exception {
