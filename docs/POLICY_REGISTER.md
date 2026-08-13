@@ -538,23 +538,23 @@
 - 최신 AI 계약: `POST /v1/problems`는 `job_id`와 상태를 반환하고, 상태 조회는 `GET /v1/problems/{job_id}`다. terminal 결과의 `set_id`로 `GET /v1/problems/{set_id}/items` 요약 목록을 조회한 뒤 각 `slot_index`에 대해 `GET /v1/problems/{set_id}/items/{slot_index}`를 호출해야 전체 문항 본문을 얻는다.
 - 금지 사항: 원문에 없는 문항 상세를 추론해 만들거나 AI `verified`를 강사 승인·학생 발행으로 간주하지 않는다.
 - 연계 조건: 별도 어댑터가 HTTP items 조회 시 tenant alias와 job 소유권을 검증하고 AI 응답을 backend용 result event로 정규화한다. CheckOn 백엔드는 AI HTTP 응답을 직접 처리하지 않는다.
-- 확정된 어댑터 관찰 계약: `POST /v1/problems` timeout은 300초이며 응답이 비종단일 때만 polling한다. AI는 `Retry-After`와 전체 처리 deadline을 현재 제공하지 않는다. child 관찰 상한 21분은 Adapter 운영 정책이며 초과 시 `timed_out`으로 종결한다. 늦게 도착한 AI 성공은 감사·회수 대상으로만 남기며 이미 terminal인 부모 상태를 되돌리지 않는다.
-- 계약 정본: AI HTTP v1은 AI 저장소의 HTTP fixture 17종을 임시 정본으로 사용하고, adapter의 HTTP→Kafka normalized fixture는 adapter 저장소가 소유한다. AI OpenAPI는 실제 schema가 채워지기 전까지 정본이 아니다.
-- 마지막 검증일: 2026-08-13
+- 확정된 어댑터 관찰 계약: `POST /v1/problems` read timeout은 300초다. `POST`의 `job_id`·`execution_id`를 즉시 영속하고 `GET /v1/problems/{job_id}`의 `data.status`만 종료 판정 정본으로 사용한다. `queued`·`running`일 때만 `Retry-After`를 다음 polling 간격의 advisory로 반영하며, 헤더 부재를 종료 신호로 해석하지 않는다. child 관찰 상한 21분은 Adapter 운영 정책이며 초과 시 `timed_out`으로 종결한다. 늦게 확인된 AI 성공은 감사 대상으로만 남기며 이미 terminal인 child·부모 상태를 되돌리지 않는다.
+- 계약 정본: AI HTTP v1은 AI 저장소 commit `7bc3d6592c6ccd48432ba941053a0673a922dca6`의 응답 fixture와 Pydantic 계약을 정본으로 사용하고, adapter의 HTTP→Kafka normalized fixture는 adapter 저장소가 소유한다. 기재된 AI 검증 결과는 AI 팀 제공 근거이며 Backend에서 독립 재실행한 결과가 아니다.
+- 마지막 검증일: 2026-08-14
 
 #### PG-004 프론트 출제 스튜디오 4단계 계약
 
 - 결정 상태: `CONFIRMED`
 - 구현 상태: `PARTIAL`
 - 근거 수준: `CONVERSATION_CONFIRMED`, `FRONTEND_DESIGN`
-- Step 1: 인증 강사의 ACTIVE 학생만 페이지 조회한다. 표시 이름은 강사가 접근 가능한 `student_personal_information.real_name`을 우선하고 없으면 학생 프로필 alias를 사용한다. ACTIVE 클래스·과목, 관계 시작일 기준 관리 일수, 최근 30일 Engagement Alert 수와 현재 생성 가능한 셀 목록을 함께 반환한다. 프론트는 생성 가능한 목록에 없는 셀을 비활성화한다.
+- Step 1: 인증 강사의 ACTIVE 학생만 페이지 조회한다. 표시 이름은 강사가 접근 가능한 `student_personal_information.real_name`을 우선하고 없으면 학생 프로필 alias를 사용한다. ACTIVE 클래스·과목, 관계 시작일 기준 관리 일수, 최근 30일 Engagement Alert 수와 현재 생성 가능한 셀 목록을 함께 반환한다. AI 진단을 연결한 뒤에는 cell별 node 후보와 verdict를 Backend snapshot에 보존하되 프론트는 생성 가능한 목록에 없는 셀을 비활성화한다.
 - 약점 분석: 최근 8주 `SOLVE` 학습 기록 중 정오답과 영역·유형이 모두 있는 행을 집계한다. 셀 표본이 10건 미만이면 `ON_HOLD`, 10건 이상이면 학생 전체 평균 이상을 `GOOD`, 미만을 `WEAK_SIGNAL`로 제공한다. 화면의 `WEAK_CONFIRMED` 임계값은 확정 근거가 없어 자동 생성하지 않는다.
-- Step 2: Step 1에서 선택한 영역×유형별 문항 수를 그대로 이어받고 공통 난이도와 함께 하나의 요청 snapshot으로 저장해 Transactional Outbox에 반영한다. 시안의 12문항과 7문항은 서로 다른 예시 화면이며 같은 흐름의 값 충돌이 아니다. 프론트가 내부 taxonomy ID를 알 필요는 없다.
+- Step 2: Step 1에서 선택한 영역×유형별 문항 수를 그대로 이어받고 공통 난이도와 함께 하나의 요청 snapshot으로 저장해 Transactional Outbox에 반영한다. 시안의 12문항과 7문항은 서로 다른 예시 화면이며 같은 흐름의 값 충돌이 아니다. 프론트가 내부 taxonomy ID를 직접 입력할 필요는 없지만 Backend는 확정된 node 선택 정책의 결과를 child snapshot에 고정한다.
 - Step 3: AI 원문 결과는 계속 `jsonb`로 보존한다. 문두·선지·정답·출제 근거·검증 상태가 있는 결과만 별도 read model로 투영하며, 불완전한 결과는 추론해 채우지 않고 `UNSUPPORTED`로 표시한다.
 - Step 4: 교사가 선택한 문항만 저장 세트와 발행 과제에 포함한다. AI 검증 상태, 교사 선택, 저장, 학생 발행은 서로 다른 상태다. 같은 요청의 저장과 발행 재호출은 중복 세트·과제를 만들지 않는다.
 - PDF: 백엔드는 선택 문항과 대상 학생을 포함한 인쇄용 구조화 데이터를 제공한다. 실제 PDF 레이아웃·폰트 렌더링은 프론트가 소유하며 서버 PDF 라이브러리는 이번 범위에 추가하지 않는다.
 - 개인정보·테넌트: 학생 실명과 내부 UUID는 강사 REST 응답과 백엔드 DB 안에서만 사용한다. Kafka/AI에는 기존 `tn_`, `st_` alias 경계를 유지하고 모든 신규 테이블에 FORCE RLS를 적용한다.
-- 마지막 검증일: 2026-08-13
+- 마지막 검증일: 2026-08-14
 
 #### PG-005 출제 스튜디오와 AI 계약 충돌 격리
 
@@ -562,19 +562,23 @@
 - 구현 상태: `PARTIAL`
 - 근거 수준: `CONVERSATION_CONFIRMED`, `EXTERNAL_CONTRACT`, `FRONTEND_DESIGN`
 - fan-out: backend 부모 요청의 `targets[]`에서 영역×유형 셀 하나당 child execution 하나를 만들고, 별도 adapter가 child별 `POST /v1/problems`를 호출한다. 부모 합계는 최대 20문항이다.
-- v1 target 해석: Backend는 AI 전용 `skill_node_id`를 저장하거나 하드코딩하지 않는다. Adapter는 AI taxonomy catalog에서 요청의 `area_tag`와 `type_affinity`가 일치하고 `has_evidence=true`인 node를 안정 정렬해 `manual_targets`로 채운다. 현재 결과는 `language.grammar.phonological_change` 하나이며 후보가 없으면 AI를 호출하지 않고 `NO_EVIDENCE_READY_TARGET` 실패 결과를 반환한다.
+- v1 target 해석: AI diagnosis의 `weakness_map.nodes`가 node 후보의 정본이다. Backend는 사용자가 선택한 cell과 연결된 후보 중 `weak_confirmed`가 하나 이상이면 해당 tier의 node를 모두 선택하고, 없으면 `suspect` tier의 node를 모두 선택한다. 같은 tier 안에서는 멱등 payload 직렬화를 위해 node ID를 사전순으로 정렬할 뿐 우선순위 의미를 부여하지 않는다. 선택된 `skill_node_id`는 문자열을 바꾸지 않고 child snapshot과 AI `manual_targets`에 보존하며 Adapter가 catalog·`area_tag`·`type_affinity`로 재선택하거나 치환하지 않는다. 두 tier 모두 후보가 없으면 AI를 호출하지 않고 `NO_EVIDENCE_READY_TARGET`로 종결한다.
+- 진단 provenance: Backend는 선택 node와 함께 diagnosis의 `weakness_map.snapshot_hash`·`taxonomy_version`을 문제 생성 요청까지 그대로 보존한다. `graph_version`·`config_version`은 provenance로 저장하되 `POST /v1/problems` body에는 보내지 않는다. 저장 버전과 현재 배포 버전이 달라도 node를 임의 migration하지 않고 재진단 또는 별도 승인된 migration을 사용한다.
 - child 식별: `problem_request_id`, `problem_execution_id`, `target_index`, `adapter_execution_id`, AI `execution_id`·`job_id`·`set_id`를 분리한다. AI ID는 부모 단일 컬럼이 아니라 child별로 보존한다. `X-Request-Id` echo는 추적 보조값일 뿐 소유권·상관관계의 정본이 아니다.
 - 상태 집계: child가 하나라도 실행 중이면 부모 `RUNNING`, 전부 종단이고 성공 문항이 있으면서 실패 child가 없으면 `SUCCEEDED`, 성공 문항과 실패 child가 함께 있으면 `PARTIAL_SUCCESS`, 성공 문항이 없고 실패가 있으면 `FAILED`로 집계한다. 전부 `rejected_insufficient`인 0건 결과는 업무상 완료로 취급한다.
-- 문항 전달: adapter는 `GET /v1/problems/{set_id}/items` 요약 뒤 `GET /v1/problems/{set_id}/items/{slot_index}`를 N+1 방식으로 조회해 문항 전량을 Kafka 결과 이벤트에 싣는다. AI의 `choices[{no,text,why_wrong}]`와 1-based `answer.correct_no`는 Backend 호환 구조로 정규화한다. 상한 초과 시 adapter 소유 저장소의 `result_ref`로 대체하며 AI 재조회에 의존하지 않는다.
+- 문항 전달: Adapter는 terminal job의 `set_id`로 `GET /v1/problems/{set_id}/items` 요약을 조회한 뒤 각 `slot_index`의 상세를 N+1 방식으로 조회한다. AI 원문 `choices[{no,text,why_wrong}]`와 1-based `answer.correct_no`를 보존하면서 Backend 호환 파생값을 추가한다. Adapter→Backend normalized Kafka record value가 UTF-8 직렬화 기준 3 MiB 이하일 때만 한 child 결과 이벤트에 slot 전량을 싣는다. 3 MiB를 넘으면 Backend가 해석할 수 없는 `result_ref` 성공 이벤트를 만들지 않고 해당 child를 `RESULT_TOO_LARGE` 실패로 종결한다. Adapter 소유 영속 조회 API 또는 slot/chunk event는 후속 계약이다. Backend는 AI HTTP를 직접 호출하지 않는다.
+- dropped slot: `slot_index`, `status=dropped`, nullable `item_id`, `failure_reason`, nullable `failure_detail`, 세트 `status_counts`, 요청·처리 수를 원문 보존한다. 존재하지 않는 문항 본문을 만들지 않는다. Backend는 실제 문항 projection과 별도로 nullable item 참조를 가진 slot projection을 두어 dropped 위치와 집계를 복원한다.
 - Step 1 진단: AI `POST /v1/diagnosis`를 판정 정본으로 채택하되 동기 HTTP 경로 `BE → adapter → AI`로 호출하고 timeout은 5초로 한다. 실패 시 과거 판정이나 backend 자체 계산을 섞지 않고 빈 grid를 반환한다. 현재 학습 기록에는 `tag_confirmed`, `skill_node_id`가 없어 입력 정책·스키마 보완 전에는 기존 backend 집계를 즉시 교체하지 않는다.
 - 영역·자료: AI는 5영역을 측정하되 화면은 원본 셀을 보존해 표시한다. 자료 입력 화면이 없는 v1에서는 `language` 외 출제를 비활성화하고 `media`를 `language`로 임의 변환하지 않는다. 이는 AI 미지원이 아니라 passage/work/material 입력 화면 미구현 제한이다.
 - HTTP 멱등: AI 보존 기간은 30일이다. 문제 생성은 canonical JSON SHA-256, 진단은 body의 `snapshot_hash`를 동일성 축으로 사용한다. adapter child 매핑도 30일 이상 보존한다.
 - 출제 source 변환: 프론트의 강사 약점 선택 의미는 Backend snapshot에 보존하고, AI v1 호출의 `target_source`는 실제 지원 값인 `teacher_manual`로 adapter가 변환한다. 이는 자동 약점 출제 `weakness_auto`를 의미하지 않는다.
-- 검증 상태 변환: AI `verified`, `needs_review`, `verification_unavailable`, `dropped`는 각각 Backend `PASSED`, `REVIEW_REQUIRED`, `UNVERIFIABLE`, `EXCLUDED`로 보존한다. AI 검증 상태는 교사 승인과 분리한다.
+- 검증 상태 변환: AI `verified`, `needs_review`, `verification_unavailable`, `dropped`는 각각 Backend `PASSED`, `REVIEW_REQUIRED`, `UNVERIFIABLE`, `EXCLUDED`로 보존한다. AI 검증 상태는 교사 승인과 분리한다. `dropped`는 빈 `problem_generation_items` 행으로 만들지 않고 slot projection에서 표현한다.
 - AI ID 안정성: AI가 GET 응답마다 새 `meta.execution_id`를 만드는 현재 결함이 해결될 때까지 Adapter는 POST에서 받은 `execution_id`를 정본으로 보존하고 GET의 다른 값을 무시한다.
-- 기능별 예외: 21분 polling, 셀별 child fan-out, 문항 본문 전량 이벤트, 부모 `PARTIAL_SUCCESS`, 교사 선택·저장·발행은 문제 출제 전용이며 위험탐지 공통 계약으로 확장하지 않는다.
+- revision 범위: AI의 language `ai_refine` API 구현 여부와 별개로 문항 수정·수정 이력의 Backend·Adapter·Frontend 연동은 영상 MVP에서 제외한다. 후속 도입 시 영역 하드코딩 대신 AI detail의 `available_actions`를 수정 가능 여부의 정본으로 사용하고 별도 revision 상관관계·멱등·결과 projection 계약을 먼저 확정한다.
+- alias 검증: Adapter는 AI HTTP 호출 전에 tenant `tn_`, student target `st_`, class target `cl_` 형식을 검증한다. 내부 UUID·실명·연락처는 Kafka와 AI HTTP에 전달하지 않는다.
+- 기능별 예외: 21분 polling, 셀별 child fan-out, 3 MiB 이하 normalized child 결과, 부모 `PARTIAL_SUCCESS`, 교사 선택·저장·발행은 문제 출제 전용이며 위험탐지 공통 계약으로 확장하지 않는다.
 - 남은 운영 차단: AI 요청·결과 저장소의 인메모리 구조와 신규 HTTP endpoint 배포 파이프라인은 운영 전 해소해야 한다. HTTP 인증은 v1 내부망 전제이며 망 경계가 바뀌면 별도 계약을 추가한다.
-- 마지막 검증일: 2026-08-13
+- 마지막 검증일: 2026-08-14
 
 ### Frontend·UX
 
@@ -722,6 +726,7 @@
 
 | 날짜 | 변경 | 검증 |
 | --- | --- | --- |
+| 2026-08-14 | AI commit `7bc3d6592c6ccd48432ba941053a0673a922dca6` 회신을 반영해 diagnosis node 선택·provenance, `Retry-After`, 3 MiB 초과 fail-closed, dropped slot projection, revision MVP 제외, opaque alias 검증 정책을 PG-003~005에 확정 | AI 회신·현재 Backend 정책·Adapter 경계를 정적 대조. 코드·Flyway·테스트는 변경하지 않음 |
 | 2026-08-13 | AI 팀 17명 시연 시드를 수동 데모 스크립트로 등록하고 R1~R6 근거, 정확한 10주 창, 수동 term context, 최근 실행 조회, Kafka 6 MiB·zstd 정책을 구현 | 시드 정적 계약, KST 10주 경계, R2·R5 근거, paused 상태, term context, 최근 run, Kafka 런타임 설정 집중 검증 및 전체 258건 Gradle build 통과 |
 | 2026-08-13 | ROS-004 휴원·복귀 상태 전이와 R5 복귀 근거 생성 정책을 확정·구현 | 휴원·복귀·테넌트 격리 PostgreSQL 통합 테스트, R5 snapshot 단위 테스트, OpenAPI·Flyway 계약 및 전체 251건 테스트 통과 |
 | 2026-08-13 | SCREEN-PAGE-001을 전체 페이지네이션 API의 공통 `metadata`·`items` 응답 계약으로 변경 | 공통 계산·OpenAPI 계약 테스트와 클래스·Problem Studio PostgreSQL HTTP 통합 테스트 통과 |
