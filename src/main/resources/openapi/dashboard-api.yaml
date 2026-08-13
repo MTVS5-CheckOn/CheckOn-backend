@@ -1211,7 +1211,7 @@ components:
         createdAt: {type: string, format: date-time}
     AlertDetail:
       type: object
-      required: [alertId, runId, studentId, studentName, className, ruleId, signalType, displayLabel, brief, briefFallback, status, createdAt, evidence]
+      required: [alertId, runId, studentId, studentName, className, ruleId, signalType, displayLabel, metric, observed, baseline, sampleSize, brief, briefFallback, status, createdAt, evidence]
       properties:
         alertId: {type: string, format: uuid}
         runId: {type: string, format: uuid, description: Alert 원천 Signal이 속한 Detection run 식별자}
@@ -1221,6 +1221,10 @@ components:
         ruleId: {type: string}
         signalType: {type: string}
         displayLabel: {type: string}
+        metric: {type: string, nullable: true, description: 표시 단위 선택용 AI 지표. return_care는 null이다.}
+        observed: {type: number, nullable: true, description: 신호 전체의 관측값. 단위는 metric으로 판별한다.}
+        baseline: {type: number, nullable: true, description: 평소 비교값. null이면 평소 대비 문구를 표시하지 않는다.}
+        sampleSize: {type: integer, minimum: 0, nullable: true, description: 지표별 표본 수. 의미는 metric으로 판별한다.}
         brief: {type: string}
         briefFallback: {type: boolean}
         status: {$ref: '#/components/schemas/AlertStatus'}
@@ -1228,8 +1232,16 @@ components:
         evidence: {type: array, items: {$ref: '#/components/schemas/EvidenceView'}}
     EvidenceView:
       type: object
-      required: [id, sourceHint, recordId, summary]
-      properties: {id: {type: string, format: uuid}, sourceHint: {type: string}, recordId: {type: string}, summary: {type: string}}
+      required: [id, sourceHint, recordId, summary, role, observed, sampleSize, occurredOn]
+      properties:
+        id: {type: string, format: uuid}
+        sourceHint: {type: string}
+        recordId: {type: string}
+        summary: {type: string, description: 하위 호환용 문자열이며 신규 수치 표시의 데이터 원천으로 사용하지 않는다.}
+        role: {type: string, enum: [trigger, baseline], nullable: true}
+        observed: {type: number, nullable: true}
+        sampleSize: {type: integer, minimum: 0, nullable: true}
+        occurredOn: {type: string, format: date, nullable: true}
     InterventionView:
       type: object
       required: [id, alertId, studentId, type, content, status, createdAt]

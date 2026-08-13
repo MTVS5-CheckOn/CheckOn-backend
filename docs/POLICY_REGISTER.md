@@ -416,6 +416,9 @@
 - 정책: AI 응답의 학생·반·근거 소유권, 필수 값, 중복 ID, 점수·순위·lifecycle·metadata를 요청 스냅샷과 대조한 뒤 저장한다.
 - 원자성: 응답 일부만 저장되면 안 되며 검증 또는 저장 실패 시 signal과 evidence 전체를 롤백한다. 요청 시도 이력은 별도 경계에서 보존한다.
 - 진단 통계: AI의 `r1_threshold_pp`, `r1_threshold_source`, `r1_pool_n`은 nullable 진단 메타데이터로 Adapter completed 이벤트를 거쳐 `detection_runs.response_stats_payload`에 보존한다. 화면 API에는 노출하지 않으며 필드가 없는 기존 응답도 허용한다.
+- 구조화 신호: AI signal의 `metric`, `observed`, `baseline`, `sample_size`는 nullable 구조화 값으로 보존한다. 규칙별 metric은 R1 `accuracy`, R2 `consecutive_missing_weeks`, R3 `activity_count`, R4 `norm_time`, R5 `null`, R6 `error_share`이며, baseline은 R1·R3·R4에만 존재한다.
+- 구조화 근거: AI evidence의 `role`, `observed`, `sample_size`, `occurred_on`은 nullable 구조화 값으로 보존한다. 기존 응답과 백엔드 선배포 구간을 위해 네 필드가 모두 없는 근거는 허용하되, 하나라도 구조화 값이 있으면 role은 `trigger` 또는 `baseline`이어야 한다. baseline 근거 행은 R3에서만 허용하며 R3 근거는 trigger 최대 3건, baseline 최대 3건, 합계 최대 6건이다.
+- summary 전환: evidence `summary`는 호환성을 위해 저장·조회하되 신규 수치 표시의 데이터 원천으로 사용하지 않는다. 알림 상세 API는 signal의 `metric`, `observed`, `baseline`, `sampleSize`와 evidence 구조화 필드를 반환한다. 화면은 `baseline`이 null이 아닐 때만 평소 비교 문구를 만들고, 단위와 `sampleSize`의 의미는 `metric`으로 판별한다.
 - 코드 근거:
   - `src/main/java/com/checkon/detection/application/DetectionResponseStorageService.java`
   - `src/test/java/com/checkon/detection/application/DetectionResponseStorageServiceTest.java`

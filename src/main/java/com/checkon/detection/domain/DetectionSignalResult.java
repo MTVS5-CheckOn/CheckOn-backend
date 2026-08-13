@@ -50,6 +50,18 @@ public class DetectionSignalResult {
 	@Column(name = "display_label", nullable = false, length = 100)
 	private String displayLabel;
 
+	@Column(length = 80)
+	private String metric;
+
+	@Column
+	private BigDecimal observed;
+
+	@Column
+	private BigDecimal baseline;
+
+	@Column(name = "sample_size")
+	private Integer sampleSize;
+
 	@Column(nullable = false, precision = 18, scale = 16)
 	private BigDecimal score;
 
@@ -95,6 +107,10 @@ public class DetectionSignalResult {
 		String ruleId,
 		String signalType,
 		String displayLabel,
+		String metric,
+		BigDecimal observed,
+		BigDecimal baseline,
+		Integer sampleSize,
 		BigDecimal score,
 		int rank,
 		boolean advisory,
@@ -116,6 +132,10 @@ public class DetectionSignalResult {
 		this.ruleId = requireText(ruleId, "ruleId");
 		this.signalType = requireText(signalType, "signalType");
 		this.displayLabel = requireText(displayLabel, "displayLabel");
+		this.metric = metric;
+		this.observed = observed;
+		this.baseline = baseline;
+		this.sampleSize = sampleSize;
 		this.score = requireScore(score);
 		if (rank < 1) {
 			throw new IllegalArgumentException("rank must be at least 1");
@@ -144,6 +164,10 @@ public class DetectionSignalResult {
 		String ruleId,
 		String signalType,
 		String displayLabel,
+		String metric,
+		BigDecimal observed,
+		BigDecimal baseline,
+		Integer sampleSize,
 		BigDecimal score,
 		int rank,
 		boolean advisory,
@@ -163,6 +187,10 @@ public class DetectionSignalResult {
 			ruleId,
 			signalType,
 			displayLabel,
+			metric,
+			observed,
+			baseline,
+			sampleSize,
 			score,
 			rank,
 			advisory,
@@ -173,6 +201,19 @@ public class DetectionSignalResult {
 			evidenceDrafts,
 			createdAt
 		);
+	}
+
+	public static DetectionSignalResult create(
+		UUID id, UUID detectionRunId, String externalSignalId, String studentRef,
+		String classRef, String ruleId, String signalType, String displayLabel,
+		BigDecimal score, int rank, boolean advisory, DetectionLifecycle lifecycle,
+		String briefText, boolean gatePassed, boolean fallbackUsed,
+		List<DetectionResultEvidenceDraft> evidenceDrafts, Instant createdAt
+	) {
+		return create(id, detectionRunId, externalSignalId, studentRef, classRef,
+			ruleId, signalType, displayLabel, null, null, null, null, score, rank,
+			advisory, lifecycle, briefText, gatePassed, fallbackUsed, evidenceDrafts,
+			createdAt);
 	}
 
 	private static BigDecimal requireScore(BigDecimal score) {
@@ -220,6 +261,22 @@ public class DetectionSignalResult {
 
 	public String displayLabel() {
 		return displayLabel;
+	}
+
+	public String metric() {
+		return metric;
+	}
+
+	public BigDecimal observed() {
+		return observed;
+	}
+
+	public BigDecimal baseline() {
+		return baseline;
+	}
+
+	public Integer sampleSize() {
+		return sampleSize;
 	}
 
 	public BigDecimal score() {
