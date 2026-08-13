@@ -581,22 +581,25 @@
 #### SCREEN-PAGE-001 화면 목록 페이지와 안정 정렬
 
 - 결정 상태: `CONFIRMED`
-- 구현 상태: `PARTIAL`
+- 구현 상태: `IMPLEMENTED`
 - 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
 - 페이지 계약: API의 `page`는 0부터 시작하며 기본값은 0이다. `size` 기본값은 20이고 허용 범위는 1~100이다.
 - 정렬 계약: 클래스 목록은 `createdAt DESC, id DESC` 순으로 정렬한다. `id`는 동일 생성 시각의 안정적인 마지막 tie-breaker다.
-- 응답 메타데이터: `content`, `page`, `size`, `totalElements`, `totalPages`를 반환한다.
+- 응답 계약: 모든 페이지네이션 목록 API는 최상위 `metadata`, `items`를 반환한다. `metadata`는 `pageNumber`, `pageSize`, 이번 응답의 실제 항목 수 `itemCount`, 전체 항목 수 `totalItemCount`, 올림 계산한 전체 페이지 수 `totalPageCount`, `isFirst`, `isLast`를 포함한다. `offset`은 `pageNumber * pageSize`로 계산 가능하므로 반환하지 않는다.
+- 빈 목록 계약: 전체 항목이 없으면 `totalPageCount`는 0이며 첫 페이지 응답의 `isFirst`와 `isLast`는 모두 `true`다.
 - 화면 번호: 행 번호는 영속 데이터나 API 필드가 아니다. 프론트가 `page * size + index + 1`로 계산한다.
 - 금지 사항: 전체 목록 반환 후 프론트 페이지 처리, UUID를 화면 번호로 노출, tie-breaker 없는 정렬.
 - 영향 범위: 화면 목록 API, OpenAPI, 페이지 경계·빈 목록·안정 정렬 테스트.
-- 구현 범위: 이번 변경에서는 클래스 목록에 적용했다. 향후 학생·신호·케어 등 다른 화면 목록은 해당 단위 구현 전까지 이 정책의 적용 범위 밖이다.
+- 구현 범위: 현재 페이지네이션이 구현된 클래스 목록과 Problem Studio 학생 목록에 공통 적용한다. 향후 추가되는 페이지네이션 목록 API도 같은 응답 계약을 사용한다.
 - 코드 근거:
   - `src/main/java/com/checkon/roster/infrastructure/persistence/ClassGroupQueryRepository.java`
   - `src/main/java/com/checkon/roster/application/ClassManagementService.java`
+  - `src/main/java/com/checkon/global/presentation/PagedResponse.java`
+  - `src/main/java/com/checkon/problem/presentation/ProblemStudioController.java`
   - `src/main/resources/openapi/dashboard-api.yaml`
   - `src/test/java/com/checkon/roster/presentation/ClassGroupControllerIntegrationTest.java`
   - `src/test/java/com/checkon/global/openapi/ClassManagementOpenApiContractTest.java`
-- 마지막 검증일: 2026-08-09
+- 마지막 검증일: 2026-08-13
 
 #### ENG-005 개입 기반 Reminder 자동 생성과 대시보드 집계
 
@@ -721,6 +724,7 @@
 | --- | --- | --- |
 | 2026-08-13 | AI 팀 17명 시연 시드를 수동 데모 스크립트로 등록하고 R1~R6 근거, 정확한 10주 창, 수동 term context, 최근 실행 조회, Kafka 6 MiB·zstd 정책을 구현 | 시드 정적 계약, KST 10주 경계, R2·R5 근거, paused 상태, term context, 최근 run, Kafka 런타임 설정 집중 검증 및 전체 258건 Gradle build 통과 |
 | 2026-08-13 | ROS-004 휴원·복귀 상태 전이와 R5 복귀 근거 생성 정책을 확정·구현 | 휴원·복귀·테넌트 격리 PostgreSQL 통합 테스트, R5 snapshot 단위 테스트, OpenAPI·Flyway 계약 및 전체 251건 테스트 통과 |
+| 2026-08-13 | SCREEN-PAGE-001을 전체 페이지네이션 API의 공통 `metadata`·`items` 응답 계약으로 변경 | 공통 계산·OpenAPI 계약 테스트와 클래스·Problem Studio PostgreSQL HTTP 통합 테스트 통과 |
 | 2026-08-13 | 위험신호 학습 태그 4종의 nullable·화이트리스트·영역-과목 유도 계약을 LR-010으로 구현 | 입력 거절·null 보존·DB 및 Detection snapshot 전달 집중 테스트와 Backend 전체 240건 `clean build` 통과 |
 | 2026-08-13 | 위험신호 v1을 R1·R3·R4·R6으로 한정하고 ACTIVE 학생 상태·관계 기준 재원 기간·등록 후 weekly activity·ONGOING open Alert 중복 억제·R1 진단 stats 보존 정책을 구현 | Backend 237건·Adapter 37건 테스트와 두 저장소 전체 Gradle `clean build` 통과 |
 | 2026-08-13 | PR #43의 독립 Kafka Adapter 경계를 정본으로 유지하면서 위험신호 화면 계약, 과거 Alert context, 종료 학생 제외, advisory 소비 규칙을 통합 | 집중 단위·PostgreSQL 통합 테스트와 전체 Gradle build 224건 통과 |

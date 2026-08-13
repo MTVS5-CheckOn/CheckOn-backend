@@ -159,12 +159,15 @@ class ClassGroupControllerIntegrationTest {
 		mvc.perform(get("/api/v1/classes")
 				.with(teacherAuthentication(TEACHER)))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.page").value(0))
-			.andExpect(jsonPath("$.size").value(20))
-			.andExpect(jsonPath("$.totalElements").value(1))
-			.andExpect(jsonPath("$.totalPages").value(1))
-			.andExpect(jsonPath("$.content[0].classId").value(classId.toString()))
-			.andExpect(jsonPath("$.content[0].rowNo").doesNotExist());
+			.andExpect(jsonPath("$.metadata.pageNumber").value(0))
+			.andExpect(jsonPath("$.metadata.pageSize").value(20))
+			.andExpect(jsonPath("$.metadata.itemCount").value(1))
+			.andExpect(jsonPath("$.metadata.totalItemCount").value(1))
+			.andExpect(jsonPath("$.metadata.totalPageCount").value(1))
+			.andExpect(jsonPath("$.metadata.isFirst").value(true))
+			.andExpect(jsonPath("$.metadata.isLast").value(true))
+			.andExpect(jsonPath("$.items[0].classId").value(classId.toString()))
+			.andExpect(jsonPath("$.items[0].rowNo").doesNotExist());
 
 		mvc.perform(patch("/api/v1/classes/{classId}", classId)
 				.with(teacherAuthentication(TEACHER))
@@ -210,22 +213,29 @@ class ClassGroupControllerIntegrationTest {
 		mvc.perform(get("/api/v1/classes?page=0&size=1")
 				.with(teacherAuthentication(TEACHER)))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.content.length()").value(1))
-			.andExpect(jsonPath("$.content[0].classId").value(CLASS_HIGH.toString()))
-			.andExpect(jsonPath("$.content[0].activeStudentCount").value(1))
-			.andExpect(jsonPath("$.totalElements").value(2))
-			.andExpect(jsonPath("$.totalPages").value(2));
+			.andExpect(jsonPath("$.items.length()").value(1))
+			.andExpect(jsonPath("$.items[0].classId").value(CLASS_HIGH.toString()))
+			.andExpect(jsonPath("$.items[0].activeStudentCount").value(1))
+			.andExpect(jsonPath("$.metadata.itemCount").value(1))
+			.andExpect(jsonPath("$.metadata.totalItemCount").value(2))
+			.andExpect(jsonPath("$.metadata.totalPageCount").value(2))
+			.andExpect(jsonPath("$.metadata.isFirst").value(true))
+			.andExpect(jsonPath("$.metadata.isLast").value(false));
 
 		mvc.perform(get("/api/v1/classes?page=1&size=1")
 				.with(teacherAuthentication(TEACHER)))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.content[0].classId").value(CLASS_LOW.toString()));
+			.andExpect(jsonPath("$.items[0].classId").value(CLASS_LOW.toString()))
+			.andExpect(jsonPath("$.metadata.isFirst").value(false))
+			.andExpect(jsonPath("$.metadata.isLast").value(true));
 
 		mvc.perform(get("/api/v1/classes?page=2&size=1")
 				.with(teacherAuthentication(TEACHER)))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.content").isEmpty())
-			.andExpect(jsonPath("$.totalElements").value(2));
+			.andExpect(jsonPath("$.items").isEmpty())
+			.andExpect(jsonPath("$.metadata.itemCount").value(0))
+			.andExpect(jsonPath("$.metadata.totalItemCount").value(2))
+			.andExpect(jsonPath("$.metadata.isLast").value(true));
 	}
 
 	@Test
@@ -272,7 +282,7 @@ class ClassGroupControllerIntegrationTest {
 		mvc.perform(get("/api/v1/classes?size=100")
 				.with(teacherAuthentication(TEACHER)))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.size").value(100));
+			.andExpect(jsonPath("$.metadata.pageSize").value(100));
 
 		for (String query : List.of("?page=-1", "?size=0", "?size=101")) {
 			mvc.perform(get("/api/v1/classes" + query)
@@ -344,7 +354,10 @@ class ClassGroupControllerIntegrationTest {
 			.andExpect(jsonPath("$.updatedAt").value(NOW.toString()));
 		mvc.perform(get("/api/v1/classes").with(teacherAuthentication(TEACHER)))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.content").isEmpty());
+			.andExpect(jsonPath("$.items").isEmpty())
+			.andExpect(jsonPath("$.metadata.totalPageCount").value(0))
+			.andExpect(jsonPath("$.metadata.isFirst").value(true))
+			.andExpect(jsonPath("$.metadata.isLast").value(true));
 		mvc.perform(get("/api/v1/classes/{classId}", CLASS_LOW)
 				.with(teacherAuthentication(TEACHER)))
 			.andExpect(status().isOk())

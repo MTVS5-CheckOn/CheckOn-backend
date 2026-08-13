@@ -270,7 +270,15 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ClassPage'}
               example:
-                content:
+                metadata:
+                  pageNumber: 0
+                  pageSize: 20
+                  itemCount: 1
+                  totalItemCount: 1
+                  totalPageCount: 1
+                  isFirst: true
+                  isLast: true
+                items:
                   - classId: 0198f100-0000-7000-8000-000000000001
                     name: 수능 국어 대비 반
                     subject: 국어
@@ -279,10 +287,6 @@ paths:
                     activeStudentCount: 0
                     createdAt: '2026-08-09T00:00:00Z'
                     updatedAt: '2026-08-09T00:00:00Z'
-                page: 0
-                size: 20
-                totalElements: 1
-                totalPages: 1
         '400': {$ref: '#/components/responses/InvalidRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
@@ -1113,13 +1117,21 @@ components:
         updatedAt: {type: string, format: date-time}
     ClassPage:
       type: object
-      required: [content, page, size, totalElements, totalPages]
+      required: [metadata, items]
       properties:
-        content: {type: array, items: {$ref: '#/components/schemas/ClassView'}}
-        page: {type: integer, format: int32, minimum: 0}
-        size: {type: integer, format: int32, minimum: 1, maximum: 100}
-        totalElements: {type: integer, format: int64, minimum: 0}
-        totalPages: {type: integer, format: int64, minimum: 0}
+        metadata: {$ref: '#/components/schemas/PaginationMetadata'}
+        items: {type: array, items: {$ref: '#/components/schemas/ClassView'}}
+    PaginationMetadata:
+      type: object
+      required: [pageNumber, pageSize, itemCount, totalItemCount, totalPageCount, isFirst, isLast]
+      properties:
+        pageNumber: {type: integer, format: int32, minimum: 0}
+        pageSize: {type: integer, format: int32, minimum: 1, maximum: 100}
+        itemCount: {type: integer, format: int32, minimum: 0}
+        totalItemCount: {type: integer, format: int64, minimum: 0}
+        totalPageCount: {type: integer, format: int64, minimum: 0}
+        isFirst: {type: boolean}
+        isLast: {type: boolean}
     AlertStatus: {type: string, enum: [PENDING_REVIEW, APPROVED, REJECTED]}
     InterventionStatus: {type: string, enum: [OPEN, COMPLETED, CANCELLED]}
     ReminderStatus: {type: string, enum: [ACTIVE, COMPLETED, CANCELLED]}
@@ -1347,13 +1359,10 @@ components:
         replayed: {type: boolean, description: 동일 멱등 키와 동일 payload로 기존 요청을 재사용했는지 여부}
     ProblemStudioStudentPage:
       type: object
-      required: [content, page, size, totalElements, totalPages]
+      required: [metadata, items]
       properties:
-        content: {type: array, items: {$ref: '#/components/schemas/ProblemStudioStudent'}}
-        page: {type: integer, minimum: 0}
-        size: {type: integer, minimum: 1, maximum: 100}
-        totalElements: {type: integer, format: int64, minimum: 0}
-        totalPages: {type: integer, minimum: 0}
+        metadata: {$ref: '#/components/schemas/PaginationMetadata'}
+        items: {type: array, items: {$ref: '#/components/schemas/ProblemStudioStudent'}}
     ProblemStudioStudent:
       type: object
       required: [studentId, studentName, managedDays, recentSignalCount]

@@ -17,8 +17,7 @@ public final class ProblemStudioViews {
 		List<StudentSummary> content,
 		int page,
 		int size,
-		long totalElements,
-		int totalPages
+		long totalElements
 	) { }
 
 	public record StudentSummary(

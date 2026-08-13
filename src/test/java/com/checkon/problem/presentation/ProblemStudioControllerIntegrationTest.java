@@ -99,11 +99,18 @@ class ProblemStudioControllerIntegrationTest {
 			mvc.perform(get("/api/v1/problem-studio/students")
 					.with(teacherAuthentication(TEACHER)))
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.content[0].studentId").value(STUDENT.toString()))
-				.andExpect(jsonPath("$.content[0].studentName").value("홍길동"))
-				.andExpect(jsonPath("$.content[0].className").value("수능 국어 대비 반"))
-				.andExpect(jsonPath("$.content[0].subject").value("국어"))
-				.andExpect(jsonPath("$.content[0].recentSignalCount").value(0));
+				.andExpect(jsonPath("$.metadata.pageNumber").value(0))
+				.andExpect(jsonPath("$.metadata.pageSize").value(20))
+				.andExpect(jsonPath("$.metadata.itemCount").value(1))
+				.andExpect(jsonPath("$.metadata.totalItemCount").value(1))
+				.andExpect(jsonPath("$.metadata.totalPageCount").value(1))
+				.andExpect(jsonPath("$.metadata.isFirst").value(true))
+				.andExpect(jsonPath("$.metadata.isLast").value(true))
+				.andExpect(jsonPath("$.items[0].studentId").value(STUDENT.toString()))
+				.andExpect(jsonPath("$.items[0].studentName").value("홍길동"))
+				.andExpect(jsonPath("$.items[0].className").value("수능 국어 대비 반"))
+				.andExpect(jsonPath("$.items[0].subject").value("국어"))
+				.andExpect(jsonPath("$.items[0].recentSignalCount").value(0));
 
 			mvc.perform(get("/api/v1/problem-studio/students/{studentId}/weakness-analysis", STUDENT)
 					.with(teacherAuthentication(TEACHER)))

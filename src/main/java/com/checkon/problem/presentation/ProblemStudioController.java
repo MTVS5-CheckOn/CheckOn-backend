@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.checkon.account.infrastructure.security.AuthenticatedAccount;
+import com.checkon.global.presentation.PagedResponse;
 import com.checkon.problem.application.CreateProblemStudioCommand;
 import com.checkon.problem.application.ProblemGenerationRequestService;
 import com.checkon.problem.application.ProblemStudioService;
@@ -25,6 +26,7 @@ import com.checkon.problem.application.ProblemStudioViews.Printable;
 import com.checkon.problem.application.ProblemStudioViews.Review;
 import com.checkon.problem.application.ProblemStudioViews.SavedSet;
 import com.checkon.problem.application.ProblemStudioViews.StudentPage;
+import com.checkon.problem.application.ProblemStudioViews.StudentSummary;
 import com.checkon.problem.application.ProblemStudioViews.WeaknessAnalysis;
 import com.checkon.problem.domain.ProblemDifficulty;
 import com.checkon.problem.domain.ProblemTypeTag;
@@ -49,12 +51,18 @@ public class ProblemStudioController {
 	}
 
 	@GetMapping("/students")
-	public StudentPage students(
+	public PagedResponse<StudentSummary> students(
 		@AuthenticationPrincipal AuthenticatedAccount principal,
 		@RequestParam(defaultValue = "0") int page,
 		@RequestParam(defaultValue = "20") int size
 	) {
-		return studio.listStudents(teacherProfileId(principal), page, size);
+		StudentPage result = studio.listStudents(teacherProfileId(principal), page, size);
+		return PagedResponse.of(
+			result.content(),
+			result.page(),
+			result.size(),
+			result.totalElements()
+		);
 	}
 
 	@GetMapping("/students/{studentId}/weakness-analysis")
