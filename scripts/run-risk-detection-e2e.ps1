@@ -264,12 +264,22 @@ $alertCount = Invoke-PsqlScalar (
 	"SELECT count(*) FROM engagement_alerts alert JOIN detection_signal_results signal " +
 	"ON signal.id = alert.detection_signal_result_id WHERE signal.detection_run_id = '$runId'::uuid;"
 )
+$lifecycleCounts = Invoke-PsqlScalar (
+	"SELECT coalesce(string_agg(lifecycle || '=' || count, ', ' ORDER BY lifecycle), 'none') " +
+	"FROM (SELECT lifecycle, count(*)::text AS count FROM detection_signal_results " +
+	"WHERE detection_run_id = '$runId'::uuid GROUP BY lifecycle) lifecycle_counts;"
+)
 
 [pscustomobject]@{
 	runId = $runId
 	status = $detail.status
 	rulesSkipped = $detail.stats.rulesSkipped
+	r1ThresholdPp = $detail.stats.r1ThresholdPp
+	r1ThresholdSource = $detail.stats.r1ThresholdSource
+	r1PoolN = $detail.stats.r1PoolN
+	cappedOut = $detail.stats.cappedOut
 	signalsByRule = $signalCounts
+	signalsByLifecycle = $lifecycleCounts
 	evidenceCount = [int]$evidenceCount
 	alertCount = [int]$alertCount
 	teacherProfileId = $teacherId

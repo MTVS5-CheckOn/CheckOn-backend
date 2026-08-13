@@ -176,6 +176,31 @@ class DetectionRunControllerIntegrationTest {
 	}
 
 	@Test
+	@DisplayName("Given 휴원 학생, When 탐지를 요청하면, Then paused 상태를 Kafka snapshot에 포함한다")
+	void givenPausedStudent_whenRequestingDetection_thenIncludesPausedStatus() throws Exception {
+		jdbc.update("""
+			UPDATE teacher_student_relationships
+			SET status = 'PAUSED'
+			WHERE teacher_id = ? AND student_id = ?
+			""", TEACHER, STUDENT);
+
+		mockMvc.perform(post("/api/v1/detection-runs")
+				.with(teacherAuthentication(TEACHER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"analysisDate\":\"2026-08-03\"}"))
+			.andExpect(status().isAccepted());
+
+		String snapshot = jdbc.queryForObject(
+			"SELECT snapshot_payload FROM detection_runs WHERE teacher_id = ?",
+			String.class,
+			TEACHER
+		);
+		assertThat(snapshot)
+			.contains("\"status\":\"paused\"")
+			.doesNotContain("\"status\":\"returned\"");
+	}
+
+	@Test
 	@DisplayName("Given 분석 주에 returned 전환이 있을 때, When 탐지를 요청하면, Then 실제 이력 ID와 상태값을 R5 근거로 보낸다")
 	void givenReturnedTransitionInAnalysisWeek_whenRequestingDetection_thenIncludesR5Evidence()
 		throws Exception {
