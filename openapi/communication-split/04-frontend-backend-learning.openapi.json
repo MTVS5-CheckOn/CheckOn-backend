@@ -1,0 +1,252 @@
+{
+    "openapi":  "3.0.1",
+    "info":  {
+                 "title":  "CheckOn - Frontend to Backend - Learning Records",
+                 "description":  "통신 방향: Frontend -\u003e Backend\n범위: Learning Records\n원본 계약의 path, request, response 내용은 유지하고 통신 경계별로 분리했다.",
+                 "version":  "1.0.0"
+             },
+    "servers":  [
+                    {
+                        "url":  "http://localhost:8080/api/v1",
+                        "description":  "Local CheckOn backend API"
+                    }
+                ],
+    "tags":  [
+                 {
+                     "name":  "Learning Records"
+                 }
+             ],
+    "paths":  {
+                  "/learning-records":  {
+                                            "post":  {
+                                                         "summary":  "수동 학습 기록 등록",
+                                                         "deprecated":  false,
+                                                         "description":  "인증 강사가 현재 관리하는 학생의 원본 학습 기록을 등록한다. classGroupId가 있으면\noccurredAt 시점의 해당 반 소속도 확인한다. externalRecordRef는 nullable이며 멱등 키나\n유일 값으로 취급하지 않는다. teacherId와 sourceType은 요청에서 받지 않는다.\n",
+                                                         "operationId":  "registerLearningRecord",
+                                                         "tags":  [
+                                                                      "Learning Records"
+                                                                  ],
+                                                         "parameters":  [
+
+                                                                        ],
+                                                         "requestBody":  {
+                                                                             "content":  {
+                                                                                             "application/json":  {
+                                                                                                                      "schema":  {
+                                                                                                                                     "$ref":  "#/components/schemas/LearningRecordRequest"
+                                                                                                                                 }
+                                                                                                                  }
+                                                                                         },
+                                                                             "required":  true
+                                                                         },
+                                                         "responses":  {
+                                                                           "201":  {
+                                                                                       "description":  "학습 기록 등록 성공",
+                                                                                       "content":  {
+                                                                                                       "application/json":  {
+                                                                                                                                "schema":  {
+                                                                                                                                               "$ref":  "#/components/schemas/LearningRecordResponse"
+                                                                                                                                           }
+                                                                                                                            }
+                                                                                                   },
+                                                                                       "headers":  {
+                                                                                                       "Location":  {
+                                                                                                                        "required":  false,
+                                                                                                                        "description":  "생성된 학습 기록 경로",
+                                                                                                                        "schema":  {
+                                                                                                                                       "type":  "string",
+                                                                                                                                       "format":  "uri-reference"
+                                                                                                                                   }
+                                                                                                                    }
+                                                                                                   }
+                                                                                   },
+                                                                           "400":  {
+                                                                                       "$ref":  "#/components/responses/InvalidRequest"
+                                                                                   },
+                                                                           "401":  {
+                                                                                       "$ref":  "#/components/responses/Unauthorized"
+                                                                                   },
+                                                                           "403":  {
+                                                                                       "$ref":  "#/components/responses/Forbidden"
+                                                                                   },
+                                                                           "404":  {
+                                                                                       "$ref":  "#/components/responses/LearningRecordTargetNotFound"
+                                                                                   }
+                                                                       },
+                                                         "security":  [
+                                                                          {
+                                                                              "bearerAuth":  [
+
+                                                                                             ]
+                                                                          }
+                                                                      ]
+                                                     }
+                                        }
+              },
+    "components":  {
+                       "schemas":  {
+                                       "LearningRecordRequest":  {
+                                                                     "type":  "object",
+                                                                     "required":  [
+                                                                                      "studentId",
+                                                                                      "recordType",
+                                                                                      "occurredAt"
+                                                                                  ],
+                                                                     "properties":  {
+                                                                                        "studentId":  {
+                                                                                                          "type":  "string",
+                                                                                                          "format":  "uuid"
+                                                                                                      },
+                                                                                        "classGroupId":  {
+                                                                                                             "type":  "string",
+                                                                                                             "format":  "uuid",
+                                                                                                             "nullable":  true
+                                                                                                         },
+                                                                                        "recordType":  {
+                                                                                                           "$ref":  "#/components/schemas/LearningRecordType"
+                                                                                                       },
+                                                                                        "occurredAt":  {
+                                                                                                           "type":  "string",
+                                                                                                           "format":  "date-time"
+                                                                                                       },
+                                                                                        "externalRecordRef":  {
+                                                                                                                  "type":  "string",
+                                                                                                                  "maxLength":  255,
+                                                                                                                  "description":  "유일성이나 멱등성을 보장하지 않는 외부 참조",
+                                                                                                                  "nullable":  true
+                                                                                                              },
+                                                                                        "correct":  {
+                                                                                                        "type":  "boolean",
+                                                                                                        "nullable":  true
+                                                                                                    },
+                                                                                        "durationSec":  {
+                                                                                                            "type":  "integer",
+                                                                                                            "format":  "int32",
+                                                                                                            "minimum":  0,
+                                                                                                            "nullable":  true
+                                                                                                        },
+                                                                                        "passageWordCount":  {
+                                                                                                                 "type":  "integer",
+                                                                                                                 "format":  "int32",
+                                                                                                                 "minimum":  0,
+                                                                                                                 "nullable":  true
+                                                                                                             },
+                                                                                        "areaTag":  {
+                                                                                                        "type":  "string",
+                                                                                                        "maxLength":  80,
+                                                                                                        "nullable":  true
+                                                                                                    },
+                                                                                        "subjectTrack":  {
+                                                                                                             "type":  "string",
+                                                                                                             "maxLength":  80,
+                                                                                                             "nullable":  true
+                                                                                                         },
+                                                                                        "typeTag":  {
+                                                                                                        "type":  "string",
+                                                                                                        "maxLength":  80,
+                                                                                                        "nullable":  true
+                                                                                                    },
+                                                                                        "itemFormat":  {
+                                                                                                           "type":  "string",
+                                                                                                           "maxLength":  80,
+                                                                                                           "nullable":  true
+                                                                                                       },
+                                                                                        "assignmentTitleText":  {
+                                                                                                                    "type":  "string",
+                                                                                                                    "maxLength":  255,
+                                                                                                                    "nullable":  true
+                                                                                                                }
+                                                                                    }
+                                                                 },
+                                       "LearningRecordResponse":  {
+                                                                      "type":  "object",
+                                                                      "required":  [
+                                                                                       "id"
+                                                                                   ],
+                                                                      "properties":  {
+                                                                                         "id":  {
+                                                                                                    "type":  "string",
+                                                                                                    "format":  "uuid"
+                                                                                                }
+                                                                                     }
+                                                                  },
+                                       "LearningRecordType":  {
+                                                                  "type":  "string",
+                                                                  "enum":  [
+                                                                               "SOLVE",
+                                                                               "SUBMIT"
+                                                                           ]
+                                                              },
+                                       "ErrorResponse":  {
+                                                             "type":  "object",
+                                                             "required":  [
+                                                                              "code",
+                                                                              "message"
+                                                                          ],
+                                                             "properties":  {
+                                                                                "code":  {
+                                                                                             "type":  "string"
+                                                                                         },
+                                                                                "message":  {
+                                                                                                "type":  "string"
+                                                                                            }
+                                                                            }
+                                                         }
+                                   },
+                       "responses":  {
+                                         "InvalidRequest":  {
+                                                                "description":  "요청 값 오류",
+                                                                "content":  {
+                                                                                "application/json":  {
+                                                                                                         "schema":  {
+                                                                                                                        "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                    }
+                                                                                                     }
+                                                                            }
+                                                            },
+                                         "Unauthorized":  {
+                                                              "description":  "인증 실패. Security filter가 생성하므로 JSON 오류 본문은 보장되지 않는다.",
+                                                              "content":  {
+                                                                              "application/json":  {
+                                                                                                       "schema":  {
+                                                                                                                      "type":  "object",
+                                                                                                                      "properties":  {
+
+                                                                                                                                     }
+                                                                                                                  }
+                                                                                                   }
+                                                                          }
+                                                          },
+                                         "Forbidden":  {
+                                                           "description":  "TEACHER 권한이 아님. Security가 생성하므로 JSON 오류 본문은 보장되지 않는다.",
+                                                           "content":  {
+                                                                           "application/json":  {
+                                                                                                    "schema":  {
+                                                                                                                   "type":  "object",
+                                                                                                                   "properties":  {
+
+                                                                                                                                  }
+                                                                                                               }
+                                                                                                }
+                                                                       }
+                                                       },
+                                         "LearningRecordTargetNotFound":  {
+                                                                              "description":  "관리하지 않는 학생·반 또는 occurredAt 시점에 유효하지 않은 반 소속",
+                                                                              "content":  {
+                                                                                              "application/json":  {
+                                                                                                                       "schema":  {
+                                                                                                                                      "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                                  }
+                                                                                                                   }
+                                                                                          }
+                                                                          }
+                                     }
+                   },
+    "x-checkon-communication":  {
+                                    "caller":  "Frontend",
+                                    "receiver":  "Backend",
+                                    "scope":  "Learning Records",
+                                    "serverUrl":  "http://localhost:8080/api/v1",
+                                    "source":  "apidog_1.openapi.json"
+                                }
+}

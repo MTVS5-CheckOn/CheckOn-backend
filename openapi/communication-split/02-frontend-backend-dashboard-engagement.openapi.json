@@ -1,0 +1,1457 @@
+{
+    "openapi":  "3.0.1",
+    "info":  {
+                 "title":  "CheckOn - Frontend to Backend - Dashboard and Engagement",
+                 "description":  "통신 방향: Frontend -\u003e Backend\n범위: Dashboard, Engagement, Todo\n원본 계약의 path, request, response 내용은 유지하고 통신 경계별로 분리했다.",
+                 "version":  "1.0.0"
+             },
+    "servers":  [
+                    {
+                        "url":  "http://localhost:8080/api/v1",
+                        "description":  "Local CheckOn backend API"
+                    }
+                ],
+    "tags":  [
+                 {
+                     "name":  "Dashboard"
+                 },
+                 {
+                     "name":  "Engagement"
+                 },
+                 {
+                     "name":  "Todo"
+                 }
+             ],
+    "paths":  {
+                  "/dashboard/briefing":  {
+                                              "get":  {
+                                                          "summary":  "날짜별 대시보드 브리핑 조회",
+                                                          "deprecated":  false,
+                                                          "description":  "Asia/Seoul 기준 오늘 또는 과거 날짜를 조회한다. 데이터가 없어도 200과 빈 배열을 반환한다.\nAlert는 rank, alertId 순이고 Evidence는 createdAt, id 순이다. Todo는 조회일까지 미완료인\n항목(이월 포함)을 dueDate, createdAt, id 순으로 반환한다. Reminder는 조회일 다음 날 00:00\n미만에 예정된 ACTIVE Reminder와 OPEN Intervention만 Alert별로 묶고, 최신 Intervention을 대표로\n선택해 scheduledAt, alertId 순으로 반환한다. studentName 미등록 시 null이며 alias로 대체하지 않는다.\n",
+                                                          "operationId":  "getDashboardBriefing",
+                                                          "tags":  [
+                                                                       "Dashboard"
+                                                                   ],
+                                                          "parameters":  [
+                                                                             {
+                                                                                 "name":  "date",
+                                                                                 "in":  "query",
+                                                                                 "description":  "",
+                                                                                 "required":  true,
+                                                                                 "schema":  {
+                                                                                                "type":  "string",
+                                                                                                "format":  "date"
+                                                                                            }
+                                                                             }
+                                                                         ],
+                                                          "responses":  {
+                                                                            "200":  {
+                                                                                        "description":  "브리핑 조회 성공",
+                                                                                        "content":  {
+                                                                                                        "application/json":  {
+                                                                                                                                 "schema":  {
+                                                                                                                                                "$ref":  "#/components/schemas/DashboardBriefing"
+                                                                                                                                            }
+                                                                                                                             }
+                                                                                                    },
+                                                                                        "headers":  {
+
+                                                                                                    }
+                                                                                    },
+                                                                            "400":  {
+                                                                                        "description":  "누락/날짜 형식 오류 또는 미래 날짜",
+                                                                                        "content":  {
+                                                                                                        "application/json":  {
+                                                                                                                                 "schema":  {
+                                                                                                                                                "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                                            }
+                                                                                                                             }
+                                                                                                    },
+                                                                                        "headers":  {
+
+                                                                                                    }
+                                                                                    },
+                                                                            "401":  {
+                                                                                        "$ref":  "#/components/responses/Unauthorized"
+                                                                                    },
+                                                                            "403":  {
+                                                                                        "$ref":  "#/components/responses/Forbidden"
+                                                                                    }
+                                                                        },
+                                                          "security":  [
+                                                                           {
+                                                                               "bearerAuth":  [
+
+                                                                                              ]
+                                                                           }
+                                                                       ]
+                                                      }
+                                          },
+                  "/dashboard/calendar":  {
+                                              "get":  {
+                                                          "summary":  "주간 대시보드 캘린더 조회",
+                                                          "deprecated":  false,
+                                                          "description":  "startedAt 월요일부터 같은 주 endedAt 일요일까지 정확히 7일을 날짜 오름차순으로 반환한다.\n미래 주도 허용하며 빈 날짜는 eventCount 0이다. eventCount는 detection_runs.analysis_date에\n연결된 Alert 수로, 상태와 Evidence 수에 무관하게 Alert 한 건을 한 번 센다. Todo, Reminder,\n상담 일정 등은 포함하지 않는다.\n",
+                                                          "operationId":  "getDashboardCalendar",
+                                                          "tags":  [
+                                                                       "Dashboard"
+                                                                   ],
+                                                          "parameters":  [
+                                                                             {
+                                                                                 "name":  "startedAt",
+                                                                                 "in":  "query",
+                                                                                 "description":  "월요일",
+                                                                                 "required":  true,
+                                                                                 "schema":  {
+                                                                                                "type":  "string",
+                                                                                                "format":  "date"
+                                                                                            }
+                                                                             },
+                                                                             {
+                                                                                 "name":  "endedAt",
+                                                                                 "in":  "query",
+                                                                                 "description":  "같은 주 일요일",
+                                                                                 "required":  true,
+                                                                                 "schema":  {
+                                                                                                "type":  "string",
+                                                                                                "format":  "date"
+                                                                                            }
+                                                                             }
+                                                                         ],
+                                                          "responses":  {
+                                                                            "200":  {
+                                                                                        "description":  "7일 캘린더 조회 성공",
+                                                                                        "content":  {
+                                                                                                        "application/json":  {
+                                                                                                                                 "schema":  {
+                                                                                                                                                "$ref":  "#/components/schemas/DashboardCalendar"
+                                                                                                                                            }
+                                                                                                                             }
+                                                                                                    },
+                                                                                        "headers":  {
+
+                                                                                                    }
+                                                                                    },
+                                                                            "400":  {
+                                                                                        "description":  "누락, 날짜 형식 오류 또는 잘못된 주간 범위",
+                                                                                        "content":  {
+                                                                                                        "application/json":  {
+                                                                                                                                 "schema":  {
+                                                                                                                                                "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                                            }
+                                                                                                                             }
+                                                                                                    },
+                                                                                        "headers":  {
+
+                                                                                                    }
+                                                                                    },
+                                                                            "401":  {
+                                                                                        "$ref":  "#/components/responses/Unauthorized"
+                                                                                    },
+                                                                            "403":  {
+                                                                                        "$ref":  "#/components/responses/Forbidden"
+                                                                                    }
+                                                                        },
+                                                          "security":  [
+                                                                           {
+                                                                               "bearerAuth":  [
+
+                                                                                              ]
+                                                                           }
+                                                                       ]
+                                                      }
+                                          },
+                  "/engagement/alerts":  {
+                                             "get":  {
+                                                         "summary":  "상태별 Alert 검토 큐 조회",
+                                                         "deprecated":  false,
+                                                         "description":  "브리핑이 아니라 상태별 검토 큐 탐색용 목록이다. createdAt, id 오름차순이다.",
+                                                         "operationId":  "listEngagementAlerts",
+                                                         "tags":  [
+                                                                      "Engagement"
+                                                                  ],
+                                                         "parameters":  [
+                                                                            {
+                                                                                "name":  "status",
+                                                                                "in":  "query",
+                                                                                "description":  "생략 시 PENDING_REVIEW",
+                                                                                "required":  false,
+                                                                                "schema":  {
+                                                                                               "$ref":  "#/components/schemas/AlertStatus"
+                                                                                           }
+                                                                            }
+                                                                        ],
+                                                         "responses":  {
+                                                                           "200":  {
+                                                                                       "description":  "Alert 목록(없으면 빈 배열)",
+                                                                                       "content":  {
+                                                                                                       "application/json":  {
+                                                                                                                                "schema":  {
+                                                                                                                                               "type":  "array",
+                                                                                                                                               "items":  {
+                                                                                                                                                             "$ref":  "#/components/schemas/AlertView"
+                                                                                                                                                         }
+                                                                                                                                           }
+                                                                                                                            }
+                                                                                                   },
+                                                                                       "headers":  {
+
+                                                                                                   }
+                                                                                   },
+                                                                           "400":  {
+                                                                                       "$ref":  "#/components/responses/InvalidRequest"
+                                                                                   },
+                                                                           "401":  {
+                                                                                       "$ref":  "#/components/responses/Unauthorized"
+                                                                                   },
+                                                                           "403":  {
+                                                                                       "$ref":  "#/components/responses/Forbidden"
+                                                                                   }
+                                                                       },
+                                                         "security":  [
+                                                                          {
+                                                                              "bearerAuth":  [
+
+                                                                                             ]
+                                                                          }
+                                                                      ]
+                                                     }
+                                         },
+                  "/engagement/alerts/{alertId}":  {
+                                                       "get":  {
+                                                                   "summary":  "Alert 상세 조회",
+                                                                   "deprecated":  false,
+                                                                   "description":  "alertId 하나로 학생·반·신호 표시 정보와 생성순 Evidence를 반환한다.",
+                                                                   "operationId":  "getEngagementAlertDetail",
+                                                                   "tags":  [
+                                                                                "Engagement"
+                                                                            ],
+                                                                   "parameters":  [
+                                                                                      {
+                                                                                          "name":  "alertId",
+                                                                                          "in":  "path",
+                                                                                          "description":  "",
+                                                                                          "required":  true,
+                                                                                          "schema":  {
+                                                                                                         "type":  "string",
+                                                                                                         "format":  "uuid"
+                                                                                                     }
+                                                                                      }
+                                                                                  ],
+                                                                   "responses":  {
+                                                                                     "200":  {
+                                                                                                 "description":  "상세 조회 성공",
+                                                                                                 "content":  {
+                                                                                                                 "application/json":  {
+                                                                                                                                          "schema":  {
+                                                                                                                                                         "$ref":  "#/components/schemas/AlertDetail"
+                                                                                                                                                     }
+                                                                                                                                      }
+                                                                                                             },
+                                                                                                 "headers":  {
+
+                                                                                                             }
+                                                                                             },
+                                                                                     "401":  {
+                                                                                                 "$ref":  "#/components/responses/Unauthorized"
+                                                                                             },
+                                                                                     "403":  {
+                                                                                                 "$ref":  "#/components/responses/Forbidden"
+                                                                                             },
+                                                                                     "404":  {
+                                                                                                 "$ref":  "#/components/responses/EngagementNotFound"
+                                                                                             }
+                                                                                 },
+                                                                   "security":  [
+                                                                                    {
+                                                                                        "bearerAuth":  [
+
+                                                                                                       ]
+                                                                                    }
+                                                                                ]
+                                                               }
+                                                   },
+                  "/engagement/alerts/{alertId}/approval":  {
+                                                                "post":  {
+                                                                             "summary":  "Alert 승인",
+                                                                             "deprecated":  false,
+                                                                             "description":  "PENDING_REVIEW Alert를 승인한다. 연결된 OPEN Todo도 완료한다. 이미 승인된 경우 멱등이다.",
+                                                                             "operationId":  "approveEngagementAlert",
+                                                                             "tags":  [
+                                                                                          "Engagement"
+                                                                                      ],
+                                                                             "parameters":  [
+                                                                                                {
+                                                                                                    "name":  "alertId",
+                                                                                                    "in":  "path",
+                                                                                                    "description":  "",
+                                                                                                    "required":  true,
+                                                                                                    "schema":  {
+                                                                                                                   "type":  "string",
+                                                                                                                   "format":  "uuid"
+                                                                                                               }
+                                                                                                }
+                                                                                            ],
+                                                                             "responses":  {
+                                                                                               "200":  {
+                                                                                                           "$ref":  "#/components/responses/AlertViewSuccess"
+                                                                                                       },
+                                                                                               "401":  {
+                                                                                                           "$ref":  "#/components/responses/Unauthorized"
+                                                                                                       },
+                                                                                               "403":  {
+                                                                                                           "$ref":  "#/components/responses/Forbidden"
+                                                                                                       },
+                                                                                               "404":  {
+                                                                                                           "$ref":  "#/components/responses/EngagementNotFound"
+                                                                                                       },
+                                                                                               "409":  {
+                                                                                                           "$ref":  "#/components/responses/InvalidEngagementState"
+                                                                                                       }
+                                                                                           },
+                                                                             "security":  [
+                                                                                              {
+                                                                                                  "bearerAuth":  [
+
+                                                                                                                 ]
+                                                                                              }
+                                                                                          ]
+                                                                         }
+                                                            },
+                  "/engagement/alerts/{alertId}/rejection":  {
+                                                                 "post":  {
+                                                                              "summary":  "Alert 거절",
+                                                                              "deprecated":  false,
+                                                                              "description":  "PENDING_REVIEW Alert를 사유와 함께 거절하고 연결된 OPEN Todo를 완료한다.",
+                                                                              "operationId":  "rejectEngagementAlert",
+                                                                              "tags":  [
+                                                                                           "Engagement"
+                                                                                       ],
+                                                                              "parameters":  [
+                                                                                                 {
+                                                                                                     "name":  "alertId",
+                                                                                                     "in":  "path",
+                                                                                                     "description":  "",
+                                                                                                     "required":  true,
+                                                                                                     "schema":  {
+                                                                                                                    "type":  "string",
+                                                                                                                    "format":  "uuid"
+                                                                                                                }
+                                                                                                 }
+                                                                                             ],
+                                                                              "requestBody":  {
+                                                                                                  "content":  {
+                                                                                                                  "application/json":  {
+                                                                                                                                           "schema":  {
+                                                                                                                                                          "$ref":  "#/components/schemas/RejectionRequest"
+                                                                                                                                                      }
+                                                                                                                                       }
+                                                                                                              },
+                                                                                                  "required":  true
+                                                                                              },
+                                                                              "responses":  {
+                                                                                                "200":  {
+                                                                                                            "$ref":  "#/components/responses/AlertViewSuccess"
+                                                                                                        },
+                                                                                                "400":  {
+                                                                                                            "$ref":  "#/components/responses/InvalidRequest"
+                                                                                                        },
+                                                                                                "401":  {
+                                                                                                            "$ref":  "#/components/responses/Unauthorized"
+                                                                                                        },
+                                                                                                "403":  {
+                                                                                                            "$ref":  "#/components/responses/Forbidden"
+                                                                                                        },
+                                                                                                "404":  {
+                                                                                                            "$ref":  "#/components/responses/EngagementNotFound"
+                                                                                                        },
+                                                                                                "409":  {
+                                                                                                            "$ref":  "#/components/responses/InvalidEngagementState"
+                                                                                                        }
+                                                                                            },
+                                                                              "security":  [
+                                                                                               {
+                                                                                                   "bearerAuth":  [
+
+                                                                                                                  ]
+                                                                                               }
+                                                                                           ]
+                                                                          }
+                                                             },
+                  "/engagement/alerts/{alertId}/interventions":  {
+                                                                     "post":  {
+                                                                                  "summary":  "Alert 기반 Intervention 생성",
+                                                                                  "deprecated":  false,
+                                                                                  "description":  "APPROVED Alert에 OPEN Intervention과 7일 뒤 ACTIVE Reminder를 같은 트랜잭션에서 생성한다.",
+                                                                                  "operationId":  "createAlertIntervention",
+                                                                                  "tags":  [
+                                                                                               "Engagement"
+                                                                                           ],
+                                                                                  "parameters":  [
+                                                                                                     {
+                                                                                                         "name":  "alertId",
+                                                                                                         "in":  "path",
+                                                                                                         "description":  "",
+                                                                                                         "required":  true,
+                                                                                                         "schema":  {
+                                                                                                                        "type":  "string",
+                                                                                                                        "format":  "uuid"
+                                                                                                                    }
+                                                                                                     }
+                                                                                                 ],
+                                                                                  "requestBody":  {
+                                                                                                      "content":  {
+                                                                                                                      "application/json":  {
+                                                                                                                                               "schema":  {
+                                                                                                                                                              "$ref":  "#/components/schemas/InterventionRequest"
+                                                                                                                                                          }
+                                                                                                                                           }
+                                                                                                                  },
+                                                                                                      "required":  true
+                                                                                                  },
+                                                                                  "responses":  {
+                                                                                                    "200":  {
+                                                                                                                "description":  "생성 성공",
+                                                                                                                "content":  {
+                                                                                                                                "application/json":  {
+                                                                                                                                                         "schema":  {
+                                                                                                                                                                        "$ref":  "#/components/schemas/InterventionView"
+                                                                                                                                                                    }
+                                                                                                                                                     }
+                                                                                                                            },
+                                                                                                                "headers":  {
+
+                                                                                                                            }
+                                                                                                            },
+                                                                                                    "400":  {
+                                                                                                                "$ref":  "#/components/responses/InvalidRequest"
+                                                                                                            },
+                                                                                                    "401":  {
+                                                                                                                "$ref":  "#/components/responses/Unauthorized"
+                                                                                                            },
+                                                                                                    "403":  {
+                                                                                                                "$ref":  "#/components/responses/Forbidden"
+                                                                                                            },
+                                                                                                    "404":  {
+                                                                                                                "$ref":  "#/components/responses/EngagementNotFound"
+                                                                                                            },
+                                                                                                    "409":  {
+                                                                                                                "$ref":  "#/components/responses/InvalidEngagementState"
+                                                                                                            }
+                                                                                                },
+                                                                                  "security":  [
+                                                                                                   {
+                                                                                                       "bearerAuth":  [
+
+                                                                                                                      ]
+                                                                                                   }
+                                                                                               ]
+                                                                              }
+                                                                 },
+                  "/engagement/interventions/{interventionId}/completion":  {
+                                                                                "post":  {
+                                                                                             "summary":  "Intervention 완료",
+                                                                                             "deprecated":  false,
+                                                                                             "description":  "OPEN Intervention을 COMPLETED로 전환한다. 연결 Reminder는 변경하지 않는다.",
+                                                                                             "operationId":  "completeIntervention",
+                                                                                             "tags":  [
+                                                                                                          "Engagement"
+                                                                                                      ],
+                                                                                             "parameters":  [
+                                                                                                                {
+                                                                                                                    "name":  "interventionId",
+                                                                                                                    "in":  "path",
+                                                                                                                    "description":  "",
+                                                                                                                    "required":  true,
+                                                                                                                    "schema":  {
+                                                                                                                                   "type":  "string",
+                                                                                                                                   "format":  "uuid"
+                                                                                                                               }
+                                                                                                                }
+                                                                                                            ],
+                                                                                             "responses":  {
+                                                                                                               "200":  {
+                                                                                                                           "$ref":  "#/components/responses/InterventionViewSuccess"
+                                                                                                                       },
+                                                                                                               "401":  {
+                                                                                                                           "$ref":  "#/components/responses/Unauthorized"
+                                                                                                                       },
+                                                                                                               "403":  {
+                                                                                                                           "$ref":  "#/components/responses/Forbidden"
+                                                                                                                       },
+                                                                                                               "404":  {
+                                                                                                                           "$ref":  "#/components/responses/EngagementNotFound"
+                                                                                                                       },
+                                                                                                               "409":  {
+                                                                                                                           "$ref":  "#/components/responses/InvalidEngagementState"
+                                                                                                                       }
+                                                                                                           },
+                                                                                             "security":  [
+                                                                                                              {
+                                                                                                                  "bearerAuth":  [
+
+                                                                                                                                 ]
+                                                                                                              }
+                                                                                                          ]
+                                                                                         }
+                                                                            },
+                  "/engagement/interventions/{interventionId}/cancellation":  {
+                                                                                  "post":  {
+                                                                                               "summary":  "Intervention 취소",
+                                                                                               "deprecated":  false,
+                                                                                               "description":  "OPEN Intervention과 연결된 ACTIVE Reminder를 같은 시각에 취소한다.",
+                                                                                               "operationId":  "cancelIntervention",
+                                                                                               "tags":  [
+                                                                                                            "Engagement"
+                                                                                                        ],
+                                                                                               "parameters":  [
+                                                                                                                  {
+                                                                                                                      "name":  "interventionId",
+                                                                                                                      "in":  "path",
+                                                                                                                      "description":  "",
+                                                                                                                      "required":  true,
+                                                                                                                      "schema":  {
+                                                                                                                                     "type":  "string",
+                                                                                                                                     "format":  "uuid"
+                                                                                                                                 }
+                                                                                                                  }
+                                                                                                              ],
+                                                                                               "responses":  {
+                                                                                                                 "200":  {
+                                                                                                                             "$ref":  "#/components/responses/InterventionViewSuccess"
+                                                                                                                         },
+                                                                                                                 "401":  {
+                                                                                                                             "$ref":  "#/components/responses/Unauthorized"
+                                                                                                                         },
+                                                                                                                 "403":  {
+                                                                                                                             "$ref":  "#/components/responses/Forbidden"
+                                                                                                                         },
+                                                                                                                 "404":  {
+                                                                                                                             "$ref":  "#/components/responses/EngagementNotFound"
+                                                                                                                         },
+                                                                                                                 "409":  {
+                                                                                                                             "$ref":  "#/components/responses/InvalidEngagementState"
+                                                                                                                         }
+                                                                                                             },
+                                                                                               "security":  [
+                                                                                                                {
+                                                                                                                    "bearerAuth":  [
+
+                                                                                                                                   ]
+                                                                                                                }
+                                                                                                            ]
+                                                                                           }
+                                                                              },
+                  "/engagement/reminders/{reminderId}/completion":  {
+                                                                        "post":  {
+                                                                                     "summary":  "Reminder 완료",
+                                                                                     "deprecated":  false,
+                                                                                     "description":  "ACTIVE Reminder를 COMPLETED로 전환한다.",
+                                                                                     "operationId":  "completeReminder",
+                                                                                     "tags":  [
+                                                                                                  "Engagement"
+                                                                                              ],
+                                                                                     "parameters":  [
+                                                                                                        {
+                                                                                                            "name":  "reminderId",
+                                                                                                            "in":  "path",
+                                                                                                            "description":  "",
+                                                                                                            "required":  true,
+                                                                                                            "schema":  {
+                                                                                                                           "type":  "string",
+                                                                                                                           "format":  "uuid"
+                                                                                                                       }
+                                                                                                        }
+                                                                                                    ],
+                                                                                     "responses":  {
+                                                                                                       "200":  {
+                                                                                                                   "$ref":  "#/components/responses/ReminderViewSuccess"
+                                                                                                               },
+                                                                                                       "401":  {
+                                                                                                                   "$ref":  "#/components/responses/Unauthorized"
+                                                                                                               },
+                                                                                                       "403":  {
+                                                                                                                   "$ref":  "#/components/responses/Forbidden"
+                                                                                                               },
+                                                                                                       "404":  {
+                                                                                                                   "$ref":  "#/components/responses/EngagementNotFound"
+                                                                                                               },
+                                                                                                       "409":  {
+                                                                                                                   "$ref":  "#/components/responses/InvalidEngagementState"
+                                                                                                               }
+                                                                                                   },
+                                                                                     "security":  [
+                                                                                                      {
+                                                                                                          "bearerAuth":  [
+
+                                                                                                                         ]
+                                                                                                      }
+                                                                                                  ]
+                                                                                 }
+                                                                    },
+                  "/engagement/reminders/{reminderId}/cancellation":  {
+                                                                          "post":  {
+                                                                                       "summary":  "Reminder 취소",
+                                                                                       "deprecated":  false,
+                                                                                       "description":  "ACTIVE Reminder를 CANCELLED로 전환한다.",
+                                                                                       "operationId":  "cancelReminder",
+                                                                                       "tags":  [
+                                                                                                    "Engagement"
+                                                                                                ],
+                                                                                       "parameters":  [
+                                                                                                          {
+                                                                                                              "name":  "reminderId",
+                                                                                                              "in":  "path",
+                                                                                                              "description":  "",
+                                                                                                              "required":  true,
+                                                                                                              "schema":  {
+                                                                                                                             "type":  "string",
+                                                                                                                             "format":  "uuid"
+                                                                                                                         }
+                                                                                                          }
+                                                                                                      ],
+                                                                                       "responses":  {
+                                                                                                         "200":  {
+                                                                                                                     "$ref":  "#/components/responses/ReminderViewSuccess"
+                                                                                                                 },
+                                                                                                         "401":  {
+                                                                                                                     "$ref":  "#/components/responses/Unauthorized"
+                                                                                                                 },
+                                                                                                         "403":  {
+                                                                                                                     "$ref":  "#/components/responses/Forbidden"
+                                                                                                                 },
+                                                                                                         "404":  {
+                                                                                                                     "$ref":  "#/components/responses/EngagementNotFound"
+                                                                                                                 },
+                                                                                                         "409":  {
+                                                                                                                     "$ref":  "#/components/responses/InvalidEngagementState"
+                                                                                                                 }
+                                                                                                     },
+                                                                                       "security":  [
+                                                                                                        {
+                                                                                                            "bearerAuth":  [
+
+                                                                                                                           ]
+                                                                                                        }
+                                                                                                    ]
+                                                                                   }
+                                                                      },
+                  "/todos/{todoId}":  {
+                                          "patch":  {
+                                                        "summary":  "Todo 완료",
+                                                        "deprecated":  false,
+                                                        "description":  "done=true만 지원하며 반복 완료는 멱등이다. false로 완료 취소/재개할 수 없다.",
+                                                        "operationId":  "completeTodo",
+                                                        "tags":  [
+                                                                     "Todo"
+                                                                 ],
+                                                        "parameters":  [
+                                                                           {
+                                                                               "name":  "todoId",
+                                                                               "in":  "path",
+                                                                               "description":  "",
+                                                                               "required":  true,
+                                                                               "schema":  {
+                                                                                              "type":  "string",
+                                                                                              "format":  "uuid"
+                                                                                          }
+                                                                           }
+                                                                       ],
+                                                        "requestBody":  {
+                                                                            "content":  {
+                                                                                            "application/json":  {
+                                                                                                                     "schema":  {
+                                                                                                                                    "$ref":  "#/components/schemas/TodoUpdateRequest"
+                                                                                                                                }
+                                                                                                                 }
+                                                                                        },
+                                                                            "required":  true
+                                                                        },
+                                                        "responses":  {
+                                                                          "200":  {
+                                                                                      "description":  "완료 성공",
+                                                                                      "content":  {
+                                                                                                      "application/json":  {
+                                                                                                                               "schema":  {
+                                                                                                                                              "$ref":  "#/components/schemas/TodoResult"
+                                                                                                                                          }
+                                                                                                                           }
+                                                                                                  },
+                                                                                      "headers":  {
+
+                                                                                                  }
+                                                                                  },
+                                                                          "400":  {
+                                                                                      "description":  "본문 오류 또는 done이 true가 아님",
+                                                                                      "content":  {
+                                                                                                      "application/json":  {
+                                                                                                                               "schema":  {
+                                                                                                                                              "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                                          }
+                                                                                                                           }
+                                                                                                  },
+                                                                                      "headers":  {
+
+                                                                                                  }
+                                                                                  },
+                                                                          "401":  {
+                                                                                      "$ref":  "#/components/responses/Unauthorized"
+                                                                                  },
+                                                                          "403":  {
+                                                                                      "$ref":  "#/components/responses/Forbidden"
+                                                                                  },
+                                                                          "404":  {
+                                                                                      "description":  "없거나 접근 불가능한 Todo",
+                                                                                      "content":  {
+                                                                                                      "application/json":  {
+                                                                                                                               "schema":  {
+                                                                                                                                              "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                                          }
+                                                                                                                           }
+                                                                                                  },
+                                                                                      "headers":  {
+
+                                                                                                  }
+                                                                                  },
+                                                                          "409":  {
+                                                                                      "description":  "완료할 수 없는 상태",
+                                                                                      "content":  {
+                                                                                                      "application/json":  {
+                                                                                                                               "schema":  {
+                                                                                                                                              "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                                          }
+                                                                                                                           }
+                                                                                                  },
+                                                                                      "headers":  {
+
+                                                                                                  }
+                                                                                  }
+                                                                      },
+                                                        "security":  [
+                                                                         {
+                                                                             "bearerAuth":  [
+
+                                                                                            ]
+                                                                         }
+                                                                     ]
+                                                    }
+                                      }
+              },
+    "components":  {
+                       "schemas":  {
+                                       "DashboardBriefing":  {
+                                                                 "type":  "object",
+                                                                 "required":  [
+                                                                                  "date",
+                                                                                  "alerts",
+                                                                                  "todos",
+                                                                                  "reminders"
+                                                                              ],
+                                                                 "properties":  {
+                                                                                    "date":  {
+                                                                                                 "type":  "string",
+                                                                                                 "format":  "date"
+                                                                                             },
+                                                                                    "alerts":  {
+                                                                                                   "type":  "array",
+                                                                                                   "items":  {
+                                                                                                                 "$ref":  "#/components/schemas/DashboardAlert"
+                                                                                                             }
+                                                                                               },
+                                                                                    "todos":  {
+                                                                                                  "type":  "array",
+                                                                                                  "items":  {
+                                                                                                                "$ref":  "#/components/schemas/DashboardTodo"
+                                                                                                            }
+                                                                                              },
+                                                                                    "reminders":  {
+                                                                                                      "type":  "array",
+                                                                                                      "items":  {
+                                                                                                                    "$ref":  "#/components/schemas/DashboardReminder"
+                                                                                                                }
+                                                                                                  }
+                                                                                }
+                                                             },
+                                       "ErrorResponse":  {
+                                                             "type":  "object",
+                                                             "required":  [
+                                                                              "code",
+                                                                              "message"
+                                                                          ],
+                                                             "properties":  {
+                                                                                "code":  {
+                                                                                             "type":  "string"
+                                                                                         },
+                                                                                "message":  {
+                                                                                                "type":  "string"
+                                                                                            }
+                                                                            }
+                                                         },
+                                       "DashboardCalendar":  {
+                                                                 "type":  "object",
+                                                                 "required":  [
+                                                                                  "startedAt",
+                                                                                  "endedAt",
+                                                                                  "items"
+                                                                              ],
+                                                                 "properties":  {
+                                                                                    "startedAt":  {
+                                                                                                      "type":  "string",
+                                                                                                      "format":  "date"
+                                                                                                  },
+                                                                                    "endedAt":  {
+                                                                                                    "type":  "string",
+                                                                                                    "format":  "date"
+                                                                                                },
+                                                                                    "items":  {
+                                                                                                  "type":  "array",
+                                                                                                  "minItems":  7,
+                                                                                                  "maxItems":  7,
+                                                                                                  "items":  {
+                                                                                                                "$ref":  "#/components/schemas/DashboardCalendarItem"
+                                                                                                            }
+                                                                                              }
+                                                                                }
+                                                             },
+                                       "AlertStatus":  {
+                                                           "type":  "string",
+                                                           "enum":  [
+                                                                        "PENDING_REVIEW",
+                                                                        "APPROVED",
+                                                                        "REJECTED"
+                                                                    ]
+                                                       },
+                                       "AlertView":  {
+                                                         "type":  "object",
+                                                         "required":  [
+                                                                          "id",
+                                                                          "studentId",
+                                                                          "detectionSignalResultId",
+                                                                          "status",
+                                                                          "decisionNote",
+                                                                          "decidedAt",
+                                                                          "createdAt"
+                                                                      ],
+                                                         "properties":  {
+                                                                            "id":  {
+                                                                                       "type":  "string",
+                                                                                       "format":  "uuid"
+                                                                                   },
+                                                                            "studentId":  {
+                                                                                              "type":  "string",
+                                                                                              "format":  "uuid"
+                                                                                          },
+                                                                            "detectionSignalResultId":  {
+                                                                                                            "type":  "string",
+                                                                                                            "format":  "uuid"
+                                                                                                        },
+                                                                            "status":  {
+                                                                                           "$ref":  "#/components/schemas/AlertStatus"
+                                                                                       },
+                                                                            "decisionNote":  {
+                                                                                                 "type":  "string",
+                                                                                                 "description":  "거절 시 사유이며 PENDING_REVIEW 또는 승인 상태에서는 null.",
+                                                                                                 "nullable":  true
+                                                                                             },
+                                                                            "decidedAt":  {
+                                                                                              "type":  "string",
+                                                                                              "format":  "date-time",
+                                                                                              "description":  "PENDING_REVIEW이면 null",
+                                                                                              "nullable":  true
+                                                                                          },
+                                                                            "createdAt":  {
+                                                                                              "type":  "string",
+                                                                                              "format":  "date-time"
+                                                                                          }
+                                                                        }
+                                                     },
+                                       "AlertDetail":  {
+                                                           "type":  "object",
+                                                           "required":  [
+                                                                            "alertId",
+                                                                            "studentId",
+                                                                            "studentName",
+                                                                            "className",
+                                                                            "ruleId",
+                                                                            "signalType",
+                                                                            "displayLabel",
+                                                                            "brief",
+                                                                            "briefFallback",
+                                                                            "status",
+                                                                            "createdAt",
+                                                                            "evidence"
+                                                                        ],
+                                                           "properties":  {
+                                                                              "alertId":  {
+                                                                                              "type":  "string",
+                                                                                              "format":  "uuid"
+                                                                                          },
+                                                                              "studentId":  {
+                                                                                                "type":  "string",
+                                                                                                "format":  "uuid"
+                                                                                            },
+                                                                              "studentName":  {
+                                                                                                  "type":  "string",
+                                                                                                  "description":  "key는 존재하며 미등록 시 null. alias로 대체하지 않는다.",
+                                                                                                  "nullable":  true
+                                                                                              },
+                                                                              "className":  {
+                                                                                                "type":  "string",
+                                                                                                "description":  "신호 class_ref를 현재 강사 소유 반으로 해석하지 못하면 null.",
+                                                                                                "nullable":  true
+                                                                                            },
+                                                                              "ruleId":  {
+                                                                                             "type":  "string"
+                                                                                         },
+                                                                              "signalType":  {
+                                                                                                 "type":  "string"
+                                                                                             },
+                                                                              "displayLabel":  {
+                                                                                                   "type":  "string"
+                                                                                               },
+                                                                              "brief":  {
+                                                                                            "type":  "string"
+                                                                                        },
+                                                                              "briefFallback":  {
+                                                                                                    "type":  "boolean"
+                                                                                                },
+                                                                              "status":  {
+                                                                                             "$ref":  "#/components/schemas/AlertStatus"
+                                                                                         },
+                                                                              "createdAt":  {
+                                                                                                "type":  "string",
+                                                                                                "format":  "date-time"
+                                                                                            },
+                                                                              "evidence":  {
+                                                                                               "type":  "array",
+                                                                                               "items":  {
+                                                                                                             "$ref":  "#/components/schemas/EvidenceView"
+                                                                                                         }
+                                                                                           }
+                                                                          }
+                                                       },
+                                       "RejectionRequest":  {
+                                                                "type":  "object",
+                                                                "required":  [
+                                                                                 "note"
+                                                                             ],
+                                                                "properties":  {
+                                                                                   "note":  {
+                                                                                                "type":  "string",
+                                                                                                "minLength":  1,
+                                                                                                "maxLength":  2000
+                                                                                            }
+                                                                               }
+                                                            },
+                                       "InterventionRequest":  {
+                                                                   "type":  "object",
+                                                                   "required":  [
+                                                                                    "type",
+                                                                                    "content"
+                                                                                ],
+                                                                   "properties":  {
+                                                                                      "type":  {
+                                                                                                   "type":  "string",
+                                                                                                   "minLength":  1,
+                                                                                                   "maxLength":  40,
+                                                                                                   "description":  "표준 enum 정책은 미확정"
+                                                                                               },
+                                                                                      "content":  {
+                                                                                                      "type":  "string",
+                                                                                                      "minLength":  1,
+                                                                                                      "maxLength":  4000
+                                                                                                  }
+                                                                                  }
+                                                               },
+                                       "InterventionView":  {
+                                                                "type":  "object",
+                                                                "required":  [
+                                                                                 "id",
+                                                                                 "alertId",
+                                                                                 "studentId",
+                                                                                 "type",
+                                                                                 "content",
+                                                                                 "status",
+                                                                                 "createdAt"
+                                                                             ],
+                                                                "properties":  {
+                                                                                   "id":  {
+                                                                                              "type":  "string",
+                                                                                              "format":  "uuid"
+                                                                                          },
+                                                                                   "alertId":  {
+                                                                                                   "type":  "string",
+                                                                                                   "format":  "uuid"
+                                                                                               },
+                                                                                   "studentId":  {
+                                                                                                     "type":  "string",
+                                                                                                     "format":  "uuid"
+                                                                                                 },
+                                                                                   "type":  {
+                                                                                                "type":  "string"
+                                                                                            },
+                                                                                   "content":  {
+                                                                                                   "type":  "string"
+                                                                                               },
+                                                                                   "status":  {
+                                                                                                  "$ref":  "#/components/schemas/InterventionStatus"
+                                                                                              },
+                                                                                   "createdAt":  {
+                                                                                                     "type":  "string",
+                                                                                                     "format":  "date-time"
+                                                                                                 }
+                                                                               }
+                                                            },
+                                       "TodoUpdateRequest":  {
+                                                                 "type":  "object",
+                                                                 "required":  [
+                                                                                  "done"
+                                                                              ],
+                                                                 "additionalProperties":  false,
+                                                                 "properties":  {
+                                                                                    "done":  {
+                                                                                                 "type":  "boolean",
+                                                                                                 "enum":  [
+                                                                                                              true
+                                                                                                          ]
+                                                                                             }
+                                                                                }
+                                                             },
+                                       "TodoResult":  {
+                                                          "type":  "object",
+                                                          "required":  [
+                                                                           "todoId",
+                                                                           "kind",
+                                                                           "done",
+                                                                           "completedAt"
+                                                                       ],
+                                                          "properties":  {
+                                                                             "todoId":  {
+                                                                                            "type":  "string",
+                                                                                            "format":  "uuid"
+                                                                                        },
+                                                                             "kind":  {
+                                                                                          "type":  "string",
+                                                                                          "enum":  [
+                                                                                                       "ALERT_FOLLOW_UP"
+                                                                                                   ]
+                                                                                      },
+                                                                             "done":  {
+                                                                                          "type":  "boolean",
+                                                                                          "enum":  [
+                                                                                                       true
+                                                                                                   ]
+                                                                                      },
+                                                                             "completedAt":  {
+                                                                                                 "type":  "string",
+                                                                                                 "format":  "date-time"
+                                                                                             }
+                                                                         }
+                                                      },
+                                       "DashboardAlert":  {
+                                                              "type":  "object",
+                                                              "required":  [
+                                                                               "alertId",
+                                                                               "studentId",
+                                                                               "studentName",
+                                                                               "className",
+                                                                               "ruleId",
+                                                                               "signalType",
+                                                                               "displayLabel",
+                                                                               "rank",
+                                                                               "brief",
+                                                                               "briefFallback",
+                                                                               "status",
+                                                                               "createdAt",
+                                                                               "evidence"
+                                                                           ],
+                                                              "properties":  {
+                                                                                 "alertId":  {
+                                                                                                 "type":  "string",
+                                                                                                 "format":  "uuid"
+                                                                                             },
+                                                                                 "studentId":  {
+                                                                                                   "type":  "string",
+                                                                                                   "format":  "uuid"
+                                                                                               },
+                                                                                 "studentName":  {
+                                                                                                     "type":  "string",
+                                                                                                     "description":  "key는 존재하며 미등록 시 null. alias로 대체하지 않는다.",
+                                                                                                     "nullable":  true
+                                                                                                 },
+                                                                                 "className":  {
+                                                                                                   "type":  "string",
+                                                                                                   "description":  "신호 class_ref를 현재 강사 소유 반으로 해석하지 못하면 null.",
+                                                                                                   "nullable":  true
+                                                                                               },
+                                                                                 "ruleId":  {
+                                                                                                "type":  "string"
+                                                                                            },
+                                                                                 "signalType":  {
+                                                                                                    "type":  "string"
+                                                                                                },
+                                                                                 "displayLabel":  {
+                                                                                                      "type":  "string"
+                                                                                                  },
+                                                                                 "rank":  {
+                                                                                              "type":  "integer",
+                                                                                              "format":  "int32"
+                                                                                          },
+                                                                                 "brief":  {
+                                                                                               "type":  "string"
+                                                                                           },
+                                                                                 "briefFallback":  {
+                                                                                                       "type":  "boolean"
+                                                                                                   },
+                                                                                 "status":  {
+                                                                                                "$ref":  "#/components/schemas/AlertStatus"
+                                                                                            },
+                                                                                 "createdAt":  {
+                                                                                                   "type":  "string",
+                                                                                                   "format":  "date-time"
+                                                                                               },
+                                                                                 "evidence":  {
+                                                                                                  "type":  "array",
+                                                                                                  "minItems":  1,
+                                                                                                  "items":  {
+                                                                                                                "$ref":  "#/components/schemas/DashboardEvidence"
+                                                                                                            }
+                                                                                              }
+                                                                             }
+                                                          },
+                                       "DashboardTodo":  {
+                                                             "type":  "object",
+                                                             "required":  [
+                                                                              "todoId",
+                                                                              "kind",
+                                                                              "text",
+                                                                              "displayLabel",
+                                                                              "createdAt",
+                                                                              "ref",
+                                                                              "dueDate",
+                                                                              "done"
+                                                                          ],
+                                                             "properties":  {
+                                                                                "todoId":  {
+                                                                                               "type":  "string",
+                                                                                               "format":  "uuid"
+                                                                                           },
+                                                                                "kind":  {
+                                                                                             "type":  "string",
+                                                                                             "enum":  [
+                                                                                                          "ALERT_FOLLOW_UP"
+                                                                                                      ]
+                                                                                         },
+                                                                                "text":  {
+                                                                                             "type":  "string"
+                                                                                         },
+                                                                                "displayLabel":  {
+                                                                                                     "type":  "string"
+                                                                                                 },
+                                                                                "createdAt":  {
+                                                                                                  "type":  "string",
+                                                                                                  "format":  "date-time"
+                                                                                              },
+                                                                                "ref":  {
+                                                                                            "$ref":  "#/components/schemas/DashboardTodoRef"
+                                                                                        },
+                                                                                "dueDate":  {
+                                                                                                "type":  "string",
+                                                                                                "format":  "date"
+                                                                                            },
+                                                                                "done":  {
+                                                                                             "type":  "boolean",
+                                                                                             "enum":  [
+                                                                                                          false
+                                                                                                      ]
+                                                                                         }
+                                                                            }
+                                                         },
+                                       "DashboardReminder":  {
+                                                                 "type":  "object",
+                                                                 "required":  [
+                                                                                  "reminderId",
+                                                                                  "alertId",
+                                                                                  "studentId",
+                                                                                  "studentName",
+                                                                                  "interventionCount",
+                                                                                  "latestIntervention",
+                                                                                  "scheduledAt"
+                                                                              ],
+                                                                 "properties":  {
+                                                                                    "reminderId":  {
+                                                                                                       "type":  "string",
+                                                                                                       "format":  "uuid"
+                                                                                                   },
+                                                                                    "alertId":  {
+                                                                                                    "type":  "string",
+                                                                                                    "format":  "uuid"
+                                                                                                },
+                                                                                    "studentId":  {
+                                                                                                      "type":  "string",
+                                                                                                      "format":  "uuid"
+                                                                                                  },
+                                                                                    "studentName":  {
+                                                                                                        "type":  "string",
+                                                                                                        "description":  "key는 존재하며 미등록 시 null. alias로 대체하지 않는다.",
+                                                                                                        "nullable":  true
+                                                                                                    },
+                                                                                    "interventionCount":  {
+                                                                                                              "type":  "integer",
+                                                                                                              "format":  "int64",
+                                                                                                              "minimum":  1
+                                                                                                          },
+                                                                                    "latestIntervention":  {
+                                                                                                               "$ref":  "#/components/schemas/LatestIntervention"
+                                                                                                           },
+                                                                                    "scheduledAt":  {
+                                                                                                        "type":  "string",
+                                                                                                        "format":  "date-time"
+                                                                                                    }
+                                                                                }
+                                                             },
+                                       "DashboardCalendarItem":  {
+                                                                     "type":  "object",
+                                                                     "required":  [
+                                                                                      "date",
+                                                                                      "eventCount"
+                                                                                  ],
+                                                                     "properties":  {
+                                                                                        "date":  {
+                                                                                                     "type":  "string",
+                                                                                                     "format":  "date"
+                                                                                                 },
+                                                                                        "eventCount":  {
+                                                                                                           "type":  "integer",
+                                                                                                           "format":  "int64",
+                                                                                                           "minimum":  0
+                                                                                                       }
+                                                                                    }
+                                                                 },
+                                       "EvidenceView":  {
+                                                            "type":  "object",
+                                                            "required":  [
+                                                                             "id",
+                                                                             "sourceHint",
+                                                                             "recordId",
+                                                                             "summary"
+                                                                         ],
+                                                            "properties":  {
+                                                                               "id":  {
+                                                                                          "type":  "string",
+                                                                                          "format":  "uuid"
+                                                                                      },
+                                                                               "sourceHint":  {
+                                                                                                  "type":  "string"
+                                                                                              },
+                                                                               "recordId":  {
+                                                                                                "type":  "string"
+                                                                                            },
+                                                                               "summary":  {
+                                                                                               "type":  "string"
+                                                                                           }
+                                                                           }
+                                                        },
+                                       "InterventionStatus":  {
+                                                                  "type":  "string",
+                                                                  "enum":  [
+                                                                               "OPEN",
+                                                                               "COMPLETED",
+                                                                               "CANCELLED"
+                                                                           ]
+                                                              },
+                                       "ReminderView":  {
+                                                            "type":  "object",
+                                                            "required":  [
+                                                                             "id",
+                                                                             "interventionId",
+                                                                             "scheduledAt",
+                                                                             "status"
+                                                                         ],
+                                                            "properties":  {
+                                                                               "id":  {
+                                                                                          "type":  "string",
+                                                                                          "format":  "uuid"
+                                                                                      },
+                                                                               "interventionId":  {
+                                                                                                      "type":  "string",
+                                                                                                      "format":  "uuid"
+                                                                                                  },
+                                                                               "scheduledAt":  {
+                                                                                                   "type":  "string",
+                                                                                                   "format":  "date-time"
+                                                                                               },
+                                                                               "status":  {
+                                                                                              "$ref":  "#/components/schemas/ReminderStatus"
+                                                                                          }
+                                                                           }
+                                                        },
+                                       "DashboardEvidence":  {
+                                                                 "type":  "object",
+                                                                 "required":  [
+                                                                                  "recordId",
+                                                                                  "summary"
+                                                                              ],
+                                                                 "properties":  {
+                                                                                    "recordId":  {
+                                                                                                     "type":  "string"
+                                                                                                 },
+                                                                                    "summary":  {
+                                                                                                    "type":  "string"
+                                                                                                }
+                                                                                }
+                                                             },
+                                       "DashboardTodoRef":  {
+                                                                "type":  "object",
+                                                                "required":  [
+                                                                                 "alertId",
+                                                                                 "screen"
+                                                                             ],
+                                                                "properties":  {
+                                                                                   "alertId":  {
+                                                                                                   "type":  "string",
+                                                                                                   "format":  "uuid"
+                                                                                               },
+                                                                                   "screen":  {
+                                                                                                  "type":  "string",
+                                                                                                  "enum":  [
+                                                                                                               "alert_detail"
+                                                                                                           ]
+                                                                                              }
+                                                                               }
+                                                            },
+                                       "LatestIntervention":  {
+                                                                  "type":  "object",
+                                                                  "required":  [
+                                                                                   "interventionId",
+                                                                                   "type",
+                                                                                   "summary",
+                                                                                   "createdAt"
+                                                                               ],
+                                                                  "properties":  {
+                                                                                     "interventionId":  {
+                                                                                                            "type":  "string",
+                                                                                                            "format":  "uuid"
+                                                                                                        },
+                                                                                     "type":  {
+                                                                                                  "type":  "string",
+                                                                                                  "description":  "현재 자유 문자열이며 표준 enum은 미확정"
+                                                                                              },
+                                                                                     "summary":  {
+                                                                                                     "type":  "string",
+                                                                                                     "enum":  [
+                                                                                                                  "개입 후 재확인이 예정되어 있습니다."
+                                                                                                              ]
+                                                                                                 },
+                                                                                     "createdAt":  {
+                                                                                                       "type":  "string",
+                                                                                                       "format":  "date-time"
+                                                                                                   }
+                                                                                 }
+                                                              },
+                                       "ReminderStatus":  {
+                                                              "type":  "string",
+                                                              "enum":  [
+                                                                           "ACTIVE",
+                                                                           "COMPLETED",
+                                                                           "CANCELLED"
+                                                                       ]
+                                                          }
+                                   },
+                       "responses":  {
+                                         "Unauthorized":  {
+                                                              "description":  "인증 실패. Security filter가 생성하므로 JSON 오류 본문은 보장되지 않는다.",
+                                                              "content":  {
+                                                                              "application/json":  {
+                                                                                                       "schema":  {
+                                                                                                                      "type":  "object",
+                                                                                                                      "properties":  {
+
+                                                                                                                                     }
+                                                                                                                  }
+                                                                                                   }
+                                                                          }
+                                                          },
+                                         "Forbidden":  {
+                                                           "description":  "TEACHER 권한이 아님. Security가 생성하므로 JSON 오류 본문은 보장되지 않는다.",
+                                                           "content":  {
+                                                                           "application/json":  {
+                                                                                                    "schema":  {
+                                                                                                                   "type":  "object",
+                                                                                                                   "properties":  {
+
+                                                                                                                                  }
+                                                                                                               }
+                                                                                                }
+                                                                       }
+                                                       },
+                                         "InvalidRequest":  {
+                                                                "description":  "요청 값 오류",
+                                                                "content":  {
+                                                                                "application/json":  {
+                                                                                                         "schema":  {
+                                                                                                                        "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                    }
+                                                                                                     }
+                                                                            }
+                                                            },
+                                         "EngagementNotFound":  {
+                                                                    "description":  "없거나 다른 테넌트에 속한 리소스",
+                                                                    "content":  {
+                                                                                    "application/json":  {
+                                                                                                             "schema":  {
+                                                                                                                            "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                        }
+                                                                                                         }
+                                                                                }
+                                                                },
+                                         "AlertViewSuccess":  {
+                                                                  "description":  "Alert 상태 변경 성공",
+                                                                  "content":  {
+                                                                                  "application/json":  {
+                                                                                                           "schema":  {
+                                                                                                                          "$ref":  "#/components/schemas/AlertView"
+                                                                                                                      }
+                                                                                                       }
+                                                                              }
+                                                              },
+                                         "InvalidEngagementState":  {
+                                                                        "description":  "허용되지 않는 상태 전이",
+                                                                        "content":  {
+                                                                                        "application/json":  {
+                                                                                                                 "schema":  {
+                                                                                                                                "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                            }
+                                                                                                             }
+                                                                                    }
+                                                                    },
+                                         "InterventionViewSuccess":  {
+                                                                         "description":  "Intervention 상태 변경 성공",
+                                                                         "content":  {
+                                                                                         "application/json":  {
+                                                                                                                  "schema":  {
+                                                                                                                                 "$ref":  "#/components/schemas/InterventionView"
+                                                                                                                             }
+                                                                                                              }
+                                                                                     }
+                                                                     },
+                                         "ReminderViewSuccess":  {
+                                                                     "description":  "Reminder 상태 변경 성공",
+                                                                     "content":  {
+                                                                                     "application/json":  {
+                                                                                                              "schema":  {
+                                                                                                                             "$ref":  "#/components/schemas/ReminderView"
+                                                                                                                         }
+                                                                                                          }
+                                                                                 }
+                                                                 }
+                                     }
+                   },
+    "x-checkon-communication":  {
+                                    "caller":  "Frontend",
+                                    "receiver":  "Backend",
+                                    "scope":  "Dashboard, Engagement, Todo",
+                                    "serverUrl":  "http://localhost:8080/api/v1",
+                                    "source":  "apidog_1.openapi.json"
+                                }
+}

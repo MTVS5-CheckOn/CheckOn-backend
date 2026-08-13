@@ -1,0 +1,747 @@
+{
+    "openapi":  "3.0.1",
+    "info":  {
+                 "title":  "CheckOn - Frontend to Backend - Roster and Class Management",
+                 "description":  "통신 방향: Frontend -\u003e Backend\n범위: Roster Support, Class Management\n원본 계약의 path, request, response 내용은 유지하고 통신 경계별로 분리했다.",
+                 "version":  "1.0.0"
+             },
+    "servers":  [
+                    {
+                        "url":  "http://localhost:8080/api/v1",
+                        "description":  "Local CheckOn backend API"
+                    }
+                ],
+    "tags":  [
+                 {
+                     "name":  "Roster Support"
+                 },
+                 {
+                     "name":  "Class Management"
+                 }
+             ],
+    "paths":  {
+                  "/students/{studentId}/personal-information/name":  {
+                                                                          "put":  {
+                                                                                      "summary":  "학생 실명 저장",
+                                                                                      "deprecated":  false,
+                                                                                      "description":  "대시보드 studentName 표시를 지원한다. 다른 테넌트 학생은 존재 여부를 숨겨 같은 404를 반환한다.",
+                                                                                      "operationId":  "saveStudentPersonalInformationName",
+                                                                                      "tags":  [
+                                                                                                   "Roster Support"
+                                                                                               ],
+                                                                                      "parameters":  [
+                                                                                                         {
+                                                                                                             "name":  "studentId",
+                                                                                                             "in":  "path",
+                                                                                                             "description":  "",
+                                                                                                             "required":  true,
+                                                                                                             "example":  "",
+                                                                                                             "schema":  {
+                                                                                                                            "type":  "string",
+                                                                                                                            "format":  "uuid"
+                                                                                                                        }
+                                                                                                         }
+                                                                                                     ],
+                                                                                      "requestBody":  {
+                                                                                                          "content":  {
+                                                                                                                          "application/json":  {
+                                                                                                                                                   "schema":  {
+                                                                                                                                                                  "$ref":  "#/components/schemas/StudentNameRequest"
+                                                                                                                                                              },
+                                                                                                                                                   "example":  {
+                                                                                                                                                                   "studentName":  "김서연"
+                                                                                                                                                               }
+                                                                                                                                               }
+                                                                                                                      },
+                                                                                                          "required":  true
+                                                                                                      },
+                                                                                      "responses":  {
+                                                                                                        "200":  {
+                                                                                                                    "description":  "저장 성공",
+                                                                                                                    "content":  {
+                                                                                                                                    "application/json":  {
+                                                                                                                                                             "schema":  {
+                                                                                                                                                                            "$ref":  "#/components/schemas/StudentNameResponse"
+                                                                                                                                                                        },
+                                                                                                                                                             "example":  {
+                                                                                                                                                                             "studentId":  "0198f000-0000-7000-8000-000000000003",
+                                                                                                                                                                             "studentName":  "김서연",
+                                                                                                                                                                             "updatedAt":  "2026-08-05T00:00:00Z"
+                                                                                                                                                                         }
+                                                                                                                                                         }
+                                                                                                                                },
+                                                                                                                    "headers":  {
+
+                                                                                                                                }
+                                                                                                                },
+                                                                                                        "400":  {
+                                                                                                                    "$ref":  "#/components/responses/InvalidRequest",
+                                                                                                                    "description":  "요청 값 오류"
+                                                                                                                },
+                                                                                                        "401":  {
+                                                                                                                    "$ref":  "#/components/responses/Unauthorized",
+                                                                                                                    "description":  "인증 실패. Security filter가 생성하므로 JSON 오류 본문은 보장되지 않는다."
+                                                                                                                },
+                                                                                                        "403":  {
+                                                                                                                    "$ref":  "#/components/responses/Forbidden",
+                                                                                                                    "description":  "TEACHER 권한이 아님. Security가 생성하므로 JSON 오류 본문은 보장되지 않는다."
+                                                                                                                },
+                                                                                                        "404":  {
+                                                                                                                    "description":  "없거나 접근 불가능한 학생",
+                                                                                                                    "content":  {
+                                                                                                                                    "application/json":  {
+                                                                                                                                                             "schema":  {
+                                                                                                                                                                            "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                                                                        },
+                                                                                                                                                             "example":  {
+                                                                                                                                                                             "code":  "STUDENT_NOT_FOUND",
+                                                                                                                                                                             "message":  "학생을 찾을 수 없습니다."
+                                                                                                                                                                         }
+                                                                                                                                                         }
+                                                                                                                                },
+                                                                                                                    "headers":  {
+
+                                                                                                                                }
+                                                                                                                }
+                                                                                                    },
+                                                                                      "security":  [
+                                                                                                       {
+                                                                                                           "bearerAuth":  [
+
+                                                                                                                          ]
+                                                                                                       }
+                                                                                                   ]
+                                                                                  }
+                                                                      },
+                  "/classes":  {
+                                   "get":  {
+                                               "summary":  "활성 클래스 목록 조회",
+                                               "deprecated":  false,
+                                               "description":  "인증 강사의 ACTIVE 클래스만 createdAt DESC, id DESC로 조회한다.\nactiveStudentCount는 ACTIVE 클래스 소속만 집계한다. 화면 행 번호는\npage * size + index + 1로 프론트가 계산한다.\n",
+                                               "operationId":  "listClasses",
+                                               "tags":  [
+                                                            "Class Management"
+                                                        ],
+                                               "parameters":  [
+                                                                  {
+                                                                      "name":  "page",
+                                                                      "in":  "query",
+                                                                      "description":  "0부터 시작",
+                                                                      "required":  false,
+                                                                      "example":  "",
+                                                                      "schema":  {
+                                                                                     "type":  "integer",
+                                                                                     "format":  "int32",
+                                                                                     "minimum":  0,
+                                                                                     "default":  0
+                                                                                 }
+                                                                  },
+                                                                  {
+                                                                      "name":  "size",
+                                                                      "in":  "query",
+                                                                      "description":  "",
+                                                                      "required":  false,
+                                                                      "example":  "",
+                                                                      "schema":  {
+                                                                                     "type":  "integer",
+                                                                                     "format":  "int32",
+                                                                                     "minimum":  1,
+                                                                                     "maximum":  100,
+                                                                                     "default":  20
+                                                                                 }
+                                                                  }
+                                                              ],
+                                               "responses":  {
+                                                                 "200":  {
+                                                                             "description":  "클래스 목록 조회 성공",
+                                                                             "content":  {
+                                                                                             "application/json":  {
+                                                                                                                      "schema":  {
+                                                                                                                                     "$ref":  "#/components/schemas/ClassPage"
+                                                                                                                                 },
+                                                                                                                      "example":  {
+                                                                                                                                      "content":  [
+                                                                                                                                                      {
+                                                                                                                                                          "classId":  "0198f100-0000-7000-8000-000000000001",
+                                                                                                                                                          "name":  "수능 국어 대비 반",
+                                                                                                                                                          "subject":  "국어",
+                                                                                                                                                          "memo":  null,
+                                                                                                                                                          "status":  "ACTIVE",
+                                                                                                                                                          "activeStudentCount":  0,
+                                                                                                                                                          "createdAt":  "2026-08-09T00:00:00Z",
+                                                                                                                                                          "updatedAt":  "2026-08-09T00:00:00Z"
+                                                                                                                                                      }
+                                                                                                                                                  ],
+                                                                                                                                      "page":  0,
+                                                                                                                                      "size":  20,
+                                                                                                                                      "totalElements":  1,
+                                                                                                                                      "totalPages":  1
+                                                                                                                                  }
+                                                                                                                  }
+                                                                                         },
+                                                                             "headers":  {
+
+                                                                                         }
+                                                                         },
+                                                                 "400":  {
+                                                                             "$ref":  "#/components/responses/InvalidRequest",
+                                                                             "description":  "요청 값 오류"
+                                                                         },
+                                                                 "401":  {
+                                                                             "$ref":  "#/components/responses/Unauthorized",
+                                                                             "description":  "인증 실패. Security filter가 생성하므로 JSON 오류 본문은 보장되지 않는다."
+                                                                         },
+                                                                 "403":  {
+                                                                             "$ref":  "#/components/responses/Forbidden",
+                                                                             "description":  "TEACHER 권한이 아님. Security가 생성하므로 JSON 오류 본문은 보장되지 않는다."
+                                                                         }
+                                                             },
+                                               "security":  [
+                                                                {
+                                                                    "bearerAuth":  [
+
+                                                                                   ]
+                                                                }
+                                                            ]
+                                           },
+                                   "post":  {
+                                                "summary":  "클래스 등록",
+                                                "deprecated":  false,
+                                                "description":  "",
+                                                "operationId":  "createClass",
+                                                "tags":  [
+                                                             "Class Management"
+                                                         ],
+                                                "parameters":  [
+
+                                                               ],
+                                                "requestBody":  {
+                                                                    "content":  {
+                                                                                    "application/json":  {
+                                                                                                             "schema":  {
+                                                                                                                            "$ref":  "#/components/schemas/ClassDetailsRequest"
+                                                                                                                        },
+                                                                                                             "example":  {
+                                                                                                                             "name":  "수능 국어 대비 반",
+                                                                                                                             "subject":  "국어",
+                                                                                                                             "memo":  null
+                                                                                                                         }
+                                                                                                         }
+                                                                                },
+                                                                    "required":  true
+                                                                },
+                                                "responses":  {
+                                                                  "201":  {
+                                                                              "description":  "클래스 등록 성공",
+                                                                              "content":  {
+                                                                                              "application/json":  {
+                                                                                                                       "schema":  {
+                                                                                                                                      "$ref":  "#/components/schemas/ClassView"
+                                                                                                                                  }
+                                                                                                                   }
+                                                                                          },
+                                                                              "headers":  {
+                                                                                              "Location":  {
+                                                                                                               "required":  false,
+                                                                                                               "description":  "생성된 클래스 상세 경로",
+                                                                                                               "schema":  {
+                                                                                                                              "type":  "string",
+                                                                                                                              "format":  "uri-reference"
+                                                                                                                          }
+                                                                                                           }
+                                                                                          }
+                                                                          },
+                                                                  "400":  {
+                                                                              "$ref":  "#/components/responses/InvalidRequest",
+                                                                              "description":  "요청 값 오류"
+                                                                          },
+                                                                  "401":  {
+                                                                              "$ref":  "#/components/responses/Unauthorized",
+                                                                              "description":  "인증 실패. Security filter가 생성하므로 JSON 오류 본문은 보장되지 않는다."
+                                                                          },
+                                                                  "403":  {
+                                                                              "$ref":  "#/components/responses/Forbidden",
+                                                                              "description":  "TEACHER 권한이 아님. Security가 생성하므로 JSON 오류 본문은 보장되지 않는다."
+                                                                          }
+                                                              },
+                                                "security":  [
+                                                                 {
+                                                                     "bearerAuth":  [
+
+                                                                                    ]
+                                                                 }
+                                                             ]
+                                            }
+                               },
+                  "/classes/{classId}":  {
+                                             "get":  {
+                                                         "summary":  "클래스 상세 조회",
+                                                         "deprecated":  false,
+                                                         "description":  "소유 강사는 보관된 클래스도 status와 함께 조회할 수 있다.",
+                                                         "operationId":  "getClass",
+                                                         "tags":  [
+                                                                      "Class Management"
+                                                                  ],
+                                                         "parameters":  [
+                                                                            {
+                                                                                "name":  "classId",
+                                                                                "in":  "path",
+                                                                                "description":  "",
+                                                                                "required":  true,
+                                                                                "example":  "",
+                                                                                "schema":  {
+                                                                                               "type":  "string",
+                                                                                               "format":  "uuid"
+                                                                                           }
+                                                                            }
+                                                                        ],
+                                                         "responses":  {
+                                                                           "200":  {
+                                                                                       "description":  "클래스 상세 조회 성공",
+                                                                                       "content":  {
+                                                                                                       "application/json":  {
+                                                                                                                                "schema":  {
+                                                                                                                                               "$ref":  "#/components/schemas/ClassView"
+                                                                                                                                           }
+                                                                                                                            }
+                                                                                                   },
+                                                                                       "headers":  {
+
+                                                                                                   }
+                                                                                   },
+                                                                           "400":  {
+                                                                                       "$ref":  "#/components/responses/InvalidRequest",
+                                                                                       "description":  "요청 값 오류"
+                                                                                   },
+                                                                           "401":  {
+                                                                                       "$ref":  "#/components/responses/Unauthorized",
+                                                                                       "description":  "인증 실패. Security filter가 생성하므로 JSON 오류 본문은 보장되지 않는다."
+                                                                                   },
+                                                                           "403":  {
+                                                                                       "$ref":  "#/components/responses/Forbidden",
+                                                                                       "description":  "TEACHER 권한이 아님. Security가 생성하므로 JSON 오류 본문은 보장되지 않는다."
+                                                                                   },
+                                                                           "404":  {
+                                                                                       "$ref":  "#/components/responses/ClassNotFound",
+                                                                                       "description":  "없거나 다른 테넌트에 속한 클래스"
+                                                                                   }
+                                                                       },
+                                                         "security":  [
+                                                                          {
+                                                                              "bearerAuth":  [
+
+                                                                                             ]
+                                                                          }
+                                                                      ]
+                                                     },
+                                             "patch":  {
+                                                           "summary":  "클래스 기본 정보 수정",
+                                                           "deprecated":  false,
+                                                           "description":  "name, subject, memo를 현재 입력값으로 함께 교체한다. ARCHIVED 클래스는 수정할 수 없다.",
+                                                           "operationId":  "updateClass",
+                                                           "tags":  [
+                                                                        "Class Management"
+                                                                    ],
+                                                           "parameters":  [
+                                                                              {
+                                                                                  "name":  "classId",
+                                                                                  "in":  "path",
+                                                                                  "description":  "",
+                                                                                  "required":  true,
+                                                                                  "example":  "",
+                                                                                  "schema":  {
+                                                                                                 "type":  "string",
+                                                                                                 "format":  "uuid"
+                                                                                             }
+                                                                              }
+                                                                          ],
+                                                           "requestBody":  {
+                                                                               "content":  {
+                                                                                               "application/json":  {
+                                                                                                                        "schema":  {
+                                                                                                                                       "$ref":  "#/components/schemas/ClassDetailsRequest"
+                                                                                                                                   }
+                                                                                                                    }
+                                                                                           },
+                                                                               "required":  true
+                                                                           },
+                                                           "responses":  {
+                                                                             "200":  {
+                                                                                         "description":  "클래스 수정 성공",
+                                                                                         "content":  {
+                                                                                                         "application/json":  {
+                                                                                                                                  "schema":  {
+                                                                                                                                                 "$ref":  "#/components/schemas/ClassView"
+                                                                                                                                             }
+                                                                                                                              }
+                                                                                                     },
+                                                                                         "headers":  {
+
+                                                                                                     }
+                                                                                     },
+                                                                             "400":  {
+                                                                                         "$ref":  "#/components/responses/InvalidRequest",
+                                                                                         "description":  "요청 값 오류"
+                                                                                     },
+                                                                             "401":  {
+                                                                                         "$ref":  "#/components/responses/Unauthorized",
+                                                                                         "description":  "인증 실패. Security filter가 생성하므로 JSON 오류 본문은 보장되지 않는다."
+                                                                                     },
+                                                                             "403":  {
+                                                                                         "$ref":  "#/components/responses/Forbidden",
+                                                                                         "description":  "TEACHER 권한이 아님. Security가 생성하므로 JSON 오류 본문은 보장되지 않는다."
+                                                                                     },
+                                                                             "404":  {
+                                                                                         "$ref":  "#/components/responses/ClassNotFound",
+                                                                                         "description":  "없거나 다른 테넌트에 속한 클래스"
+                                                                                     },
+                                                                             "409":  {
+                                                                                         "$ref":  "#/components/responses/InvalidClassState",
+                                                                                         "description":  "보관된 클래스 수정 또는 보관 불변식 위반"
+                                                                                     }
+                                                                         },
+                                                           "security":  [
+                                                                            {
+                                                                                "bearerAuth":  [
+
+                                                                                               ]
+                                                                            }
+                                                                        ]
+                                                       }
+                                         },
+                  "/classes/{classId}/archive":  {
+                                                     "post":  {
+                                                                  "summary":  "클래스 보관",
+                                                                  "deprecated":  false,
+                                                                  "description":  "모든 ACTIVE 소속을 같은 시각으로 종료한 뒤 클래스를 ARCHIVED로 바꾼다.\n학생, 관계, 소속과 학습 이력은 삭제하지 않는다. 반복 요청은 기존 종료\n시각과 클래스 updatedAt을 바꾸지 않는 멱등 동작이다.\n",
+                                                                  "operationId":  "archiveClass",
+                                                                  "tags":  [
+                                                                               "Class Management"
+                                                                           ],
+                                                                  "parameters":  [
+                                                                                     {
+                                                                                         "name":  "classId",
+                                                                                         "in":  "path",
+                                                                                         "description":  "",
+                                                                                         "required":  true,
+                                                                                         "example":  "",
+                                                                                         "schema":  {
+                                                                                                        "type":  "string",
+                                                                                                        "format":  "uuid"
+                                                                                                    }
+                                                                                     }
+                                                                                 ],
+                                                                  "responses":  {
+                                                                                    "200":  {
+                                                                                                "description":  "클래스 보관 성공 또는 이미 보관됨",
+                                                                                                "content":  {
+                                                                                                                "application/json":  {
+                                                                                                                                         "schema":  {
+                                                                                                                                                        "$ref":  "#/components/schemas/ClassView"
+                                                                                                                                                    }
+                                                                                                                                     }
+                                                                                                            },
+                                                                                                "headers":  {
+
+                                                                                                            }
+                                                                                            },
+                                                                                    "400":  {
+                                                                                                "$ref":  "#/components/responses/InvalidRequest",
+                                                                                                "description":  "요청 값 오류"
+                                                                                            },
+                                                                                    "401":  {
+                                                                                                "$ref":  "#/components/responses/Unauthorized",
+                                                                                                "description":  "인증 실패. Security filter가 생성하므로 JSON 오류 본문은 보장되지 않는다."
+                                                                                            },
+                                                                                    "403":  {
+                                                                                                "$ref":  "#/components/responses/Forbidden",
+                                                                                                "description":  "TEACHER 권한이 아님. Security가 생성하므로 JSON 오류 본문은 보장되지 않는다."
+                                                                                            },
+                                                                                    "404":  {
+                                                                                                "$ref":  "#/components/responses/ClassNotFound",
+                                                                                                "description":  "없거나 다른 테넌트에 속한 클래스"
+                                                                                            },
+                                                                                    "409":  {
+                                                                                                "$ref":  "#/components/responses/InvalidClassState",
+                                                                                                "description":  "보관된 클래스 수정 또는 보관 불변식 위반"
+                                                                                            }
+                                                                                },
+                                                                  "security":  [
+                                                                                   {
+                                                                                       "bearerAuth":  [
+
+                                                                                                      ]
+                                                                                   }
+                                                                               ]
+                                                              }
+                                                 }
+              },
+    "components":  {
+                       "schemas":  {
+                                       "StudentNameRequest":  {
+                                                                  "type":  "object",
+                                                                  "required":  [
+                                                                                   "studentName"
+                                                                               ],
+                                                                  "properties":  {
+                                                                                     "studentName":  {
+                                                                                                         "type":  "string",
+                                                                                                         "minLength":  1,
+                                                                                                         "maxLength":  100
+                                                                                                     }
+                                                                                 }
+                                                              },
+                                       "StudentNameResponse":  {
+                                                                   "type":  "object",
+                                                                   "required":  [
+                                                                                    "studentId",
+                                                                                    "studentName",
+                                                                                    "updatedAt"
+                                                                                ],
+                                                                   "properties":  {
+                                                                                      "studentId":  {
+                                                                                                        "type":  "string",
+                                                                                                        "format":  "uuid"
+                                                                                                    },
+                                                                                      "studentName":  {
+                                                                                                          "type":  "string"
+                                                                                                      },
+                                                                                      "updatedAt":  {
+                                                                                                        "type":  "string",
+                                                                                                        "format":  "date-time"
+                                                                                                    }
+                                                                                  }
+                                                               },
+                                       "ErrorResponse":  {
+                                                             "type":  "object",
+                                                             "required":  [
+                                                                              "code",
+                                                                              "message"
+                                                                          ],
+                                                             "properties":  {
+                                                                                "code":  {
+                                                                                             "type":  "string"
+                                                                                         },
+                                                                                "message":  {
+                                                                                                "type":  "string"
+                                                                                            }
+                                                                            }
+                                                         },
+                                       "ClassPage":  {
+                                                         "type":  "object",
+                                                         "required":  [
+                                                                          "content",
+                                                                          "page",
+                                                                          "size",
+                                                                          "totalElements",
+                                                                          "totalPages"
+                                                                      ],
+                                                         "properties":  {
+                                                                            "content":  {
+                                                                                            "type":  "array",
+                                                                                            "items":  {
+                                                                                                          "$ref":  "#/components/schemas/ClassView"
+                                                                                                      }
+                                                                                        },
+                                                                            "page":  {
+                                                                                         "type":  "integer",
+                                                                                         "format":  "int32",
+                                                                                         "minimum":  0
+                                                                                     },
+                                                                            "size":  {
+                                                                                         "type":  "integer",
+                                                                                         "format":  "int32",
+                                                                                         "minimum":  1,
+                                                                                         "maximum":  100
+                                                                                     },
+                                                                            "totalElements":  {
+                                                                                                  "type":  "integer",
+                                                                                                  "format":  "int64",
+                                                                                                  "minimum":  0
+                                                                                              },
+                                                                            "totalPages":  {
+                                                                                               "type":  "integer",
+                                                                                               "format":  "int64",
+                                                                                               "minimum":  0
+                                                                                           }
+                                                                        }
+                                                     },
+                                       "ClassDetailsRequest":  {
+                                                                   "type":  "object",
+                                                                   "required":  [
+                                                                                    "name",
+                                                                                    "subject"
+                                                                                ],
+                                                                   "properties":  {
+                                                                                      "name":  {
+                                                                                                   "type":  "string",
+                                                                                                   "minLength":  1,
+                                                                                                   "maxLength":  100
+                                                                                               },
+                                                                                      "subject":  {
+                                                                                                      "type":  "string",
+                                                                                                      "minLength":  1,
+                                                                                                      "maxLength":  100,
+                                                                                                      "description":  "표시용 자유 문자열. 앞뒤 공백은 제거된다."
+                                                                                                  },
+                                                                                      "memo":  {
+                                                                                                   "type":  "string",
+                                                                                                   "maxLength":  1000,
+                                                                                                   "nullable":  true
+                                                                                               }
+                                                                                  }
+                                                               },
+                                       "ClassView":  {
+                                                         "type":  "object",
+                                                         "required":  [
+                                                                          "classId",
+                                                                          "name",
+                                                                          "subject",
+                                                                          "memo",
+                                                                          "status",
+                                                                          "activeStudentCount",
+                                                                          "createdAt",
+                                                                          "updatedAt"
+                                                                      ],
+                                                         "properties":  {
+                                                                            "classId":  {
+                                                                                            "type":  "string",
+                                                                                            "format":  "uuid"
+                                                                                        },
+                                                                            "name":  {
+                                                                                         "type":  "string",
+                                                                                         "minLength":  1,
+                                                                                         "maxLength":  100
+                                                                                     },
+                                                                            "subject":  {
+                                                                                            "type":  "string",
+                                                                                            "minLength":  1,
+                                                                                            "maxLength":  100,
+                                                                                            "description":  "V12 이전 행은 교사가 수정하기 전까지 null일 수 있다. 신규 등록과 수정 입력에서는 필수다.",
+                                                                                            "nullable":  true
+                                                                                        },
+                                                                            "memo":  {
+                                                                                         "type":  "string",
+                                                                                         "maxLength":  1000,
+                                                                                         "nullable":  true
+                                                                                     },
+                                                                            "status":  {
+                                                                                           "$ref":  "#/components/schemas/ClassStatus"
+                                                                                       },
+                                                                            "activeStudentCount":  {
+                                                                                                       "type":  "integer",
+                                                                                                       "format":  "int64",
+                                                                                                       "minimum":  0
+                                                                                                   },
+                                                                            "createdAt":  {
+                                                                                              "type":  "string",
+                                                                                              "format":  "date-time"
+                                                                                          },
+                                                                            "updatedAt":  {
+                                                                                              "type":  "string",
+                                                                                              "format":  "date-time"
+                                                                                          }
+                                                                        }
+                                                     },
+                                       "ClassStatus":  {
+                                                           "type":  "string",
+                                                           "enum":  [
+                                                                        "ACTIVE",
+                                                                        "ARCHIVED"
+                                                                    ]
+                                                       }
+                                   },
+                       "responses":  {
+                                         "InvalidRequest":  {
+                                                                "description":  "요청 값 오류",
+                                                                "content":  {
+                                                                                "application/json":  {
+                                                                                                         "schema":  {
+                                                                                                                        "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                    },
+                                                                                                         "examples":  {
+                                                                                                                          "성공":  {
+                                                                                                                                     "summary":  "성공",
+                                                                                                                                     "value":  {
+                                                                                                                                                   "code":  "INVALID_REQUEST",
+                                                                                                                                                   "message":  "요청 값을 확인해 주세요."
+                                                                                                                                               }
+                                                                                                                                 }
+                                                                                                                      }
+                                                                                                     }
+                                                                            }
+                                                            },
+                                         "Unauthorized":  {
+                                                              "description":  "인증 실패. Security filter가 생성하므로 JSON 오류 본문은 보장되지 않는다.",
+                                                              "content":  {
+                                                                              "application/json":  {
+                                                                                                       "schema":  {
+                                                                                                                      "type":  "object",
+                                                                                                                      "properties":  {
+
+                                                                                                                                     }
+                                                                                                                  }
+                                                                                                   }
+                                                                          }
+                                                          },
+                                         "Forbidden":  {
+                                                           "description":  "TEACHER 권한이 아님. Security가 생성하므로 JSON 오류 본문은 보장되지 않는다.",
+                                                           "content":  {
+                                                                           "application/json":  {
+                                                                                                    "schema":  {
+                                                                                                                   "type":  "object",
+                                                                                                                   "properties":  {
+
+                                                                                                                                  }
+                                                                                                               }
+                                                                                                }
+                                                                       }
+                                                       },
+                                         "ClassNotFound":  {
+                                                               "description":  "없거나 다른 테넌트에 속한 클래스",
+                                                               "content":  {
+                                                                               "application/json":  {
+                                                                                                        "schema":  {
+                                                                                                                       "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                   },
+                                                                                                        "examples":  {
+                                                                                                                         "성공":  {
+                                                                                                                                    "summary":  "성공",
+                                                                                                                                    "value":  {
+                                                                                                                                                  "code":  "CLASS_NOT_FOUND",
+                                                                                                                                                  "message":  "클래스를 찾을 수 없습니다."
+                                                                                                                                              }
+                                                                                                                                }
+                                                                                                                     }
+                                                                                                    }
+                                                                           }
+                                                           },
+                                         "InvalidClassState":  {
+                                                                   "description":  "보관된 클래스 수정 또는 보관 불변식 위반",
+                                                                   "content":  {
+                                                                                   "application/json":  {
+                                                                                                            "schema":  {
+                                                                                                                           "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                       },
+                                                                                                            "examples":  {
+                                                                                                                             "성공":  {
+                                                                                                                                        "summary":  "성공",
+                                                                                                                                        "value":  {
+                                                                                                                                                      "code":  "INVALID_CLASS_STATE",
+                                                                                                                                                      "message":  "현재 클래스 상태에서는 요청을 처리할 수 없습니다."
+                                                                                                                                                  }
+                                                                                                                                    }
+                                                                                                                         }
+                                                                                                        }
+                                                                               }
+                                                               }
+                                     }
+                   },
+    "x-checkon-communication":  {
+                                    "caller":  "Frontend",
+                                    "receiver":  "Backend",
+                                    "scope":  "Roster Support, Class Management",
+                                    "serverUrl":  "http://localhost:8080/api/v1",
+                                    "source":  "apidog_1.openapi.json"
+                                }
+}

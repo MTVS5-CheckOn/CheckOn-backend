@@ -1,0 +1,502 @@
+{
+    "openapi":  "3.0.1",
+    "info":  {
+                 "title":  "CheckOn - Frontend to Backend - Authentication",
+                 "description":  "통신 방향: Frontend -\u003e Backend\n범위: Authentication\n원본 계약의 path, request, response 내용은 유지하고 통신 경계별로 분리했다.",
+                 "version":  "1.0.0"
+             },
+    "servers":  [
+                    {
+                        "url":  "http://localhost:8080/api/v1",
+                        "description":  "Local CheckOn backend API"
+                    }
+                ],
+    "tags":  [
+                 {
+                     "name":  "Authentication"
+                 }
+             ],
+    "paths":  {
+                  "/auth/sign-up/teachers":  {
+                                                 "post":  {
+                                                              "summary":  "강사 회원가입",
+                                                              "deprecated":  false,
+                                                              "description":  "이메일을 소문자로 정규화하고 TEACHER 계정과 강사 프로필을 함께 생성한다.",
+                                                              "operationId":  "signUpTeacher",
+                                                              "tags":  [
+                                                                           "Authentication"
+                                                                       ],
+                                                              "parameters":  [
+
+                                                                             ],
+                                                              "requestBody":  {
+                                                                                  "content":  {
+                                                                                                  "application/json":  {
+                                                                                                                           "schema":  {
+                                                                                                                                          "$ref":  "#/components/schemas/TeacherSignUpRequest"
+                                                                                                                                      }
+                                                                                                                       }
+                                                                                              },
+                                                                                  "required":  true
+                                                                              },
+                                                              "responses":  {
+                                                                                "201":  {
+                                                                                            "description":  "강사 계정 생성 성공",
+                                                                                            "content":  {
+                                                                                                            "application/json":  {
+                                                                                                                                     "schema":  {
+                                                                                                                                                    "$ref":  "#/components/schemas/TeacherSignUpResponse"
+                                                                                                                                                }
+                                                                                                                                 }
+                                                                                                        },
+                                                                                            "headers":  {
+                                                                                                            "Location":  {
+                                                                                                                             "required":  false,
+                                                                                                                             "description":  "생성된 Account 리소스 경로",
+                                                                                                                             "schema":  {
+                                                                                                                                            "type":  "string",
+                                                                                                                                            "format":  "uri-reference"
+                                                                                                                                        }
+                                                                                                                         }
+                                                                                                        }
+                                                                                        },
+                                                                                "400":  {
+                                                                                            "$ref":  "#/components/responses/SignUpInvalidRequest"
+                                                                                        },
+                                                                                "409":  {
+                                                                                            "$ref":  "#/components/responses/EmailAlreadyExists"
+                                                                                        }
+                                                                            },
+                                                              "security":  [
+
+                                                                           ]
+                                                          }
+                                             },
+                  "/auth/login":  {
+                                      "post":  {
+                                                   "summary":  "로그인",
+                                                   "deprecated":  false,
+                                                   "description":  "Access Token은 응답 본문으로, Refresh Token은 HttpOnly 쿠키로 발급한다.",
+                                                   "operationId":  "login",
+                                                   "tags":  [
+                                                                "Authentication"
+                                                            ],
+                                                   "parameters":  [
+
+                                                                  ],
+                                                   "requestBody":  {
+                                                                       "content":  {
+                                                                                       "application/json":  {
+                                                                                                                "schema":  {
+                                                                                                                               "$ref":  "#/components/schemas/LoginRequest"
+                                                                                                                           }
+                                                                                                            }
+                                                                                   },
+                                                                       "required":  true
+                                                                   },
+                                                   "responses":  {
+                                                                     "200":  {
+                                                                                 "description":  "로그인 성공",
+                                                                                 "content":  {
+                                                                                                 "application/json":  {
+                                                                                                                          "schema":  {
+                                                                                                                                         "$ref":  "#/components/schemas/AuthenticationResponse"
+                                                                                                                                     }
+                                                                                                                      }
+                                                                                             },
+                                                                                 "headers":  {
+                                                                                                 "Set-Cookie":  {
+                                                                                                                    "required":  false,
+                                                                                                                    "description":  "Path=/api/v1/auth로 제한된 HttpOnly Refresh Token 쿠키",
+                                                                                                                    "schema":  {
+                                                                                                                                   "type":  "string"
+                                                                                                                               }
+                                                                                                                }
+                                                                                             }
+                                                                             },
+                                                                     "400":  {
+                                                                                 "$ref":  "#/components/responses/InvalidRequest"
+                                                                             },
+                                                                     "401":  {
+                                                                                 "$ref":  "#/components/responses/AuthenticationFailed"
+                                                                             }
+                                                                 },
+                                                   "security":  [
+
+                                                                ]
+                                               }
+                                  },
+                  "/auth/refresh":  {
+                                        "post":  {
+                                                     "summary":  "인증 토큰 갱신",
+                                                     "deprecated":  false,
+                                                     "description":  "HttpOnly Refresh Token 쿠키를 회전시키고 새 Access Token을 발급한다. 브라우저 Origin은 서버 허용 목록과 일치해야 한다.",
+                                                     "operationId":  "refreshAuthentication",
+                                                     "tags":  [
+                                                                  "Authentication"
+                                                              ],
+                                                     "parameters":  [
+
+                                                                    ],
+                                                     "responses":  {
+                                                                       "200":  {
+                                                                                   "description":  "토큰 갱신 성공",
+                                                                                   "content":  {
+                                                                                                   "application/json":  {
+                                                                                                                            "schema":  {
+                                                                                                                                           "$ref":  "#/components/schemas/AuthenticationResponse"
+                                                                                                                                       }
+                                                                                                                        }
+                                                                                               },
+                                                                                   "headers":  {
+                                                                                                   "Set-Cookie":  {
+                                                                                                                      "required":  false,
+                                                                                                                      "description":  "회전된 HttpOnly Refresh Token 쿠키",
+                                                                                                                      "schema":  {
+                                                                                                                                     "type":  "string"
+                                                                                                                                 }
+                                                                                                                  }
+                                                                                               }
+                                                                               },
+                                                                       "401":  {
+                                                                                   "$ref":  "#/components/responses/InvalidSession"
+                                                                               },
+                                                                       "403":  {
+                                                                                   "$ref":  "#/components/responses/OriginNotAllowed"
+                                                                               }
+                                                                   },
+                                                     "security":  [
+                                                                      {
+                                                                          "refreshCookie":  [
+
+                                                                                            ]
+                                                                      }
+                                                                  ]
+                                                 }
+                                    },
+                  "/auth/logout":  {
+                                       "post":  {
+                                                    "summary":  "현재 인증 세션 로그아웃",
+                                                    "deprecated":  false,
+                                                    "description":  "현재 Access Token의 세션을 폐기하고 Refresh Token 쿠키를 만료시킨다.",
+                                                    "operationId":  "logout",
+                                                    "tags":  [
+                                                                 "Authentication"
+                                                             ],
+                                                    "parameters":  [
+
+                                                                   ],
+                                                    "responses":  {
+                                                                      "204":  {
+                                                                                  "description":  "로그아웃 성공",
+                                                                                  "headers":  {
+                                                                                                  "Set-Cookie":  {
+                                                                                                                     "required":  false,
+                                                                                                                     "description":  "Max-Age=0으로 만료된 Refresh Token 쿠키",
+                                                                                                                     "schema":  {
+                                                                                                                                    "type":  "string"
+                                                                                                                                }
+                                                                                                                 }
+                                                                                              }
+                                                                              },
+                                                                      "401":  {
+                                                                                  "$ref":  "#/components/responses/Unauthorized"
+                                                                              }
+                                                                  },
+                                                    "security":  [
+
+                                                                 ]
+                                                }
+                                   }
+              },
+    "components":  {
+                       "schemas":  {
+                                       "TeacherSignUpRequest":  {
+                                                                    "type":  "object",
+                                                                    "required":  [
+                                                                                     "email",
+                                                                                     "password",
+                                                                                     "displayName"
+                                                                                 ],
+                                                                    "properties":  {
+                                                                                       "email":  {
+                                                                                                     "type":  "string",
+                                                                                                     "maxLength":  320,
+                                                                                                     "description":  "앞뒤 공백 제거 후 소문자로 정규화한다."
+                                                                                                 },
+                                                                                       "password":  {
+                                                                                                        "type":  "string",
+                                                                                                        "format":  "password",
+                                                                                                        "minLength":  8,
+                                                                                                        "writeOnly":  true
+                                                                                                    },
+                                                                                       "displayName":  {
+                                                                                                           "type":  "string",
+                                                                                                           "minLength":  1,
+                                                                                                           "maxLength":  80
+                                                                                                       }
+                                                                                   }
+                                                                },
+                                       "TeacherSignUpResponse":  {
+                                                                     "type":  "object",
+                                                                     "required":  [
+                                                                                      "data"
+                                                                                  ],
+                                                                     "properties":  {
+                                                                                        "data":  {
+                                                                                                     "$ref":  "#/components/schemas/TeacherSignUpData"
+                                                                                                 }
+                                                                                    }
+                                                                 },
+                                       "LoginRequest":  {
+                                                            "type":  "object",
+                                                            "required":  [
+                                                                             "email",
+                                                                             "password"
+                                                                         ],
+                                                            "properties":  {
+                                                                               "email":  {
+                                                                                             "type":  "string",
+                                                                                             "maxLength":  320
+                                                                                         },
+                                                                               "password":  {
+                                                                                                "type":  "string",
+                                                                                                "format":  "password",
+                                                                                                "maxLength":  200,
+                                                                                                "writeOnly":  true
+                                                                                            }
+                                                                           }
+                                                        },
+                                       "AuthenticationResponse":  {
+                                                                      "type":  "object",
+                                                                      "required":  [
+                                                                                       "data"
+                                                                                   ],
+                                                                      "properties":  {
+                                                                                         "data":  {
+                                                                                                      "$ref":  "#/components/schemas/AuthenticationData"
+                                                                                                  }
+                                                                                     }
+                                                                  },
+                                       "TeacherSignUpData":  {
+                                                                 "type":  "object",
+                                                                 "required":  [
+                                                                                  "accountId",
+                                                                                  "teacherId",
+                                                                                  "role",
+                                                                                  "email"
+                                                                              ],
+                                                                 "properties":  {
+                                                                                    "accountId":  {
+                                                                                                      "type":  "string",
+                                                                                                      "format":  "uuid"
+                                                                                                  },
+                                                                                    "teacherId":  {
+                                                                                                      "type":  "string",
+                                                                                                      "format":  "uuid"
+                                                                                                  },
+                                                                                    "role":  {
+                                                                                                 "type":  "string",
+                                                                                                 "enum":  [
+                                                                                                              "TEACHER"
+                                                                                                          ]
+                                                                                             },
+                                                                                    "email":  {
+                                                                                                  "type":  "string",
+                                                                                                  "format":  "email"
+                                                                                              }
+                                                                                }
+                                                             },
+                                       "TeacherSignUpErrorResponse":  {
+                                                                          "type":  "object",
+                                                                          "required":  [
+                                                                                           "code",
+                                                                                           "message",
+                                                                                           "fieldErrors"
+                                                                                       ],
+                                                                          "properties":  {
+                                                                                             "code":  {
+                                                                                                          "type":  "string"
+                                                                                                      },
+                                                                                             "message":  {
+                                                                                                             "type":  "string"
+                                                                                                         },
+                                                                                             "fieldErrors":  {
+                                                                                                                 "type":  "array",
+                                                                                                                 "items":  {
+                                                                                                                               "$ref":  "#/components/schemas/FieldViolation"
+                                                                                                                           }
+                                                                                                             }
+                                                                                         }
+                                                                      },
+                                       "AuthenticationData":  {
+                                                                  "type":  "object",
+                                                                  "required":  [
+                                                                                   "accessToken",
+                                                                                   "accessTokenExpiresAt",
+                                                                                   "account"
+                                                                               ],
+                                                                  "properties":  {
+                                                                                     "accessToken":  {
+                                                                                                         "type":  "string",
+                                                                                                         "description":  "Bearer Access Token"
+                                                                                                     },
+                                                                                     "accessTokenExpiresAt":  {
+                                                                                                                  "type":  "string",
+                                                                                                                  "format":  "date-time"
+                                                                                                              },
+                                                                                     "account":  {
+                                                                                                     "$ref":  "#/components/schemas/AuthenticatedAccount"
+                                                                                                 }
+                                                                                 }
+                                                              },
+                                       "ErrorResponse":  {
+                                                             "type":  "object",
+                                                             "required":  [
+                                                                              "code",
+                                                                              "message"
+                                                                          ],
+                                                             "properties":  {
+                                                                                "code":  {
+                                                                                             "type":  "string"
+                                                                                         },
+                                                                                "message":  {
+                                                                                                "type":  "string"
+                                                                                            }
+                                                                            }
+                                                         },
+                                       "FieldViolation":  {
+                                                              "type":  "object",
+                                                              "required":  [
+                                                                               "field",
+                                                                               "message"
+                                                                           ],
+                                                              "properties":  {
+                                                                                 "field":  {
+                                                                                               "type":  "string"
+                                                                                           },
+                                                                                 "message":  {
+                                                                                                 "type":  "string"
+                                                                                             }
+                                                                             }
+                                                          },
+                                       "AuthenticatedAccount":  {
+                                                                    "type":  "object",
+                                                                    "required":  [
+                                                                                     "id",
+                                                                                     "role",
+                                                                                     "email",
+                                                                                     "teacherProfileId"
+                                                                                 ],
+                                                                    "properties":  {
+                                                                                       "id":  {
+                                                                                                  "type":  "string",
+                                                                                                  "format":  "uuid"
+                                                                                              },
+                                                                                       "role":  {
+                                                                                                    "$ref":  "#/components/schemas/AccountRole"
+                                                                                                },
+                                                                                       "email":  {
+                                                                                                     "type":  "string",
+                                                                                                     "format":  "email"
+                                                                                                 },
+                                                                                       "teacherProfileId":  {
+                                                                                                                "type":  "string",
+                                                                                                                "format":  "uuid",
+                                                                                                                "nullable":  true
+                                                                                                            }
+                                                                                   }
+                                                                },
+                                       "AccountRole":  {
+                                                           "type":  "string",
+                                                           "enum":  [
+                                                                        "TEACHER",
+                                                                        "PARENT",
+                                                                        "STUDENT"
+                                                                    ]
+                                                       }
+                                   },
+                       "responses":  {
+                                         "SignUpInvalidRequest":  {
+                                                                      "description":  "회원가입 요청 값 오류",
+                                                                      "content":  {
+                                                                                      "application/json":  {
+                                                                                                               "schema":  {
+                                                                                                                              "$ref":  "#/components/schemas/TeacherSignUpErrorResponse"
+                                                                                                                          }
+                                                                                                           }
+                                                                                  }
+                                                                  },
+                                         "EmailAlreadyExists":  {
+                                                                    "description":  "이미 가입된 이메일",
+                                                                    "content":  {
+                                                                                    "application/json":  {
+                                                                                                             "schema":  {
+                                                                                                                            "$ref":  "#/components/schemas/TeacherSignUpErrorResponse"
+                                                                                                                        }
+                                                                                                         }
+                                                                                }
+                                                                },
+                                         "InvalidRequest":  {
+                                                                "description":  "요청 값 오류",
+                                                                "content":  {
+                                                                                "application/json":  {
+                                                                                                         "schema":  {
+                                                                                                                        "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                    }
+                                                                                                     }
+                                                                            }
+                                                            },
+                                         "AuthenticationFailed":  {
+                                                                      "description":  "자격 증명 오류 또는 비활성 계정",
+                                                                      "content":  {
+                                                                                      "application/json":  {
+                                                                                                               "schema":  {
+                                                                                                                              "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                          }
+                                                                                                           }
+                                                                                  }
+                                                                  },
+                                         "InvalidSession":  {
+                                                                "description":  "Refresh Token이 없거나 세션이 만료·폐기됨",
+                                                                "content":  {
+                                                                                "application/json":  {
+                                                                                                         "schema":  {
+                                                                                                                        "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                    }
+                                                                                                     }
+                                                                            }
+                                                            },
+                                         "OriginNotAllowed":  {
+                                                                  "description":  "브라우저 Origin이 서버 허용 목록과 불일치",
+                                                                  "content":  {
+                                                                                  "application/json":  {
+                                                                                                           "schema":  {
+                                                                                                                          "$ref":  "#/components/schemas/ErrorResponse"
+                                                                                                                      }
+                                                                                                       }
+                                                                              }
+                                                              },
+                                         "Unauthorized":  {
+                                                              "description":  "인증 실패. Security filter가 생성하므로 JSON 오류 본문은 보장되지 않는다.",
+                                                              "content":  {
+                                                                              "application/json":  {
+                                                                                                       "schema":  {
+                                                                                                                      "type":  "object",
+                                                                                                                      "properties":  {
+
+                                                                                                                                     }
+                                                                                                                  }
+                                                                                                   }
+                                                                          }
+                                                          }
+                                     }
+                   },
+    "x-checkon-communication":  {
+                                    "caller":  "Frontend",
+                                    "receiver":  "Backend",
+                                    "scope":  "Authentication",
+                                    "serverUrl":  "http://localhost:8080/api/v1",
+                                    "source":  "apidog_1.openapi.json"
+                                }
+}

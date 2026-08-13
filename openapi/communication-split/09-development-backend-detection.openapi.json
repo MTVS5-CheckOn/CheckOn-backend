@@ -1,0 +1,528 @@
+{
+    "openapi":  "3.0.1",
+    "info":  {
+                 "title":  "CheckOn - Development Tool to Backend - Detection",
+                 "description":  "통신 방향: Apidog or Development Tool -\u003e Backend (dev profile only)\n범위: Development Detection Control\n원본 계약의 path, request, response 내용은 유지하고 통신 경계별로 분리했다.",
+                 "version":  "1.0.0"
+             },
+    "servers":  [
+                    {
+                        "url":  "http://localhost:8080",
+                        "description":  "Local CheckOn backend dev API"
+                    }
+                ],
+    "tags":  [
+                 {
+                     "name":  "Development Detection"
+                 }
+             ],
+    "paths":  {
+                  "/api/dev/detection-runs":  {
+                                                  "post":  {
+                                                               "summary":  "학습 데이터 (snapshot) DB에 보내기",
+                                                               "deprecated":  false,
+                                                               "description":  "",
+                                                               "tags":  [
+                                                                            "Development Detection"
+                                                                        ],
+                                                               "parameters":  [
+                                                                                  {
+                                                                                      "name":  "analysisDate",
+                                                                                      "in":  "query",
+                                                                                      "description":  "이번 AI 위험탐지 실행의 기준일",
+                                                                                      "required":  false,
+                                                                                      "schema":  {
+                                                                                                     "type":  "string",
+                                                                                                     "format":  "date"
+                                                                                                 }
+                                                                                  },
+                                                                                  {
+                                                                                      "name":  "Content-Type",
+                                                                                      "in":  "header",
+                                                                                      "description":  "요청 본문 형식",
+                                                                                      "required":  true,
+                                                                                      "schema":  {
+                                                                                                     "type":  "string"
+                                                                                                 }
+                                                                                  },
+                                                                                  {
+                                                                                      "name":  "X-Teacher-Id",
+                                                                                      "in":  "header",
+                                                                                      "description":  "임시 강사 식별자이자 테넌트 경계",
+                                                                                      "required":  true,
+                                                                                      "schema":  {
+                                                                                                     "type":  "string"
+                                                                                                 }
+                                                                                  },
+                                                                                  {
+                                                                                      "name":  "X-Tenant-Id",
+                                                                                      "in":  "header",
+                                                                                      "description":  "AI 통신에 사용할 강사 alias",
+                                                                                      "required":  true,
+                                                                                      "schema":  {
+                                                                                                     "type":  "string"
+                                                                                                 }
+                                                                                  }
+                                                                              ],
+                                                               "requestBody":  {
+                                                                                   "content":  {
+                                                                                                   "application/json":  {
+                                                                                                                            "schema":  {
+                                                                                                                                           "type":  "object",
+                                                                                                                                           "properties":  {
+                                                                                                                                                              "snapshot_meta":  {
+                                                                                                                                                                                    "type":  "object",
+                                                                                                                                                                                    "properties":  {
+                                                                                                                                                                                                       "week_start":  {
+                                                                                                                                                                                                                          "type":  "string"
+                                                                                                                                                                                                                      },
+                                                                                                                                                                                                       "snapshot_hash":  {
+                                                                                                                                                                                                                             "type":  "string"
+                                                                                                                                                                                                                         },
+                                                                                                                                                                                                       "term_context":  {
+                                                                                                                                                                                                                            "type":  "string"
+                                                                                                                                                                                                                        },
+                                                                                                                                                                                                       "classes":  {
+                                                                                                                                                                                                                       "type":  "array",
+                                                                                                                                                                                                                       "items":  {
+                                                                                                                                                                                                                                     "type":  "object",
+                                                                                                                                                                                                                                     "properties":  {
+                                                                                                                                                                                                                                                        "class_ref":  {
+                                                                                                                                                                                                                                                                          "type":  "string"
+                                                                                                                                                                                                                                                                      }
+                                                                                                                                                                                                                                                    },
+                                                                                                                                                                                                                                     "required":  [
+                                                                                                                                                                                                                                                      "class_ref"
+                                                                                                                                                                                                                                                  ]
+                                                                                                                                                                                                                                 }
+                                                                                                                                                                                                                   }
+                                                                                                                                                                                                   },
+                                                                                                                                                                                    "required":  [
+                                                                                                                                                                                                     "week_start",
+                                                                                                                                                                                                     "snapshot_hash",
+                                                                                                                                                                                                     "term_context",
+                                                                                                                                                                                                     "classes"
+                                                                                                                                                                                                 ]
+                                                                                                                                                                                },
+                                                                                                                                                              "students":  {
+                                                                                                                                                                               "type":  "array",
+                                                                                                                                                                               "items":  {
+                                                                                                                                                                                             "type":  "object",
+                                                                                                                                                                                             "properties":  {
+                                                                                                                                                                                                                "student_ref":  {
+                                                                                                                                                                                                                                    "type":  "string"
+                                                                                                                                                                                                                                },
+                                                                                                                                                                                                                "class_ref":  {
+                                                                                                                                                                                                                                  "type":  "string"
+                                                                                                                                                                                                                              },
+                                                                                                                                                                                                                "enrolled_weeks":  {
+                                                                                                                                                                                                                                       "type":  "integer"
+                                                                                                                                                                                                                                   },
+                                                                                                                                                                                                                "status":  {
+                                                                                                                                                                                                                               "type":  "string"
+                                                                                                                                                                                                                           },
+                                                                                                                                                                                                                "consent":  {
+                                                                                                                                                                                                                                "type":  "string"
+                                                                                                                                                                                                                            }
+                                                                                                                                                                                                            },
+                                                                                                                                                                                             "required":  [
+                                                                                                                                                                                                              "student_ref",
+                                                                                                                                                                                                              "class_ref",
+                                                                                                                                                                                                              "enrolled_weeks",
+                                                                                                                                                                                                              "status",
+                                                                                                                                                                                                              "consent"
+                                                                                                                                                                                                          ]
+                                                                                                                                                                                         }
+                                                                                                                                                                           },
+                                                                                                                                                              "learning_events":  {
+                                                                                                                                                                                      "type":  "array",
+                                                                                                                                                                                      "items":  {
+                                                                                                                                                                                                    "type":  "object",
+                                                                                                                                                                                                    "properties":  {
+                                                                                                                                                                                                                       "record_id":  {
+                                                                                                                                                                                                                                         "type":  "string"
+                                                                                                                                                                                                                                     },
+                                                                                                                                                                                                                       "student_ref":  {
+                                                                                                                                                                                                                                           "type":  "string"
+                                                                                                                                                                                                                                       },
+                                                                                                                                                                                                                       "type":  {
+                                                                                                                                                                                                                                    "type":  "string"
+                                                                                                                                                                                                                                },
+                                                                                                                                                                                                                       "occurred_at":  {
+                                                                                                                                                                                                                                           "type":  "string"
+                                                                                                                                                                                                                                       },
+                                                                                                                                                                                                                       "correct":  {
+                                                                                                                                                                                                                                       "type":  "boolean",
+                                                                                                                                                                                                                                       "nullable":  true
+                                                                                                                                                                                                                                   },
+                                                                                                                                                                                                                       "duration_sec":  {
+                                                                                                                                                                                                                                            "type":  "integer",
+                                                                                                                                                                                                                                            "nullable":  true
+                                                                                                                                                                                                                                        },
+                                                                                                                                                                                                                       "passage_word_count":  {
+                                                                                                                                                                                                                                                  "type":  "integer",
+                                                                                                                                                                                                                                                  "nullable":  true
+                                                                                                                                                                                                                                              },
+                                                                                                                                                                                                                       "area_tag":  {
+                                                                                                                                                                                                                                        "type":  "string",
+                                                                                                                                                                                                                                        "nullable":  true
+                                                                                                                                                                                                                                    },
+                                                                                                                                                                                                                       "subject_track":  {
+                                                                                                                                                                                                                                             "type":  "string",
+                                                                                                                                                                                                                                             "nullable":  true
+                                                                                                                                                                                                                                         },
+                                                                                                                                                                                                                       "type_tag":  {
+                                                                                                                                                                                                                                        "type":  "string",
+                                                                                                                                                                                                                                        "nullable":  true
+                                                                                                                                                                                                                                    },
+                                                                                                                                                                                                                       "item_format":  {
+                                                                                                                                                                                                                                           "type":  "string",
+                                                                                                                                                                                                                                           "nullable":  true
+                                                                                                                                                                                                                                       },
+                                                                                                                                                                                                                       "assignment_title_text":  {
+                                                                                                                                                                                                                                                     "type":  "string",
+                                                                                                                                                                                                                                                     "nullable":  true
+                                                                                                                                                                                                                                                 },
+                                                                                                                                                                                                                       "source":  {
+                                                                                                                                                                                                                                      "type":  "string"
+                                                                                                                                                                                                                                  }
+                                                                                                                                                                                                                   },
+                                                                                                                                                                                                    "required":  [
+                                                                                                                                                                                                                     "record_id",
+                                                                                                                                                                                                                     "student_ref",
+                                                                                                                                                                                                                     "type",
+                                                                                                                                                                                                                     "occurred_at",
+                                                                                                                                                                                                                     "correct",
+                                                                                                                                                                                                                     "duration_sec",
+                                                                                                                                                                                                                     "passage_word_count",
+                                                                                                                                                                                                                     "area_tag",
+                                                                                                                                                                                                                     "subject_track",
+                                                                                                                                                                                                                     "type_tag",
+                                                                                                                                                                                                                     "item_format",
+                                                                                                                                                                                                                     "assignment_title_text",
+                                                                                                                                                                                                                     "source"
+                                                                                                                                                                                                                 ]
+                                                                                                                                                                                                }
+                                                                                                                                                                                  },
+                                                                                                                                                              "alert_context":  {
+                                                                                                                                                                                    "type":  "array",
+                                                                                                                                                                                    "items":  {
+                                                                                                                                                                                                  "type":  "object",
+                                                                                                                                                                                                  "properties":  {
+                                                                                                                                                                                                                     "student_ref":  {
+                                                                                                                                                                                                                                         "type":  "string"
+                                                                                                                                                                                                                                     },
+                                                                                                                                                                                                                     "signal_type":  {
+                                                                                                                                                                                                                                         "type":  "string"
+                                                                                                                                                                                                                                     },
+                                                                                                                                                                                                                     "status":  {
+                                                                                                                                                                                                                                    "type":  "string"
+                                                                                                                                                                                                                                },
+                                                                                                                                                                                                                     "resolved_at":  {
+                                                                                                                                                                                                                                         "type":  "string",
+                                                                                                                                                                                                                                         "nullable":  true,
+                                                                                                                                                                                                                                         "format":  "date-time"
+                                                                                                                                                                                                                                     },
+                                                                                                                                                                                                                     "followed_up":  {
+                                                                                                                                                                                                                                         "type":  "boolean"
+                                                                                                                                                                                                                                     }
+                                                                                                                                                                                                                 }
+                                                                                                                                                                                              }
+                                                                                                                                                                                }
+                                                                                                                                                          },
+                                                                                                                                           "required":  [
+                                                                                                                                                            "snapshot_meta",
+                                                                                                                                                            "students",
+                                                                                                                                                            "learning_events",
+                                                                                                                                                            "alert_context"
+                                                                                                                                                        ]
+                                                                                                                                       }
+                                                                                                                        }
+                                                                                               },
+                                                                                   "required":  true
+                                                                               },
+                                                               "responses":  {
+                                                                                 "200":  {
+                                                                                             "description":  "",
+                                                                                             "content":  {
+                                                                                                             "application/json":  {
+                                                                                                                                      "schema":  {
+                                                                                                                                                     "type":  "object",
+                                                                                                                                                     "properties":  {
+                                                                                                                                                                        "runId":  {
+                                                                                                                                                                                      "type":  "string",
+                                                                                                                                                                                      "format":  "uuid"
+                                                                                                                                                                                  },
+                                                                                                                                                                        "status":  {
+                                                                                                                                                                                       "type":  "string"
+                                                                                                                                                                                   },
+                                                                                                                                                                        "analysisDate":  {
+                                                                                                                                                                                             "type":  "string",
+                                                                                                                                                                                             "format":  "date"
+                                                                                                                                                                                         },
+                                                                                                                                                                        "weekStart":  {
+                                                                                                                                                                                          "type":  "string",
+                                                                                                                                                                                          "format":  "date"
+                                                                                                                                                                                      },
+                                                                                                                                                                        "snapshotHash":  {
+                                                                                                                                                                                             "type":  "string"
+                                                                                                                                                                                         },
+                                                                                                                                                                        "idempotencyKey":  {
+                                                                                                                                                                                               "type":  "string"
+                                                                                                                                                                                           },
+                                                                                                                                                                        "created":  {
+                                                                                                                                                                                        "type":  "boolean"
+                                                                                                                                                                                    }
+                                                                                                                                                                    },
+                                                                                                                                                     "required":  [
+                                                                                                                                                                      "runId",
+                                                                                                                                                                      "status",
+                                                                                                                                                                      "analysisDate",
+                                                                                                                                                                      "weekStart",
+                                                                                                                                                                      "snapshotHash",
+                                                                                                                                                                      "idempotencyKey",
+                                                                                                                                                                      "created"
+                                                                                                                                                                  ],
+                                                                                                                                                     "description":  "같은 강사·날짜·Snapshot으로 다시 요청하면 기존 Run을 반환"
+                                                                                                                                                 }
+                                                                                                                                  }
+                                                                                                         },
+                                                                                             "headers":  {
+
+                                                                                                         }
+                                                                                         },
+                                                                                 "201":  {
+                                                                                             "description":  "",
+                                                                                             "content":  {
+                                                                                                             "application/json":  {
+                                                                                                                                      "schema":  {
+                                                                                                                                                     "type":  "object",
+                                                                                                                                                     "properties":  {
+                                                                                                                                                                        "runId":  {
+                                                                                                                                                                                      "type":  "string",
+                                                                                                                                                                                      "format":  "uuid",
+                                                                                                                                                                                      "description":  "생성된 위험탐지 실행 식별자"
+                                                                                                                                                                                  },
+                                                                                                                                                                        "status":  {
+                                                                                                                                                                                       "type":  "string",
+                                                                                                                                                                                       "description":  "현재 실행 상태, 최초에는 PREPARED"
+                                                                                                                                                                                   },
+                                                                                                                                                                        "analysisDate":  {
+                                                                                                                                                                                             "type":  "string",
+                                                                                                                                                                                             "format":  "date",
+                                                                                                                                                                                             "description":  "실행 기준일"
+                                                                                                                                                                                         },
+                                                                                                                                                                        "weekStart":  {
+                                                                                                                                                                                          "type":  "string",
+                                                                                                                                                                                          "format":  "date",
+                                                                                                                                                                                          "description":  "AI 판정 기준 주의 시작일"
+                                                                                                                                                                                      },
+                                                                                                                                                                        "snapshotHash":  {
+                                                                                                                                                                                             "type":  "string",
+                                                                                                                                                                                             "description":  "백엔드가 계산한 Snapshot SHA-256"
+                                                                                                                                                                                         },
+                                                                                                                                                                        "idempotencyKey":  {
+                                                                                                                                                                                               "type":  "string",
+                                                                                                                                                                                               "description":  "AI 호출에 사용할 일별 멱등키"
+                                                                                                                                                                                           },
+                                                                                                                                                                        "created":  {
+                                                                                                                                                                                        "type":  "boolean",
+                                                                                                                                                                                        "description":  "신규 생성 여부"
+                                                                                                                                                                                    }
+                                                                                                                                                                    },
+                                                                                                                                                     "required":  [
+                                                                                                                                                                      "runId",
+                                                                                                                                                                      "status",
+                                                                                                                                                                      "analysisDate",
+                                                                                                                                                                      "weekStart",
+                                                                                                                                                                      "snapshotHash",
+                                                                                                                                                                      "idempotencyKey",
+                                                                                                                                                                      "created"
+                                                                                                                                                                  ]
+                                                                                                                                                 }
+                                                                                                                                  }
+                                                                                                         },
+                                                                                             "headers":  {
+
+                                                                                                         }
+                                                                                         },
+                                                                                 "409":  {
+                                                                                             "description":  "",
+                                                                                             "content":  {
+                                                                                                             "application/json":  {
+                                                                                                                                      "schema":  {
+                                                                                                                                                     "type":  "object",
+                                                                                                                                                     "properties":  {
+                                                                                                                                                                        "code":  {
+                                                                                                                                                                                     "type":  "string"
+                                                                                                                                                                                 },
+                                                                                                                                                                        "message":  {
+                                                                                                                                                                                        "type":  "string"
+                                                                                                                                                                                    }
+                                                                                                                                                                    },
+                                                                                                                                                     "required":  [
+                                                                                                                                                                      "code",
+                                                                                                                                                                      "message"
+                                                                                                                                                                  ],
+                                                                                                                                                     "description":  "같은 강사·같은 날짜에 다른 Snapshot이나 다른 tenant alias를 보내면 충돌."
+                                                                                                                                                 }
+                                                                                                                                  }
+                                                                                                         },
+                                                                                             "headers":  {
+
+                                                                                                         }
+                                                                                         }
+                                                                             },
+                                                               "security":  [
+
+                                                                            ]
+                                                           }
+                                              },
+                  "/api/dev/detection-runs/{runId}/execute":  {
+                                                                  "post":  {
+                                                                               "summary":  "위험탐지 실행",
+                                                                               "deprecated":  false,
+                                                                               "description":  "준비된 DetectionRun을 실행한다.\n\n백엔드는 runId에 저장된 Snapshot을 조회하여 AI 서버의\nPOST /v1/detect API를 호출한다.\n\nAI 응답이 성공하면 위험신호와 근거 데이터를 PostgreSQL에 저장하고\nDetectionRun과 요청 시도를 SUCCEEDED 상태로 변경한다.\n\nApidog는 실제 프론트 대신 이 API를 호출한다.\n개발용 dev 프로필에서만 사용할 수 있다.\n\n사전 조건\n\n1. POST /api/dev/detection-runs 호출이 완료되어야 한다.\n2. 응답으로 받은 runId가 필요하다.\n3. DetectionRun 상태가 PREPARED 또는 FAILED여야 한다.\n4. Spring Boot 서버가 dev 프로필로 실행 중이어야 한다.\n5. AI 서버의 POST /v1/detect API가 실행 중이어야 한다.\n6. (백엔드) AI_BASE_URL이 AI 서버 주소로 설정되어 있어야 한다.\n\n실행 가능한 상태:\n| 현재 Run 상태 | 실행 가능 여부 |\n|---|---:|\n| `PREPARED` | 가능 |\n| `FAILED` | 재시도 가능 |\n| `REQUESTED` | 불가능 |\n| `SUCCEEDED` | 불가능 |",
+                                                                               "tags":  [
+                                                                                            "Development Detection"
+                                                                                        ],
+                                                                               "parameters":  [
+                                                                                                  {
+                                                                                                      "name":  "runId",
+                                                                                                      "in":  "path",
+                                                                                                      "description":  "첫 번째 API에서 생성된 실행 식별자",
+                                                                                                      "required":  true,
+                                                                                                      "schema":  {
+                                                                                                                     "type":  "string",
+                                                                                                                     "format":  "uuid"
+                                                                                                                 }
+                                                                                                  },
+                                                                                                  {
+                                                                                                      "name":  "X-Teacher-Id",
+                                                                                                      "in":  "header",
+                                                                                                      "description":  "Run을 생성한 강사 ID",
+                                                                                                      "required":  true,
+                                                                                                      "schema":  {
+                                                                                                                     "type":  "string"
+                                                                                                                 }
+                                                                                                  },
+                                                                                                  {
+                                                                                                      "name":  "X-Tenant-Id",
+                                                                                                      "in":  "header",
+                                                                                                      "description":  "Run 생성 시 사용한 강사 alias",
+                                                                                                      "required":  true,
+                                                                                                      "schema":  {
+                                                                                                                     "type":  "string"
+                                                                                                                 }
+                                                                                                  }
+                                                                                              ],
+                                                                               "responses":  {
+                                                                                                 "200":  {
+                                                                                                             "description":  "이 응답을 받았다면 다음 처리가 모두 완료된 것입니다.\n\nAI 서버 호출 성공\nAI 응답 역직렬화 성공\nSignal 저장 성공\nEvidence 저장 성공\nDetectionRun 성공 전이\nDetectionRequestAttempt 성공 전이",
+                                                                                                             "content":  {
+                                                                                                                             "application/json":  {
+                                                                                                                                                      "schema":  {
+                                                                                                                                                                     "type":  "object",
+                                                                                                                                                                     "properties":  {
+                                                                                                                                                                                        "runId":  {
+                                                                                                                                                                                                      "type":  "string",
+                                                                                                                                                                                                      "format":  "uuid",
+                                                                                                                                                                                                      "description":  "실행이 완료된 DetectionRun ID"
+                                                                                                                                                                                                  },
+                                                                                                                                                                                        "status":  {
+                                                                                                                                                                                                       "type":  "string",
+                                                                                                                                                                                                       "description":  "실행 결과 상태, 성공하면 SUCCEEDED"
+                                                                                                                                                                                                   }
+                                                                                                                                                                                    },
+                                                                                                                                                                     "required":  [
+                                                                                                                                                                                      "runId",
+                                                                                                                                                                                      "status"
+                                                                                                                                                                                  ]
+                                                                                                                                                                 }
+                                                                                                                                                  }
+                                                                                                                         }
+                                                                                                         },
+                                                                                                 "404":  {
+                                                                                                             "description":  "",
+                                                                                                             "content":  {
+                                                                                                                             "application/json":  {
+                                                                                                                                                      "schema":  {
+                                                                                                                                                                     "type":  "object",
+                                                                                                                                                                     "properties":  {
+                                                                                                                                                                                        "code":  {
+                                                                                                                                                                                                     "type":  "string"
+                                                                                                                                                                                                 },
+                                                                                                                                                                                        "message":  {
+                                                                                                                                                                                                        "type":  "string"
+                                                                                                                                                                                                    }
+                                                                                                                                                                                    },
+                                                                                                                                                                     "required":  [
+                                                                                                                                                                                      "code",
+                                                                                                                                                                                      "message"
+                                                                                                                                                                                  ]
+                                                                                                                                                                 }
+                                                                                                                                                  }
+                                                                                                                         }
+                                                                                                         },
+                                                                                                 "409":  {
+                                                                                                             "description":  "",
+                                                                                                             "content":  {
+                                                                                                                             "application/json":  {
+                                                                                                                                                      "schema":  {
+                                                                                                                                                                     "type":  "object",
+                                                                                                                                                                     "properties":  {
+                                                                                                                                                                                        "code":  {
+                                                                                                                                                                                                     "type":  "string"
+                                                                                                                                                                                                 },
+                                                                                                                                                                                        "message":  {
+                                                                                                                                                                                                        "type":  "string"
+                                                                                                                                                                                                    }
+                                                                                                                                                                                    },
+                                                                                                                                                                     "required":  [
+                                                                                                                                                                                      "code",
+                                                                                                                                                                                      "message"
+                                                                                                                                                                                  ]
+                                                                                                                                                                 }
+                                                                                                                                                  }
+                                                                                                                         }
+                                                                                                         },
+                                                                                                 "502":  {
+                                                                                                             "description":  "Backend → AI 연결은 성공\nAI 서버가 4xx 또는 5xx 반환\nBackend는 실행 실패 이력을 DB에 저장",
+                                                                                                             "content":  {
+                                                                                                                             "application/json":  {
+                                                                                                                                                      "schema":  {
+                                                                                                                                                                     "type":  "object",
+                                                                                                                                                                     "properties":  {
+                                                                                                                                                                                        "code":  {
+                                                                                                                                                                                                     "type":  "string"
+                                                                                                                                                                                                 },
+                                                                                                                                                                                        "message":  {
+                                                                                                                                                                                                        "type":  "string"
+                                                                                                                                                                                                    }
+                                                                                                                                                                                    },
+                                                                                                                                                                     "required":  [
+                                                                                                                                                                                      "code",
+                                                                                                                                                                                      "message"
+                                                                                                                                                                                  ]
+                                                                                                                                                                 }
+                                                                                                                                                  }
+                                                                                                                         }
+                                                                                                         }
+                                                                                             },
+                                                                               "security":  [
+
+                                                                                            ]
+                                                                           }
+                                                              }
+              },
+    "components":  {
+
+                   },
+    "x-checkon-communication":  {
+                                    "caller":  "Apidog or Development Tool",
+                                    "receiver":  "Backend (dev profile only)",
+                                    "scope":  "Development Detection Control",
+                                    "serverUrl":  "http://localhost:8080",
+                                    "source":  "apidog_1.openapi.json"
+                                }
+}
