@@ -1146,9 +1146,10 @@ components:
         createdAt: {type: string, format: date-time}
     AlertDetail:
       type: object
-      required: [alertId, studentId, studentName, className, ruleId, signalType, displayLabel, brief, briefFallback, status, createdAt, evidence]
+      required: [alertId, runId, studentId, studentName, className, ruleId, signalType, displayLabel, brief, briefFallback, status, createdAt, evidence]
       properties:
         alertId: {type: string, format: uuid}
+        runId: {type: string, format: uuid, description: Alert 원천 Signal이 속한 Detection run 식별자}
         studentId: {type: string, format: uuid}
         studentName: {type: string, nullable: true, description: key는 존재하며 미등록 시 null. alias로 대체하지 않는다.}
         className: {type: string, nullable: true, description: 신호 class_ref를 현재 강사 소유 반으로 해석하지 못하면 null.}

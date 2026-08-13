@@ -666,7 +666,7 @@
 - 결정 상태: `CONFIRMED`
 - 구현 상태: `IMPLEMENTED`
 - 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
-- API: `GET /api/v1/engagement/alerts/{alertId}` 하나로 상세 화면을 복원할 수 있도록 `alertId`, `studentId`, nullable `studentName`, nullable `className`, `ruleId`, `signalType`, `displayLabel`, `brief`, `briefFallback`, `status`, `createdAt`, `evidence[]`를 반환한다.
+- API: `GET /api/v1/engagement/alerts/{alertId}` 하나로 상세 화면과 원천 실행을 복원할 수 있도록 `alertId`, `runId`, `studentId`, nullable `studentName`, nullable `className`, `ruleId`, `signalType`, `displayLabel`, `brief`, `briefFallback`, `status`, `createdAt`, `evidence[]`를 반환한다. `runId`는 Alert가 참조하는 Signal의 Detection run 식별자이며 API 소비자가 DB 조인 없이 실행 상태를 역추적하는 데 사용한다.
 - Evidence: 각 항목은 저장된 `sourceHint`, `recordId`, `summary`를 제공하며 원본 학습 기록이나 학생 개인정보를 새로 조합하지 않는다.
 - 테넌트·보안: 인증 주체의 `teacherProfileId`와 PostgreSQL RLS를 함께 적용하고, 없음과 다른 테넌트 접근은 동일한 404로 처리한다.
 - 마지막 검증일: 2026-08-13

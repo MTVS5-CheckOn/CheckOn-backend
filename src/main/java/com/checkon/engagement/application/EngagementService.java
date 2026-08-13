@@ -61,6 +61,7 @@ public class EngagementService {
 		AlertMetadata metadata = jdbcTemplate.queryForObject("""
 			SELECT personal.real_name AS student_name,
 			       class_group.name AS class_name,
+			       signal.detection_run_id AS run_id,
 			       signal.rule_id,
 			       signal.signal_type,
 			       signal.display_label,
@@ -78,6 +79,7 @@ public class EngagementService {
 			""", (resultSet, rowNumber) -> new AlertMetadata(
 			resultSet.getString("student_name"),
 			resultSet.getString("class_name"),
+			resultSet.getObject("run_id", UUID.class),
 			resultSet.getString("rule_id"),
 			resultSet.getString("signal_type"),
 			resultSet.getString("display_label"),
@@ -96,7 +98,7 @@ public class EngagementService {
 			resultSet.getString("summary")
 		), alert.detectionSignalResultId());
 		return new AlertDetail(
-			alert.id(), alert.studentId(), metadata.studentName(), metadata.className(),
+			alert.id(), metadata.runId(), alert.studentId(), metadata.studentName(), metadata.className(),
 			metadata.ruleId(), metadata.signalType(), metadata.displayLabel(), metadata.brief(),
 			metadata.briefFallback(), alert.status(), alert.createdAt(), evidence
 		);
@@ -297,6 +299,7 @@ public class EngagementService {
 
 	public record AlertDetail(
 		UUID alertId,
+		UUID runId,
 		UUID studentId,
 		String studentName,
 		String className,
@@ -314,6 +317,7 @@ public class EngagementService {
 	private record AlertMetadata(
 		String studentName,
 		String className,
+		UUID runId,
 		String ruleId,
 		String signalType,
 		String displayLabel,
