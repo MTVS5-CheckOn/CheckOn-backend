@@ -17,6 +17,6 @@ public record DetectionResultEvidenceDraft(
 	public DetectionResultEvidenceDraft(
 		UUID id, String sourceHint, String recordId, String summary
 	) {
-		this(id, sourceHint, recordId, summary, null, null, null, null);
+		this(id, sourceHint, recordId, summary, "trigger", null, null, null);
 	}
 }

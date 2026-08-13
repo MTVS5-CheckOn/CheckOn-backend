@@ -124,8 +124,8 @@ class EngagementPersistenceIntegrationTest {
 		insertSignal(run, SIGNAL_WITHOUT_EVIDENCE, "without-evidence");
 		jdbc.update("""
 			INSERT INTO detection_result_evidence
-			    (detection_signal_result_id, source_hint, record_id, summary)
-			VALUES (?, 'learning_records', 'record-1', 'verified evidence')
+			    (detection_signal_result_id, source_hint, record_id, summary, role)
+			VALUES (?, 'learning_records', 'record-1', 'verified evidence', 'trigger')
 			""", SIGNAL_WITH_EVIDENCE);
 
 		approvedAlert = jdbc.queryForObject("""
@@ -187,8 +187,8 @@ class EngagementPersistenceIntegrationTest {
 			""", advisorySignal, run, offset(NOW));
 		jdbc.update("""
 			INSERT INTO detection_result_evidence
-			    (detection_signal_result_id, source_hint, record_id, summary)
-			VALUES (?, 'learning_event', 'advisory-record', '참고 근거')
+			    (detection_signal_result_id, source_hint, record_id, summary, role)
+			VALUES (?, 'learning_event', 'advisory-record', '참고 근거', 'trigger')
 			""", advisorySignal);
 
 		engagementCandidateService.createPendingAlerts(TEACHER, run, NOW);
@@ -470,8 +470,8 @@ class EngagementPersistenceIntegrationTest {
 			""", signal, run, externalId, studentRef, signalType, lifecycle, offset(NOW));
 		jdbc.update("""
 			INSERT INTO detection_result_evidence
-			    (detection_signal_result_id, source_hint, record_id, summary)
-			VALUES (?, 'learning_records', ?, 'verified evidence')
+			    (detection_signal_result_id, source_hint, record_id, summary, role)
+			VALUES (?, 'learning_records', ?, 'verified evidence', 'trigger')
 			""", signal, externalId + "-evidence");
 		return signal;
 	}

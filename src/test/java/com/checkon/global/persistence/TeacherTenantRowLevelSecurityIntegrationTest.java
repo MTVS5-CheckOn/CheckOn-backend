@@ -683,8 +683,8 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			""", signalId, runId, "external-" + signalId, studentRef);
 		administrator.update("""
 			INSERT INTO detection_result_evidence
-			    (id, detection_signal_result_id, source_hint, record_id, summary)
-			VALUES (?, ?, 'learning_event', ?, 'evidence')
+			    (id, detection_signal_result_id, source_hint, record_id, summary, role)
+			VALUES (?, ?, 'learning_event', ?, 'evidence', 'trigger')
 			""", UUID.randomUUID(), signalId, "record-" + signalId);
 	}
 
@@ -813,8 +813,8 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 		throws SQLException {
 		try (PreparedStatement statement = connection.prepareStatement("""
 			INSERT INTO detection_result_evidence
-			    (id, detection_signal_result_id, source_hint, record_id, summary)
-			VALUES (?, ?, 'learning_event', ?, 'cross tenant')
+			    (id, detection_signal_result_id, source_hint, record_id, summary, role)
+			VALUES (?, ?, 'learning_event', ?, 'cross tenant', 'trigger')
 			""")) {
 			UUID evidenceId = UUID.randomUUID();
 			statement.setObject(1, evidenceId);

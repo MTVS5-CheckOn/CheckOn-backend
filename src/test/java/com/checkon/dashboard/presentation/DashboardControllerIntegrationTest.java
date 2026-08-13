@@ -393,7 +393,7 @@ class DashboardControllerIntegrationTest {
 			""", signalId, runId, "signal-" + key + ruleId, alias, classRef, ruleId,
 			"hidden_risk", "위험", rank, "브리핑 " + key + " " + suffix, fallback,
 			NOW.atOffset(ZoneOffset.UTC));
-		jdbc.update("INSERT INTO detection_result_evidence(detection_signal_result_id,source_hint,record_id,summary) VALUES (?,'learning_records',?,?)",
+		jdbc.update("INSERT INTO detection_result_evidence(detection_signal_result_id,source_hint,record_id,summary,role) VALUES (?,'learning_records',?,?,'trigger')",
 			signalId, "record-" + key + "-" + suffix, "근거 " + key + " " + suffix);
 		String note = status.equals("REJECTED") ? "오경보" : null;
 		Object decidedAt = status.equals("PENDING_REVIEW") ? null : NOW.atOffset(ZoneOffset.UTC);
