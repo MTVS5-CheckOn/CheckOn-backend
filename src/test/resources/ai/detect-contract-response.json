@@ -51,7 +51,8 @@
           {
             "source_table": "learning_event",
             "record_id": "le_1054",
-            "summary": "return_care 근거 기록"
+            "summary": "return_care 근거 기록",
+            "role": "trigger"
           }
         ]
       }

@@ -389,6 +389,65 @@ class DetectionResponseStorageServiceTest {
 	}
 
 	@Test
+	@DisplayName("Given evidence without role, When storing, Then the response is rejected atomically")
+	void givenEvidenceWithoutRole_whenStoring_thenRejectsWithoutPartialRows()
+		throws IOException {
+		UUID runId = UUID.fromString("019846dc-7c00-7000-8000-000000000295");
+		UUID attemptId = UUID.fromString("019846dc-7c00-7000-8000-000000000296");
+		prepareRequestedRun(runId, attemptId, LocalDate.of(2026, 8, 17));
+		AiDetectionResponse response = readDemoResponse();
+		AiDetectionResponse.Signal first = response.data().signals().getFirst();
+		AiDetectionResponse.Evidence source = first.evidence().getFirst();
+		AiDetectionResponse invalid = withSignals(response, List.of(new AiDetectionResponse.Signal(
+			first.signalId(), first.studentRef(), first.classRef(), first.ruleId(),
+			first.signalType(), first.displayLabel(), first.metric(), first.observed(),
+			first.baseline(), first.sampleSize(), first.score(), first.rank(), first.advisory(),
+			first.lifecycle(), first.brief(), List.of(new AiDetectionResponse.Evidence(
+				source.sourceTable(), source.recordId(), source.summary(), null,
+				source.observed(), source.sampleSize(), source.occurredOn()
+			))
+		)));
+
+		assertRejectedWithoutPartialRows(runId, attemptId, invalid);
+	}
+
+	@Test
+	@DisplayName("Given R1 with four trigger evidence rows, When storing, Then the response is rejected atomically")
+	void givenR1WithFourTriggerEvidenceRows_whenStoring_thenRejectsWithoutPartialRows()
+		throws IOException {
+		UUID runId = UUID.fromString("019846dc-7c00-7000-8000-000000000297");
+		UUID attemptId = UUID.fromString("019846dc-7c00-7000-8000-000000000298");
+		List<AiDetectionRequest.DetectionEvidence> requestEvidence = new java.util.ArrayList<>();
+		List<AiDetectionResponse.Evidence> responseEvidence = new java.util.ArrayList<>();
+		for (int index = 0; index < 4; index++) {
+			LocalDate occurredOn = LocalDate.of(2026, 7, 13).plusWeeks(index);
+			String recordId = "activity:st_10:" + occurredOn;
+			requestEvidence.add(AiDetectionRequest.DetectionEvidence.weeklyActivity(
+				"student_week_activity", recordId, "st_10", occurredOn, index
+			));
+			responseEvidence.add(new AiDetectionResponse.Evidence(
+				"student_week_activity", recordId, "정답률 근거", "trigger",
+				BigDecimal.valueOf(index), null, occurredOn
+			));
+		}
+		prepareRequestedRunWithEvidence(
+			runId, attemptId, LocalDate.of(2026, 8, 18), requestEvidence
+		);
+		AiDetectionResponse base = readDemoResponse();
+		AiDetectionResponse.Signal source = base.data().signals().getFirst();
+		AiDetectionResponse.Signal r1 = new AiDetectionResponse.Signal(
+			source.signalId(), source.studentRef(), source.classRef(), "R1", "acc_drop",
+			"정답률 하락", "accuracy", BigDecimal.valueOf(0.5), BigDecimal.valueOf(0.8),
+			4, source.score(), source.rank(), source.advisory(), source.lifecycle(),
+			source.brief(), responseEvidence
+		);
+
+		assertRejectedWithoutPartialRows(
+			runId, attemptId, withSignals(base, List.of(r1))
+		);
+	}
+
+	@Test
 	@DisplayName("Given R3 with four trigger evidence rows, When storing, Then the response is rejected atomically")
 	void givenR3WithFourTriggerEvidenceRows_whenStoring_thenRejectsWithoutPartialRows()
 		throws IOException {

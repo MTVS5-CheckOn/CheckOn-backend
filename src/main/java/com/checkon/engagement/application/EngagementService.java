@@ -100,7 +100,11 @@ public class EngagementService {
 			SELECT id, source_hint, record_id, summary, role, observed, sample_size, occurred_on
 			FROM detection_result_evidence
 			WHERE detection_signal_result_id = ?
-			ORDER BY created_at, id
+			ORDER BY
+				CASE role WHEN 'trigger' THEN 0 ELSE 1 END,
+				occurred_on DESC NULLS LAST,
+				created_at,
+				id
 			""", (resultSet, rowNumber) -> new EvidenceView(
 			resultSet.getObject("id", UUID.class),
 			resultSet.getString("source_hint"),

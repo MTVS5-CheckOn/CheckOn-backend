@@ -213,6 +213,13 @@ class CheckOnApplicationTests {
 			  AND table_name = 'detection_result_evidence'
 			  AND column_name IN ('role', 'observed', 'sample_size', 'occurred_on')
 			""", Integer.class);
+		String evidenceRoleNullable = jdbcTemplate.queryForObject("""
+			SELECT is_nullable
+			FROM information_schema.columns
+			WHERE table_schema = 'public'
+			  AND table_name = 'detection_result_evidence'
+			  AND column_name = 'role'
+			""", String.class);
 
 		assertThat(detectionRuns).isEqualTo("detection_runs");
 		assertThat(detectionAttempts).isEqualTo("detection_request_attempts");
@@ -237,10 +244,11 @@ class CheckOnApplicationTests {
 		assertThat(advisoryColumns).isEqualTo(1);
 		assertThat(structuredSignalColumns).isEqualTo(4);
 		assertThat(structuredEvidenceColumns).isEqualTo(4);
+		assertThat(evidenceRoleNullable).isEqualTo("NO");
 		assertThat(jdbcTemplate.queryForObject(
 			"SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1",
 			String.class
-		)).isEqualTo("24");
+		)).isEqualTo("25");
 	}
 
 	@Test

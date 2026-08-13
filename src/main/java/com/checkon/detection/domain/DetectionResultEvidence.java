@@ -34,7 +34,7 @@ public class DetectionResultEvidence {
 	@Column(nullable = false, columnDefinition = "text")
 	private String summary;
 
-	@Column(length = 20)
+	@Column(nullable = false, length = 20)
 	private String role;
 
 	@Column
@@ -65,7 +65,7 @@ public class DetectionResultEvidence {
 		this.sourceHint = requireText(draft.sourceHint(), "sourceHint");
 		this.recordId = requireText(draft.recordId(), "recordId");
 		this.summary = requireText(draft.summary(), "summary");
-		this.role = draft.role();
+		this.role = requireText(draft.role(), "role");
 		this.observed = draft.observed();
 		this.sampleSize = draft.sampleSize();
 		this.occurredOn = draft.occurredOn();

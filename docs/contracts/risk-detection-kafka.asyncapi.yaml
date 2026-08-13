@@ -227,7 +227,7 @@ components:
             Optional evidence facts. New v1 requests emit assignment_window rows that exist,
             weekly_activity from each student's relationship-start week through the analysis
             week, up to the ten-week snapshot window, and enrollment_transition for a
-            paused-to-returned event in the analysis week.
+            transition whose to_status is returned in the analysis week.
             Weeks before relationship start are omitted because no evidence exists; real
             zero-activity weeks on or after relationship start use activity_count=0.
             Missing assignment rows are omitted rather than synthesized as zero. Array omission
@@ -272,7 +272,7 @@ components:
         record_id: { type: string, minLength: 1 }
         student_ref: { type: string, pattern: '^st_[0-9a-f]{32}$' }
         occurred_at: { type: string, format: date-time }
-        from_status: { const: paused }
+        from_status: { type: string, enum: [enrolled, paused, returned] }
         to_status: { const: returned }
     DetectionResponse:
       type: object
@@ -325,15 +325,15 @@ components:
                     type: array
                     items:
                       type: object
-                      required: [source_table, record_id, summary]
+                      required: [source_table, record_id, summary, role]
                       properties:
                         source_table: { type: string }
                         record_id: { type: string }
                         summary: { type: string }
                         role:
-                          type: [string, 'null']
-                          enum: [trigger, baseline, null]
-                          description: Required when any structured evidence value is present.
+                          type: string
+                          enum: [trigger, baseline]
+                          description: Evidence role. baseline is emitted only for R3.
                         observed:
                           type: [number, 'null']
                           description: Observed value belonging to this evidence record.

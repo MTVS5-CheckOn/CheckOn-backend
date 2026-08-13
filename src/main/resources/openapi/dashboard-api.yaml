@@ -480,7 +480,7 @@ paths:
       tags: [Engagement]
       operationId: getEngagementAlertDetail
       summary: Alert 상세 조회
-      description: alertId 하나로 학생·반·신호 표시 정보와 생성순 Evidence를 반환한다.
+      description: alertId 하나로 학생·반·신호 표시 정보와 역할별 최신 Evidence를 반환한다. 신호 수치는 Evidence 개수가 아니라 signal의 observed를 사용한다.
       parameters: [{$ref: '#/components/parameters/AlertId'}]
       responses:
         '200':
@@ -1222,14 +1222,14 @@ components:
         signalType: {type: string}
         displayLabel: {type: string}
         metric: {type: string, nullable: true, description: 표시 단위 선택용 AI 지표. return_care는 null이다.}
-        observed: {type: number, nullable: true, description: 신호 전체의 관측값. 단위는 metric으로 판별한다.}
+        observed: {type: number, nullable: true, description: 신호 전체의 관측값. 단위는 metric으로 판별하며 Evidence 개수로 대체하지 않는다.}
         baseline: {type: number, nullable: true, description: 평소 비교값. null이면 평소 대비 문구를 표시하지 않는다.}
         sampleSize: {type: integer, minimum: 0, nullable: true, description: 지표별 표본 수. 의미는 metric으로 판별한다.}
         brief: {type: string}
         briefFallback: {type: boolean}
         status: {$ref: '#/components/schemas/AlertStatus'}
         createdAt: {type: string, format: date-time}
-        evidence: {type: array, items: {$ref: '#/components/schemas/EvidenceView'}}
+        evidence: {type: array, description: "전량이 아닌 표시용 최신 근거다. trigger와 baseline 각각 최대 3건이며 각 역할 안에서는 occurredOn 최신순이다.", items: {$ref: '#/components/schemas/EvidenceView'}}
     EvidenceView:
       type: object
       required: [id, sourceHint, recordId, summary, role, observed, sampleSize, occurredOn]
@@ -1238,7 +1238,7 @@ components:
         sourceHint: {type: string}
         recordId: {type: string}
         summary: {type: string, description: 하위 호환용 문자열이며 신규 수치 표시의 데이터 원천으로 사용하지 않는다.}
-        role: {type: string, enum: [trigger, baseline], nullable: true}
+        role: {type: string, enum: [trigger, baseline]}
         observed: {type: number, nullable: true}
         sampleSize: {type: integer, minimum: 0, nullable: true}
         occurredOn: {type: string, format: date, nullable: true}
