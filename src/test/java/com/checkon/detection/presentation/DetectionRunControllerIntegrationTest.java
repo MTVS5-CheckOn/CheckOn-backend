@@ -176,7 +176,7 @@ class DetectionRunControllerIntegrationTest {
 			"SELECT id FROM detection_runs WHERE teacher_id = ?", UUID.class, TEACHER);
 		jdbc.update("""
 			UPDATE detection_runs
-			SET status = 'SUCCEEDED', completed_at = now(), ai_execution_id = 'stats-test',
+			SET status = 'SUCCEEDED', completed_at = requested_at, ai_execution_id = 'stats-test',
 			    response_stats_payload = ?
 			WHERE id = ?
 			""", """
