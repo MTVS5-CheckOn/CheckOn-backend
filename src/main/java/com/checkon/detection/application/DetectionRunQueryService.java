@@ -1,5 +1,6 @@
 package com.checkon.detection.application;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -82,12 +83,30 @@ public class DetectionRunQueryService {
 				stats.path("signals_raised").asInt(),
 				stats.path("excluded_under_2w").asInt(),
 				stats.path("capped_out").asInt(),
-				List.copyOf(skippedRules)
+				List.copyOf(skippedRules),
+				nullableDecimal(stats, "r1_threshold_pp"),
+				nullableText(stats, "r1_threshold_source"),
+				nullableInteger(stats, "r1_pool_n")
 			);
 		}
 		catch (JacksonException exception) {
 			throw new IllegalStateException("Stored detection stats are invalid", exception);
 		}
+	}
+
+	private BigDecimal nullableDecimal(JsonNode parent, String field) {
+		JsonNode value = parent.path(field);
+		return value.isMissingNode() || value.isNull() ? null : value.decimalValue();
+	}
+
+	private String nullableText(JsonNode parent, String field) {
+		JsonNode value = parent.path(field);
+		return value.isMissingNode() || value.isNull() ? null : value.asText();
+	}
+
+	private Integer nullableInteger(JsonNode parent, String field) {
+		JsonNode value = parent.path(field);
+		return value.isMissingNode() || value.isNull() ? null : value.asInt();
 	}
 
 	public record DetectionRunView(
@@ -105,7 +124,10 @@ public class DetectionRunQueryService {
 		int signalsRaised,
 		int excludedUnderTwoWeeks,
 		int cappedOut,
-		List<SkippedRuleView> rulesSkipped
+		List<SkippedRuleView> rulesSkipped,
+		BigDecimal r1ThresholdPp,
+		String r1ThresholdSource,
+		Integer r1PoolN
 	) {
 	}
 

@@ -295,7 +295,8 @@ class DetectionRunControllerIntegrationTest {
 			    response_stats_payload = ?
 			WHERE id = ?
 			""", """
-			{"students_evaluated":3,"signals_raised":0,"excluded_under_2w":0,"capped_out":0,
+			{"students_evaluated":3,"signals_raised":0,"excluded_under_2w":0,"capped_out":1,
+			 "r1_threshold_pp":30.0,"r1_threshold_source":"quantile","r1_pool_n":112,
 			 "rules_skipped":[
 			   {"rule_id":"R2","reason":"authoritative_evidence_missing","students":1},
 			   {"rule_id":"R3","reason":"authoritative_evidence_missing","students":1}
@@ -306,11 +307,44 @@ class DetectionRunControllerIntegrationTest {
 				.with(teacherAuthentication(TEACHER)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.stats.signalsRaised").value(0))
+			.andExpect(jsonPath("$.stats.cappedOut").value(1))
+			.andExpect(jsonPath("$.stats.r1ThresholdPp").value(30.0))
+			.andExpect(jsonPath("$.stats.r1ThresholdSource").value("quantile"))
+			.andExpect(jsonPath("$.stats.r1PoolN").value(112))
 			.andExpect(jsonPath("$.stats.rulesSkipped.length()").value(2))
 			.andExpect(jsonPath("$.stats.rulesSkipped[0].ruleId").value("R2"))
 			.andExpect(jsonPath("$.stats.rulesSkipped[0].reason")
 				.value("authoritative_evidence_missing"))
 			.andExpect(jsonPath("$.stats.rulesSkipped[0].students").value(1));
+	}
+
+	@Test
+	@DisplayName("Given R1 진단값이 없는 기존 성공 Run, When 상태를 조회하면, Then 진단 필드를 null로 반환한다")
+	void givenLegacyStatsWithoutR1Diagnostics_whenReadingStatus_thenReturnsNullableFields()
+		throws Exception {
+		mockMvc.perform(post("/api/v1/detection-runs")
+				.with(teacherAuthentication(TEACHER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"analysisDate\":\"2026-08-03\"}"))
+			.andExpect(status().isAccepted());
+		UUID runId = jdbc.queryForObject(
+			"SELECT id FROM detection_runs WHERE teacher_id = ?", UUID.class, TEACHER);
+		jdbc.update("""
+			UPDATE detection_runs
+			SET status = 'SUCCEEDED', completed_at = requested_at, ai_execution_id = 'legacy-stats',
+			    response_stats_payload = ?
+			WHERE id = ?
+			""", """
+			{"students_evaluated":1,"signals_raised":0,"excluded_under_2w":0,"capped_out":0,
+			 "rules_skipped":[]}
+			""", runId);
+
+		mockMvc.perform(get("/api/v1/detection-runs/{runId}", runId)
+				.with(teacherAuthentication(TEACHER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.stats.r1ThresholdPp").isEmpty())
+			.andExpect(jsonPath("$.stats.r1ThresholdSource").isEmpty())
+			.andExpect(jsonPath("$.stats.r1PoolN").isEmpty());
 	}
 
 	@Test
