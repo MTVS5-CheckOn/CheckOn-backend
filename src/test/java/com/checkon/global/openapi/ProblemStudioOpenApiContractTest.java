@@ -26,6 +26,9 @@ class ProblemStudioOpenApiContractTest {
 			.contains("/problem-studio/requests/{requestId}/save:")
 			.contains("/problem-studio/requests/{requestId}/publish:")
 			.contains("/problem-studio/requests/{requestId}/printable:")
+			.contains("ProblemStudioGenerationCapability:")
+			.contains("description: 현재 AI evidence로 생성 가능한 셀만 포함한다.")
+			.contains("typeTag: {type: string, enum: [CONCEPT, INFER]}")
 			.contains("enum: [PASSED, REVIEW_REQUIRED, UNVERIFIABLE, EXCLUDED]")
 			.contains("enum: [GOOD, WEAK_SIGNAL, WEAK_CONFIRMED, ON_HOLD]");
 	}

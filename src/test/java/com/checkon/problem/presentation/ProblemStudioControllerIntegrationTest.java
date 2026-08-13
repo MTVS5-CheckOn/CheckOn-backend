@@ -109,6 +109,11 @@ class ProblemStudioControllerIntegrationTest {
 					.with(teacherAuthentication(TEACHER)))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.minimumSampleSize").value(10))
+				.andExpect(jsonPath("$.generationCapabilities.length()").value(2))
+				.andExpect(jsonPath("$.generationCapabilities[?(@.areaTag == 'language' && @.typeTag == 'CONCEPT')].recommendedMaximumCount")
+					.value(3))
+				.andExpect(jsonPath("$.generationCapabilities[?(@.areaTag == 'language' && @.typeTag == 'INFER')].maximumCount")
+					.value(20))
 				.andExpect(jsonPath("$.cells[?(@.areaTag == '독서' && @.typeTag == 'FACT')].evaluation")
 					.value("GOOD"))
 				.andExpect(jsonPath("$.cells[?(@.areaTag == '독서' && @.typeTag == 'INFER')].evaluation")
@@ -132,8 +137,8 @@ class ProblemStudioControllerIntegrationTest {
 						{
 						  "studentId":"%s",
 						  "targets":[
-						    {"areaTag":"독서","typeTag":"FACT","count":7},
-						    {"areaTag":"문학","typeTag":"INFER","count":5}
+						    {"areaTag":"LANGUAGE","typeTag":"CONCEPT","count":3},
+						    {"areaTag":"language","typeTag":"INFER","count":2}
 						  ],
 						  "difficulty":"LOW"
 						}
@@ -164,7 +169,7 @@ class ProblemStudioControllerIntegrationTest {
 			String requestPayload = jdbc.queryForObject(
 				"SELECT request_payload::text FROM problem_generation_requests WHERE id = ?",
 				String.class, requestId);
-			assertThat(requestPayload).contains("generation_targets", "teacher_weakness_selection", "mixed", "\"count\": 7")
+			assertThat(requestPayload).contains("generation_targets", "teacher_weakness_selection", "language", "\"count\": 5")
 				.doesNotContain(STUDENT.toString());
 
 			String tenantAlias = jdbc.queryForObject(
@@ -185,7 +190,8 @@ class ProblemStudioControllerIntegrationTest {
 				.andExpect(jsonPath("$.counts.unverifiable").value(1))
 				.andExpect(jsonPath("$.counts.excluded").value(1))
 				.andExpect(jsonPath("$.items[0].stem").value("음운 변동 유형을 고르세요."))
-				.andExpect(jsonPath("$.items[0].options[0].correct").value(true));
+				.andExpect(jsonPath("$.items[0].correctAnswerText").value("정답"))
+				.andExpect(jsonPath("$.items[0].options[2].correct").value(true));
 
 			List<UUID> selected = jdbc.queryForList("""
 				SELECT id FROM problem_generation_items
@@ -240,14 +246,42 @@ class ProblemStudioControllerIntegrationTest {
 					.contentType(MediaType.APPLICATION_JSON)
 					.content("""
 						{"studentId":"%s","targets":[
-						 {"areaTag":"독서","typeTag":"FACT","count":12},
-						 {"areaTag":"문학","typeTag":"INFER","count":9}
+						 {"areaTag":"language","typeTag":"CONCEPT","count":12},
+						 {"areaTag":"language","typeTag":"INFER","count":9}
 						],"difficulty":"MEDIUM"}
 						""".formatted(STUDENT)))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM problem_generation_requests", Integer.class)).isZero();
 		}
+
+		@Test
+		@DisplayName("When AI evidence가 없는 셀을 요청하면 Then 요청과 Outbox를 만들지 않는다")
+		void rejectsCellWithoutAiEvidence() throws Exception {
+			mvc.perform(post("/api/v1/problem-studio/requests")
+					.with(teacherAuthentication(TEACHER))
+					.header("Idempotency-Key", "studio-request-key-0003")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+						{"studentId":"%s","targets":[
+						 {"areaTag":"language","typeTag":"FACT","count":1}
+						],"difficulty":"MEDIUM"}
+						""".formatted(STUDENT)))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM problem_generation_requests", Integer.class)).isZero();
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM problem_generation_outbox", Integer.class)).isZero();
+		}
+	}
+
+	@Test
+	@DisplayName("Given 학생 계정일 때 When Problem Studio를 조회하면 Then 강사 전용 경계에서 거절한다")
+	void rejectsStudentRoleAtSecurityBoundary() throws Exception {
+		var principal = new AuthenticatedAccount(UUID.randomUUID(), AccountRole.STUDENT, null, UUID.randomUUID());
+		mvc.perform(get("/api/v1/problem-studio/students")
+				.with(authentication(UsernamePasswordAuthenticationToken.authenticated(
+					principal, null, List.of(new SimpleGrantedAuthority("ROLE_STUDENT"))))))
+			.andExpect(status().isForbidden());
 	}
 
 	private void insertRoster() {
@@ -298,10 +332,10 @@ class ProblemStudioControllerIntegrationTest {
 			    "worker_kind":"problem_generation","problem_request_id":"%s",
 			    "job_id":"studio-job","execution_id":"studio-execution","set_id":"studio-set",
 			    "result_status":"completed","result":{"problems":[
-			      {"id":"p1","stem":"음운 변동 유형을 고르세요.","options":["정답","오답1","오답2","오답3","오답4"],"correct_answer":"정답","source_basis":"최근 오답 영역","validation_status":"passed"},
-			      {"id":"p2","question":"문학 표현법을 고르세요.","choices":["정답","오답1","오답2","오답3","오답4"],"answer":"정답","generation_basis":"추론형 약점","validation_status":"review_required","validation_message":"문제 의도 확인 필요"},
-			      {"id":"p3","stem":"검증 불가 문항","options":["정답","오답"],"correct_answer":"정답","validation_status":"unverifiable"},
-			      {"id":"p4","stem":"제외 문항","options":["정답","오답"],"correct_answer":"정답","validation_status":"excluded","exclusion_reason":"생성 실패"}
+			      {"id":"p1","stem":"음운 변동 유형을 고르세요.","choices":[{"no":1,"text":"오답1","why_wrong":"근거 불일치"},{"no":2,"text":"오답2","why_wrong":"근거 불일치"},{"no":3,"text":"정답","why_wrong":null}],"answer":{"correct_no":3},"source_basis":"최근 오답 영역","validation_status":"verified"},
+			      {"id":"p2","question":"문학 표현법을 고르세요.","choices":[{"no":1,"text":"정답","why_wrong":null},{"no":2,"text":"오답","why_wrong":"근거 불일치"}],"answer":{"correct_no":1},"generation_basis":"추론형 약점","validation_status":"needs_review","validation_message":"문제 의도 확인 필요"},
+			      {"id":"p3","stem":"검증 불가 문항","options":["정답","오답"],"answer":{"correct_no":1},"validation_status":"verification_unavailable"},
+			      {"id":"p4","stem":"제외 문항","options":["정답","오답"],"answer":{"correct_no":1},"validation_status":"dropped","exclusion_reason":"생성 실패"}
 			    ]},"versions":{"model":"m2-v2"}
 			  }
 			}

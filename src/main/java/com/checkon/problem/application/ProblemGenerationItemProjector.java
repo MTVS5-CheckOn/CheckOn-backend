@@ -117,7 +117,15 @@ public class ProblemGenerationItemProjector {
 	private String correctAnswer(JsonNode item, List<String> options) {
 		JsonNode answer = firstNode(item, "correct_answer", "answer", "correctAnswer");
 		if (answer != null && !answer.isNull()) {
-			String raw = answer.isTextual() ? answer.asText().trim() : answer.asText();
+			if (answer.isObject()) {
+				JsonNode correctNo = answer.get("correct_no");
+				if (correctNo != null && correctNo.canConvertToInt()) {
+					int oneBased = correctNo.asInt();
+					return oneBased >= 1 && oneBased <= options.size() ? options.get(oneBased - 1) : null;
+				}
+				return null;
+			}
+			String raw = answer.asText().trim();
 			String matched = matchOption(raw, options);
 			return matched == null ? raw : matched;
 		}
@@ -169,8 +177,8 @@ public class ProblemGenerationItemProjector {
 		return switch (raw.trim().toLowerCase(Locale.ROOT).replace('-', '_')) {
 			case "passed", "pass", "verified", "valid", "success" -> ProblemValidationStatus.PASSED;
 			case "review_required", "needs_review", "warning", "manual_review" -> ProblemValidationStatus.REVIEW_REQUIRED;
-			case "unverifiable", "verification_failed", "invalid", "error" -> ProblemValidationStatus.UNVERIFIABLE;
-			case "excluded", "discarded", "rejected", "disposed" -> ProblemValidationStatus.EXCLUDED;
+			case "unverifiable", "verification_unavailable", "verification_failed", "invalid", "error" -> ProblemValidationStatus.UNVERIFIABLE;
+			case "excluded", "dropped", "discarded", "rejected", "disposed" -> ProblemValidationStatus.EXCLUDED;
 			default -> null;
 		};
 	}

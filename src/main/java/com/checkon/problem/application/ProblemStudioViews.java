@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.checkon.problem.domain.ProblemStudioEvaluation;
+import com.checkon.problem.domain.ProblemTypeTag;
 import com.checkon.problem.domain.ProblemValidationStatus;
 
 public final class ProblemStudioViews {
@@ -36,7 +37,15 @@ public final class ProblemStudioViews {
 		LocalDate windowEnd,
 		int minimumSampleSize,
 		BigDecimal studentAveragePercent,
-		List<WeaknessCell> cells
+		List<WeaknessCell> cells,
+		List<GenerationCapability> generationCapabilities
+	) { }
+
+	public record GenerationCapability(
+		String areaTag,
+		ProblemTypeTag typeTag,
+		int maximumCount,
+		int recommendedMaximumCount
 	) { }
 
 	public record WeaknessCell(
