@@ -1142,8 +1142,16 @@ components:
         evidence: {type: array, items: {$ref: '#/components/schemas/EvidenceView'}}
     EvidenceView:
       type: object
-      required: [id, sourceHint, recordId, summary]
-      properties: {id: {type: string, format: uuid}, sourceHint: {type: string}, recordId: {type: string}, summary: {type: string}}
+      required: [id, sourceHint, recordId, summary, role, observed, sampleSize, occurredOn]
+      properties:
+        id: {type: string, format: uuid}
+        sourceHint: {type: string}
+        recordId: {type: string}
+        summary: {type: string, description: 하위 호환용 문자열이며 신규 수치 표시의 데이터 원천으로 사용하지 않는다.}
+        role: {type: string, enum: [trigger, baseline], nullable: true}
+        observed: {type: number, nullable: true}
+        sampleSize: {type: integer, minimum: 0, nullable: true}
+        occurredOn: {type: string, format: date, nullable: true}
     InterventionView:
       type: object
       required: [id, alertId, studentId, type, content, status, createdAt]
