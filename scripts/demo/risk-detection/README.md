@@ -52,3 +52,11 @@ $env:TEST_TEACHER_PROFILE_ID = '0198f000-0000-7000-8000-000000009001'
 ```
 
 스크립트는 기존 기본 시연 강사와 분리된 고정 UUID를 사용한다. 같은 기준 주의 학습 기록과 동일 분석일 실행이 이미 있으면 중복 생성하지 않고 기존 데이터를 재검증한다. 완료 JSON의 `runId`, `status`, `rulesSkipped`, 규칙별 신호 수, evidence 수, Alert 수로 Kafka 왕복과 결과 영속화를 확인할 수 있다.
+
+첫 실행 다음 날을 분석일로 다시 실행하면 기존 Alert가 `alert_context`로 전달되어 lifecycle 2회차를 검증할 수 있다. 결과의 `signalsByLifecycle`에서 `ONGOING`·`FOLLOW_UP` 여부를 확인한다.
+
+```powershell
+.\scripts\run-risk-detection-e2e.ps1 -AnalysisDate 2026-08-15
+```
+
+AI 팀 원본 17명 시드에는 `PAUSED` 학생이 없다. `st_15`는 휴원생이 아니라 정상 대조군이므로 시드 의미를 바꾸지 않았고, 휴원 상태 전달은 `DetectionRunControllerIntegrationTest`의 별도 운영 경로 테스트로 검증한다.
