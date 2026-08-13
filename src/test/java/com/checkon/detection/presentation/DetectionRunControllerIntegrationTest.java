@@ -153,10 +153,49 @@ class DetectionRunControllerIntegrationTest {
 				.with(teacherAuthentication(TEACHER)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.status").value("REQUESTED"))
-			.andExpect(jsonPath("$.attemptCount").value(1));
+			.andExpect(jsonPath("$.attemptCount").value(1))
+			.andExpect(jsonPath("$.stats").isEmpty());
 		mockMvc.perform(get("/api/v1/detection-runs/{runId}", runId)
 				.with(teacherAuthentication(OTHER_TEACHER)))
 			.andExpect(status().isNotFound());
+	}
+
+	@Test
+	@DisplayName("Given 근거 부족 규칙이 저장된 Run, When 상태를 조회하면, Then 규칙과 사유와 학생 수를 반환한다")
+	void givenRunWithSkippedRules_whenOwnerReadsStatus_thenReturnsOperationalStats()
+		throws Exception {
+		insertLearningRecord(TEACHER, STUDENT,
+			UUID.fromString("0198b000-0000-7000-8000-000000000104"),
+			Instant.parse("2026-07-20T01:00:00Z"));
+		mockMvc.perform(post("/api/v1/detection-runs")
+				.with(teacherAuthentication(TEACHER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"analysisDate\":\"2026-08-03\"}"))
+			.andExpect(status().isAccepted());
+		UUID runId = jdbc.queryForObject(
+			"SELECT id FROM detection_runs WHERE teacher_id = ?", UUID.class, TEACHER);
+		jdbc.update("""
+			UPDATE detection_runs
+			SET status = 'SUCCEEDED', completed_at = requested_at, ai_execution_id = 'stats-test',
+			    response_stats_payload = ?
+			WHERE id = ?
+			""", """
+			{"students_evaluated":3,"signals_raised":0,"excluded_under_2w":0,"capped_out":0,
+			 "rules_skipped":[
+			   {"rule_id":"R2","reason":"authoritative_evidence_missing","students":1},
+			   {"rule_id":"R3","reason":"authoritative_evidence_missing","students":1}
+			 ]}
+			""", runId);
+
+		mockMvc.perform(get("/api/v1/detection-runs/{runId}", runId)
+				.with(teacherAuthentication(TEACHER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.stats.signalsRaised").value(0))
+			.andExpect(jsonPath("$.stats.rulesSkipped.length()").value(2))
+			.andExpect(jsonPath("$.stats.rulesSkipped[0].ruleId").value("R2"))
+			.andExpect(jsonPath("$.stats.rulesSkipped[0].reason")
+				.value("authoritative_evidence_missing"))
+			.andExpect(jsonPath("$.stats.rulesSkipped[0].students").value(1));
 	}
 
 	@Test
