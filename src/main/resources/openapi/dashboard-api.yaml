@@ -999,13 +999,33 @@ components:
         attemptNumber: {type: integer, format: int32, minimum: 1}
     DetectionRunStatusResponse:
       type: object
-      required: [runId, status, analysisDate, attemptCount, errorCode]
+      required: [runId, status, analysisDate, attemptCount, errorCode, stats]
       properties:
         runId: {type: string, format: uuid}
         status: {$ref: '#/components/schemas/DetectionRunStatus'}
         analysisDate: {type: string, format: date}
         attemptCount: {type: integer, format: int32, minimum: 0}
         errorCode: {type: string, nullable: true}
+        stats:
+          allOf: [{$ref: '#/components/schemas/DetectionRunStats'}]
+          nullable: true
+          description: 성공 결과가 저장되기 전에는 null. rulesSkipped로 신호 0건과 규칙 실행 불가를 구분한다.
+    DetectionRunStats:
+      type: object
+      required: [studentsEvaluated, signalsRaised, excludedUnderTwoWeeks, cappedOut, rulesSkipped]
+      properties:
+        studentsEvaluated: {type: integer, format: int32, minimum: 0}
+        signalsRaised: {type: integer, format: int32, minimum: 0}
+        excludedUnderTwoWeeks: {type: integer, format: int32, minimum: 0}
+        cappedOut: {type: integer, format: int32, minimum: 0}
+        rulesSkipped: {type: array, items: {$ref: '#/components/schemas/SkippedDetectionRule'}}
+    SkippedDetectionRule:
+      type: object
+      required: [ruleId, reason, students]
+      properties:
+        ruleId: {type: string, example: R2}
+        reason: {type: string, example: authoritative_evidence_missing}
+        students: {type: integer, format: int32, minimum: 0}
     ClassStatus: {type: string, enum: [ACTIVE, ARCHIVED]}
     ClassDetailsRequest:
       type: object
@@ -1126,9 +1146,10 @@ components:
         createdAt: {type: string, format: date-time}
     AlertDetail:
       type: object
-      required: [alertId, studentId, studentName, className, ruleId, signalType, displayLabel, brief, briefFallback, status, createdAt, evidence]
+      required: [alertId, runId, studentId, studentName, className, ruleId, signalType, displayLabel, brief, briefFallback, status, createdAt, evidence]
       properties:
         alertId: {type: string, format: uuid}
+        runId: {type: string, format: uuid, description: Alert 원천 Signal이 속한 Detection run 식별자}
         studentId: {type: string, format: uuid}
         studentName: {type: string, nullable: true, description: key는 존재하며 미등록 시 null. alias로 대체하지 않는다.}
         className: {type: string, nullable: true, description: 신호 class_ref를 현재 강사 소유 반으로 해석하지 못하면 null.}

@@ -434,6 +434,7 @@
 - v1 위험신호 범위: v1은 R1(정답률 하락)·R3(학습 공백)·R4(숨은 위기)·R6(유형 편중)만 사용한다. 과제 예정 건수와 휴원·복귀를 만드는 production 기능이 없는 동안 R2(제출 저조)·R5(복귀 케어)는 제외한다.
 - 학습 공백 근거: `payload.detection_evidence`는 선택 필드이며 기존 request와 저장 snapshot의 `assignment_window`·`enrollment_transition` 역직렬화 호환성은 유지한다. 새 v1 요청은 `weekly_activity`만 만든다. 학생별 `teacher_student_relationships.started_at`의 `Asia/Seoul` 소속 주 월요일보다 이전 주는 근거 미존재로 행을 생략하고, 관계 시작 주부터 실제 활동이 0건이면 `activity_count=0`을 보낸다. 논리 `source_table`은 `student_week_activity`로 고정하고 실제 PostgreSQL 물리 테이블명은 외부에 노출하지 않는다. 적용된 V15 테이블과 RLS 정책은 변경하지 않는다.
 - 근거 조회: AI 완료 결과의 `(source_table, record_id)`는 해당 run의 불변 요청 스냅샷에 존재하는 정확한 쌍만 저장한다. 기존 학습 기록의 legacy source name은 호환을 위해 record_id 기준으로 읽되, 새 부재·복귀 근거는 쌍을 엄격히 대조한다. 강사 Alert 상세 화면은 저장된 source·record_id·AI 요약을 제공한다.
+- 운영 조회: 강사 Detection run 상태 조회는 성공 응답에 저장된 `stats`와 `rules_skipped`의 규칙 ID·사유·대상 학생 수를 제공한다. 실행 중이거나 실패해 성공 stats가 없으면 `stats=null`을 반환해 정상적인 신호 0건과 근거 부족으로 규칙을 실행하지 못한 경우를 구분한다.
 - advisory 신호: AI 응답의 `advisory`는 `detection_signal_results`에 보존한다. `true`이면 학생 상세 참고용으로만 유지하며 Engagement Alert·오늘 할 일(Todo)·대시보드 확인 필요 신호 후보에서 제외하고 TOP N 슬롯을 소비하지 않는다. `false`만 기존 Alert 후보 흐름을 따른다.
 - advisory lifecycle: advisory 신호는 Alert와 `alert_context`를 만들지 않으며 반복 실행에서 `lifecycle=new`가 될 수 있는 현재 동작을 유지한다.
 - hash: `detection_evidence`는 `snapshot_hash` 대상이다. 누락과 빈 배열은 동일하고, 배열은 `(kind, student_ref, at, source_table, record_id)`, JSON key는 오름차순, UTF-8·공백 없는 JSON으로 정규화한다. `snapshot_hash` 자신과 `classes`는 hash 입력에서 제외한다. AI 팀이 수정된 참조 구현과 실요청형 벡터를 제공하기 전까지 Java hasher와 고정 벡터 테스트를 변경하지 않는다.
@@ -668,7 +669,7 @@
 - 결정 상태: `CONFIRMED`
 - 구현 상태: `IMPLEMENTED`
 - 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
-- API: `GET /api/v1/engagement/alerts/{alertId}` 하나로 상세 화면을 복원할 수 있도록 `alertId`, `studentId`, nullable `studentName`, nullable `className`, `ruleId`, `signalType`, `displayLabel`, `brief`, `briefFallback`, `status`, `createdAt`, `evidence[]`를 반환한다.
+- API: `GET /api/v1/engagement/alerts/{alertId}` 하나로 상세 화면과 원천 실행을 복원할 수 있도록 `alertId`, `runId`, `studentId`, nullable `studentName`, nullable `className`, `ruleId`, `signalType`, `displayLabel`, `brief`, `briefFallback`, `status`, `createdAt`, `evidence[]`를 반환한다. `runId`는 Alert가 참조하는 Signal의 Detection run 식별자이며 API 소비자가 DB 조인 없이 실행 상태를 역추적하는 데 사용한다.
 - Evidence: 각 항목은 저장된 `sourceHint`, `recordId`, `summary`를 제공하며 원본 학습 기록이나 학생 개인정보를 새로 조합하지 않는다.
 - 테넌트·보안: 인증 주체의 `teacherProfileId`와 PostgreSQL RLS를 함께 적용하고, 없음과 다른 테넌트 접근은 동일한 404로 처리한다.
 - 마지막 검증일: 2026-08-13

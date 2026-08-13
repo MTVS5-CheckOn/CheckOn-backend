@@ -20,6 +20,7 @@ import com.checkon.account.infrastructure.security.AuthenticatedAccount;
 import com.checkon.detection.application.OperationalDetectionRunService;
 import com.checkon.detection.application.OperationalDetectionRunService.OperationalDetectionRun;
 import com.checkon.detection.application.DetectionRunQueryService;
+import com.checkon.detection.application.DetectionRunQueryService.DetectionRunStatsView;
 import com.checkon.detection.domain.DetectionRunStatus;
 
 @RestController
@@ -72,7 +73,7 @@ public class DetectionRunController {
 		var result = queryService.find(authenticatedAccount.teacherProfileId(), runId);
 		return new DetectionRunStatusResponse(
 			result.runId(), result.status(), result.analysisDate(),
-			result.attemptCount(), result.errorCode()
+			result.attemptCount(), result.errorCode(), result.stats()
 		);
 	}
 
@@ -93,7 +94,8 @@ public class DetectionRunController {
 		DetectionRunStatus status,
 		LocalDate analysisDate,
 		int attemptCount,
-		String errorCode
+		String errorCode,
+		DetectionRunStatsView stats
 	) {
 	}
 }
