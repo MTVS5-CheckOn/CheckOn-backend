@@ -150,11 +150,21 @@
 - 결정 필요:
   - 학생 회원가입 및 계정 연결 방식
   - 보호자와 초대 흐름
-  - 관계 `PAUSED` 상태 도입 여부
   - 관계 종료 사유의 분류와 필수 여부
   - 반 자체의 학년 보유 여부
 - 금지 사항: 별도 결정 없이 enum, 컬럼, 상태 전이 또는 API 계약을 추가하지 않는다.
 - 마지막 검증일: 2026-08-04
+
+#### ROS-004 학생 휴원·복귀 상태 전이
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_CONFIRMED`
+- 정책: 강사의 현재 `ACTIVE` 학생 관계와 활성 반 소속은 함께 `PAUSED`로 휴원할 수 있고, 같은 관계·소속을 다시 `ACTIVE`로 복귀시킬 수 있다. `ENDED`는 계속 최종 상태이며 재활성화하지 않는다.
+- 유일성: `ACTIVE`와 `PAUSED` 관계는 모두 현재 관리 관계로 보아 학생당 최대 한 건만 허용한다. 반 소속도 `ACTIVE`와 `PAUSED`를 합쳐 최대 한 건만 허용한다.
+- Detection 이력: 휴원은 `enrolled → paused`, 복귀는 `paused → returned`를 `detection_student_status_history`에 같은 트랜잭션으로 기록한다. 복귀 이력은 최근 Detection 근거 창 안에서 `enrollment_transition`으로 제공하고 학생 상태를 `returned`로 표시한다.
+- 테넌트 경계: 인증된 강사의 `teacherProfileId`와 PostgreSQL RLS를 함께 적용하며, 다른 강사의 학생과 실제 없음은 같은 404로 처리한다.
+- 마지막 검증일: 2026-08-13
 
 ### Class Management
 
@@ -377,7 +387,7 @@
 - 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
 - 정책: 운영 API는 인증된 강사와 `analysisDate`를 기준으로 서버가 테넌트 키와 56일 학습 기록 스냅샷을 만든다. 서비스 시간대는 `Asia/Seoul`이다.
 - 빈 기록 처리: 56일 `learning_events`가 비어도 활성·전송 가능 학생이 있으면 관계 시작 주부터 최대 10주 `detection_evidence`를 포함해 분석한다. 활성·전송 가능 학생이 전혀 없을 때만 기존 `NO_LEARNING_RECORDS` 응답으로 거절한다.
-- 학생 상태: 현재 강사와의 관계가 `ACTIVE`인 학생만 AI 요청에 포함하고 반 배정 여부와 무관하게 `enrolled`로 보낸다. Backend v1에는 휴원·복귀 상태 전환 기능이 없으므로 반 미배정을 `paused`로 해석하지 않는다. 종료 관계의 과거 학습 기록은 보존하되 현재 Detection 요청에서는 제외한다. 반 미배정 학생의 `class_ref`는 `cl_unassigned`다.
+- 학생 상태: 현재 강사와의 관계가 `ACTIVE`인 학생만 AI 요청에 포함한다. 최근 근거 창에 `paused → returned` 이력이 있으면 `returned`, 없으면 `enrolled`로 보낸다. `PAUSED`·`ENDED` 관계의 학생은 현재 Detection 요청에서 제외하고, 반 미배정을 `paused`로 해석하지 않는다. 반 미배정 학생의 `class_ref`는 `cl_unassigned`다.
 - 재원 기간: `students[].enrolled_weeks`는 반 등록 시각이 아니라 현재 강사-학생 관계의 `teacher_student_relationships.started_at`부터 계산한다. 반 변경·미배정으로 재원 기간을 초기화하지 않으며 결과는 0 이상이다.
 - 학습기록 source: v1 학습기록 유입 경로는 강사 수기 입력뿐이며 저장된 `MANUAL`을 변환하지 않고 `learning_events[].source`로 보낸다. source whitelist나 임의 제외 규칙을 Backend에 추가하지 않는다.
 - 코드 근거:
@@ -428,8 +438,8 @@
 - 이벤트 계약: Backend `checkon.risk-detection.requested.v1` → 독립 Adapter, 독립 Adapter → Backend Result Consumer `checkon.risk-detection.completed.v1`/`checkon.risk-detection.failed.v1`를 사용한다. 모든 메시지는 `schema_version=1.0` envelope와 `event_id`, `correlation_id(=run_id)`, `causation_id`, `tenant_alias`, `run_id`, `attempt_id`, `request_id`, `idempotency_key`, `snapshot_hash`를 가진다. AI와의 외부 계약 정본은 AI OpenAPI `POST /v1/detect`, Backend-Adapter Kafka 정본은 `docs/contracts/risk-detection-kafka.asyncapi.yaml`이다.
 - HTTP 변환: Adapter는 `payload` 전체를 요청 body로 보내고 envelope의 `tenant_alias`를 `X-Tenant-Id`, `request_id`를 `X-Request-Id`, `idempotency_key`를 `Idempotency-Key`로 그대로 보낸다. 동일 requested 이벤트의 재전달은 세 값과 body·snapshot hash를 유지한다. Read timeout은 AI 계약의 최소 60초보다 긴 65초를 기본으로 둔다. HTTP 200은 completed, 400·409는 재시도하지 않는 failed로 변환한다. 네트워크·timeout·빈 응답·5xx는 Kafka 재시도 후 DLT에 보존하고 최종 failed 이벤트를 발행한다.
 - 과거 경보 컨텍스트: AI 요청의 `alert_context`는 현재 분석 대상 학생의 기존 Engagement Alert를 학생 AI alias와 `signal_type` 기준으로 제공한다. 미검토 또는 후속 조치가 끝나지 않은 Alert는 `open`, 거절 또는 완료된 Intervention이 있는 Alert는 `resolved`로 보낸다. 완료 Intervention이 있으면 `followed_up=true`와 완료 시각을, 거절이면 `followed_up=false`와 결정 시각을 사용한다. 같은 학생·신호 유형에 open 이력이 있으면 가장 최근 open을 우선하고, 없으면 가장 최근 resolved만 보낸다.
-- v1 위험신호 범위: v1은 R1(정답률 하락)·R3(학습 공백)·R4(숨은 위기)·R6(유형 편중)만 사용한다. 과제 예정 건수와 휴원·복귀를 만드는 production 기능이 없는 동안 R2(제출 저조)·R5(복귀 케어)는 제외한다.
-- 학습 공백 근거: `payload.detection_evidence`는 선택 필드이며 기존 request와 저장 snapshot의 `assignment_window`·`enrollment_transition` 역직렬화 호환성은 유지한다. 새 v1 요청은 `weekly_activity`만 만든다. 학생별 `teacher_student_relationships.started_at`의 `Asia/Seoul` 소속 주 월요일보다 이전 주는 근거 미존재로 행을 생략하고, 관계 시작 주부터 실제 활동이 0건이면 `activity_count=0`을 보낸다. 논리 `source_table`은 `student_week_activity`로 고정하고 실제 PostgreSQL 물리 테이블명은 외부에 노출하지 않는다. 적용된 V15 테이블과 RLS 정책은 변경하지 않는다.
+- v1 위험신호 범위: v1은 R1(정답률 하락)·R3(학습 공백)·R4(숨은 위기)·R5(복귀 케어)·R6(유형 편중)를 사용한다. 과제 예정 건수 production 기능이 없는 동안 R2(제출 저조)는 제외한다.
+- 학습·복귀 근거: `payload.detection_evidence`는 선택 필드이며 기존 request와 저장 snapshot의 `assignment_window` 역직렬화 호환성은 유지한다. 새 v1 요청은 `weekly_activity`와 최근 `paused → returned`의 `enrollment_transition`을 만든다. 학생별 `teacher_student_relationships.started_at`의 `Asia/Seoul` 소속 주 월요일보다 이전 주는 근거 미존재로 행을 생략하고, 관계 시작 주부터 실제 활동이 0건이면 `activity_count=0`을 보낸다. 논리 `source_table`은 각각 `student_week_activity`, `student_status_history`로 고정하고 실제 PostgreSQL 물리 테이블명은 외부에 노출하지 않는다. 적용된 V15 테이블과 RLS 정책을 사용한다.
 - 근거 조회: AI 완료 결과의 `(source_table, record_id)`는 해당 run의 불변 요청 스냅샷에 존재하는 정확한 쌍만 저장한다. 기존 학습 기록의 legacy source name은 호환을 위해 record_id 기준으로 읽되, 새 부재·복귀 근거는 쌍을 엄격히 대조한다. 강사 Alert 상세 화면은 저장된 source·record_id·AI 요약을 제공한다.
 - 운영 조회: 강사 Detection run 상태 조회는 성공 응답에 저장된 `stats`와 `rules_skipped`의 규칙 ID·사유·대상 학생 수를 제공한다. 실행 중이거나 실패해 성공 stats가 없으면 `stats=null`을 반환해 정상적인 신호 0건과 근거 부족으로 규칙을 실행하지 못한 경우를 구분한다.
 - advisory 신호: AI 응답의 `advisory`는 `detection_signal_results`에 보존한다. `true`이면 학생 상세 참고용으로만 유지하며 Engagement Alert·오늘 할 일(Todo)·대시보드 확인 필요 신호 후보에서 제외하고 TOP N 슬롯을 소비하지 않는다. `false`만 기존 Alert 후보 흐름을 따른다.
@@ -704,6 +714,7 @@
 
 | 날짜 | 변경 | 검증 |
 | --- | --- | --- |
+| 2026-08-13 | ROS-004 휴원·복귀 상태 전이와 R5 복귀 근거 생성 정책을 확정·구현 | 휴원·복귀·테넌트 격리 PostgreSQL 통합 테스트, R5 snapshot 단위 테스트, OpenAPI·Flyway 계약 및 전체 251건 테스트 통과 |
 | 2026-08-13 | 위험신호 학습 태그 4종의 nullable·화이트리스트·영역-과목 유도 계약을 LR-010으로 구현 | 입력 거절·null 보존·DB 및 Detection snapshot 전달 집중 테스트와 Backend 전체 240건 `clean build` 통과 |
 | 2026-08-13 | 위험신호 v1을 R1·R3·R4·R6으로 한정하고 ACTIVE 학생 상태·관계 기준 재원 기간·등록 후 weekly activity·ONGOING open Alert 중복 억제·R1 진단 stats 보존 정책을 구현 | Backend 237건·Adapter 37건 테스트와 두 저장소 전체 Gradle `clean build` 통과 |
 | 2026-08-13 | PR #43의 독립 Kafka Adapter 경계를 정본으로 유지하면서 위험신호 화면 계약, 과거 Alert context, 종료 학생 제외, advisory 소비 규칙을 통합 | 집중 단위·PostgreSQL 통합 테스트와 전체 Gradle build 224건 통과 |

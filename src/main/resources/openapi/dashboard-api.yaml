@@ -186,6 +186,40 @@ paths:
         '409': {$ref: '#/components/responses/DetectionConflict'}
         '422': {$ref: '#/components/responses/NoLearningRecords'}
         '502': {$ref: '#/components/responses/AiDetectionFailure'}
+  /students/{studentId}/pause:
+    post:
+      tags: [Roster]
+      operationId: pauseStudent
+      summary: 학생 휴원 처리
+      description: 인증 강사의 ACTIVE 관계와 활성 반 소속을 PAUSED로 전환하고 Detection 상태 이력을 기록한다.
+      parameters:
+        - $ref: '#/components/parameters/StudentId'
+      responses:
+        '200':
+          description: 휴원 처리 성공
+          content: {application/json: {schema: {$ref: '#/components/schemas/StudentLifecycleResponse'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/StudentNotFound'}
+        '409': {$ref: '#/components/responses/InvalidStudentState'}
+  /students/{studentId}/return:
+    post:
+      tags: [Roster]
+      operationId: returnStudent
+      summary: 학생 복귀 처리
+      description: 인증 강사의 PAUSED 관계와 반 소속을 ACTIVE로 전환하고 paused → returned Detection 근거를 기록한다.
+      parameters:
+        - $ref: '#/components/parameters/StudentId'
+      responses:
+        '200':
+          description: 복귀 처리 성공
+          content: {application/json: {schema: {$ref: '#/components/schemas/StudentLifecycleResponse'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/StudentNotFound'}
+        '409': {$ref: '#/components/responses/InvalidStudentState'}
   /detection-runs/{runId}:
     get:
       tags: [Detection]
@@ -867,6 +901,12 @@ components:
     InvalidClassState:
       description: 보관된 클래스 수정 또는 보관 불변식 위반
       content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: INVALID_CLASS_STATE, message: 현재 클래스 상태에서는 요청을 처리할 수 없습니다.}}}
+    StudentNotFound:
+      description: 없거나 다른 테넌트에 속한 학생 관계
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: STUDENT_NOT_FOUND, message: 학생을 찾을 수 없습니다.}}}
+    InvalidStudentState:
+      description: 허용되지 않는 학생 휴원·복귀 상태 전이
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: INVALID_STUDENT_STATE, message: 현재 학생 상태에서는 요청을 처리할 수 없습니다.}}}
     EngagementNotFound:
       description: 없거나 다른 테넌트에 속한 리소스
       content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: ENGAGEMENT_RESOURCE_NOT_FOUND, message: 대상을 찾을 수 없습니다.}}}
@@ -982,6 +1022,13 @@ components:
       required: [id]
       properties:
         id: {type: string, format: uuid}
+    StudentLifecycleResponse:
+      type: object
+      required: [studentId, status, occurredAt]
+      properties:
+        studentId: {type: string, format: uuid}
+        status: {type: string, enum: [ACTIVE, PAUSED]}
+        occurredAt: {type: string, format: date-time}
     DetectionRunStatus: {type: string, enum: [PREPARED, REQUESTED, SUCCEEDED, FAILED]}
     DetectionRunRequest:
       type: object

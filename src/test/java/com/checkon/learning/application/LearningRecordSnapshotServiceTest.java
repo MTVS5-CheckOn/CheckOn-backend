@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 
 import com.checkon.detection.application.AiDetectionConsentMode;
 import com.checkon.detection.application.AiDetectionConsentPolicy;
+import com.checkon.detection.application.DetectionStudentStatusHistoryService;
 import com.checkon.detection.application.PrepareDetectionRunService;
 import com.checkon.detection.integration.ai.AiDetectionConsentProperties;
 import com.checkon.engagement.application.EngagementAlertContextService;
@@ -66,6 +67,39 @@ class LearningRecordSnapshotServiceTest {
 			.filteredOn(evidence -> evidence.weekStart().equals(LocalDate.parse("2026-07-27")))
 			.singleElement()
 			.satisfies(evidence -> assertThat(evidence.activityCount()).isEqualTo(1));
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 최근 복귀 이력, When 스냅샷을 만들면, Then returned 학생과 enrollment transition을 보낸다")
+	void givenRecentReturnHistory_whenBuildingSnapshot_thenSendsR5Evidence() {
+		Fixture fixture = fixture(AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true);
+		Instant returnedAt = FROM.plusSeconds(10);
+		when(fixture.statusHistory().findReturnedTransitions(
+			eq(TEACHER), any(Instant.class), any(Instant.class)
+		)).thenReturn(List.of(new DetectionStudentStatusHistoryService.ReturnedTransition(
+			UUID.fromString("0198a000-0000-7000-8000-000000000006"),
+			STUDENT,
+			returnedAt
+		)));
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.students()).singleElement().satisfies(student ->
+			assertThat(student.status()).isEqualTo("returned")
+		);
+		assertThat(snapshot.detectionEvidence())
+			.filteredOn(evidence -> evidence.kind().equals("enrollment_transition"))
+			.singleElement().satisfies(evidence -> {
+				assertThat(evidence.sourceTable()).isEqualTo("student_status_history");
+				assertThat(evidence.recordId()).isEqualTo(
+					"status-history:st_demo_student:2026-07-27T09:00:10+09:00"
+				);
+				assertThat(evidence.studentRef()).isEqualTo("st_demo_student");
+				assertThat(evidence.fromStatus()).isEqualTo("paused");
+				assertThat(evidence.toStatus()).isEqualTo("returned");
+			});
 	}
 
 	@Test
@@ -270,6 +304,9 @@ class LearningRecordSnapshotServiceTest {
 		EngagementAlertContextService alertContexts = mock(EngagementAlertContextService.class);
 		AiStudentAliasService aliases = mock(AiStudentAliasService.class);
 		PrepareDetectionRunService prepareService = mock(PrepareDetectionRunService.class);
+		DetectionStudentStatusHistoryService statusHistory = mock(
+			DetectionStudentStatusHistoryService.class
+		);
 		TeacherTenantDatabaseContext tenantContext = mock(TeacherTenantDatabaseContext.class);
 		LearningRecord record = record();
 
@@ -279,6 +316,9 @@ class LearningRecordSnapshotServiceTest {
 		when(enrollments.findAllByTeacherIdAndStatus(TEACHER, RelationshipStatus.ACTIVE))
 			.thenReturn(List.of());
 		when(alertContexts.latestByStudentAndSignalType(TEACHER)).thenReturn(List.of());
+		when(statusHistory.findReturnedTransitions(
+			eq(TEACHER), any(Instant.class), any(Instant.class)
+		)).thenReturn(List.of());
 		when(relationships.findAllByTeacherIdAndStatus(TEACHER, RelationshipStatus.ACTIVE))
 			.thenReturn(activeRelationship ? List.of(TeacherStudentRelationship.start(
 				TEACHER, STUDENT, relationshipStartedAt, relationshipStartedAt
@@ -292,9 +332,9 @@ class LearningRecordSnapshotServiceTest {
 		);
 		return new Fixture(new LearningRecordSnapshotService(
 			records, enrollments, relationships, alertContexts, aliases,
-			consentPolicy,
+			consentPolicy, statusHistory,
 			prepareService, tenantContext
-		), aliases, alertContexts, enrollments, relationships);
+		), aliases, alertContexts, enrollments, relationships, statusHistory);
 	}
 
 	private LearningRecord record() {
@@ -314,7 +354,8 @@ class LearningRecordSnapshotServiceTest {
 		AiStudentAliasService aliases,
 		EngagementAlertContextService alertContexts,
 		ClassEnrollmentRepository enrollments,
-		TeacherStudentRelationshipRepository relationships
+		TeacherStudentRelationshipRepository relationships,
+		DetectionStudentStatusHistoryService statusHistory
 	) {
 	}
 }
