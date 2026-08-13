@@ -81,7 +81,9 @@ class LearningRecordSnapshotServiceTest {
 		)).thenReturn(List.of(new DetectionStudentStatusHistoryService.ReturnedTransition(
 			UUID.fromString("0198a000-0000-7000-8000-000000000006"),
 			STUDENT,
-			returnedAt
+			returnedAt,
+			"enrolled",
+			"returned"
 		)));
 
 		var snapshot = fixture.service().build(
@@ -96,10 +98,10 @@ class LearningRecordSnapshotServiceTest {
 			.singleElement().satisfies(evidence -> {
 				assertThat(evidence.sourceTable()).isEqualTo("student_status_history");
 				assertThat(evidence.recordId()).isEqualTo(
-					"status-history:st_demo_student:2026-07-27T09:00:10+09:00"
+					"0198a000-0000-7000-8000-000000000006"
 				);
 				assertThat(evidence.studentRef()).isEqualTo("st_demo_student");
-				assertThat(evidence.fromStatus()).isEqualTo("paused");
+				assertThat(evidence.fromStatus()).isEqualTo("enrolled");
 				assertThat(evidence.toStatus()).isEqualTo("returned");
 			});
 		verify(fixture.statusHistory()).findReturnedTransitions(
@@ -137,6 +139,7 @@ class LearningRecordSnapshotServiceTest {
 		when(fixture.assignmentSummaries().findAll(
 			eq(TEACHER), any(LocalDate.class), any(LocalDate.class)
 		)).thenReturn(List.of(new DetectionAssignmentWeekSummaryService.AssignmentWeekSummary(
+			UUID.fromString("0198a000-0000-7000-8000-000000000007"),
 			STUDENT, LocalDate.parse("2026-07-27"), 3, 0
 		)));
 
@@ -149,9 +152,33 @@ class LearningRecordSnapshotServiceTest {
 			.singleElement().satisfies(evidence -> {
 				assertThat(evidence.sourceTable()).isEqualTo("assignment_week_summary");
 				assertThat(evidence.recordId()).isEqualTo(
-					"assignment-summary:st_demo_student:2026-07-27"
+					"0198a000-0000-7000-8000-000000000007"
 				);
 				assertThat(evidence.expectedCount()).isEqualTo(3);
+				assertThat(evidence.submittedCount()).isZero();
+			});
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 과제가 없다고 확인된 주와 미적재 주, When 스냅샷을 만들면, Then 0건 행만 보내고 미적재 주는 합성하지 않는다")
+	void givenKnownZeroAndUnknownAssignmentWeeks_whenBuildingSnapshot_thenPreservesAbsenceMeaning() {
+		Fixture fixture = fixture(AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true);
+		when(fixture.assignmentSummaries().findAll(
+			eq(TEACHER), any(LocalDate.class), any(LocalDate.class)
+		)).thenReturn(List.of(new DetectionAssignmentWeekSummaryService.AssignmentWeekSummary(
+			UUID.fromString("0198a000-0000-7000-8000-000000000008"),
+			STUDENT, LocalDate.parse("2026-07-20"), 0, 0
+		)));
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.detectionEvidence())
+			.filteredOn(evidence -> evidence.kind().equals("assignment_window"))
+			.singleElement().satisfies(evidence -> {
+				assertThat(evidence.weekStart()).isEqualTo(LocalDate.parse("2026-07-20"));
+				assertThat(evidence.expectedCount()).isZero();
 				assertThat(evidence.submittedCount()).isZero();
 			});
 	}

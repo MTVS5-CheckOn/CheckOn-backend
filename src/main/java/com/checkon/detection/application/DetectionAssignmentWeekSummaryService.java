@@ -23,13 +23,14 @@ public class DetectionAssignmentWeekSummaryService {
 		LocalDate toInclusive
 	) {
 		return jdbcTemplate.query("""
-			SELECT student_id, week_start, expected_count, submitted_count
+			SELECT id, student_id, week_start, expected_count, submitted_count
 			FROM detection_assignment_week_summaries
 			WHERE teacher_id = ?
 			  AND week_start >= ?
 			  AND week_start <= ?
 			ORDER BY week_start, student_id
 			""", (resultSet, rowNumber) -> new AssignmentWeekSummary(
+			resultSet.getObject("id", UUID.class),
 			resultSet.getObject("student_id", UUID.class),
 			resultSet.getObject("week_start", LocalDate.class),
 			resultSet.getInt("expected_count"),
@@ -38,10 +39,14 @@ public class DetectionAssignmentWeekSummaryService {
 	}
 
 	public record AssignmentWeekSummary(
+		UUID id,
 		UUID studentId,
 		LocalDate weekStart,
 		int expectedCount,
 		int submittedCount
 	) {
+		public String recordId() {
+			return id.toString();
+		}
 	}
 }

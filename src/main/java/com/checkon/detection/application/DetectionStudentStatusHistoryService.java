@@ -38,10 +38,9 @@ public class DetectionStudentStatusHistoryService {
 		Instant toExclusive
 	) {
 		return jdbcTemplate.query("""
-			SELECT id, student_id, occurred_at
+			SELECT id, student_id, occurred_at, from_status, to_status
 			FROM detection_student_status_history
 			WHERE teacher_id = ?
-			  AND from_status = 'paused'
 			  AND to_status = 'returned'
 			  AND occurred_at >= ?
 			  AND occurred_at < ?
@@ -49,10 +48,18 @@ public class DetectionStudentStatusHistoryService {
 			""", (resultSet, rowNumber) -> new ReturnedTransition(
 			resultSet.getObject("id", UUID.class),
 			resultSet.getObject("student_id", UUID.class),
-			resultSet.getTimestamp("occurred_at").toInstant()
+			resultSet.getTimestamp("occurred_at").toInstant(),
+			resultSet.getString("from_status"),
+			resultSet.getString("to_status")
 		), teacherId, Timestamp.from(fromInclusive), Timestamp.from(toExclusive));
 	}
 
-	public record ReturnedTransition(UUID id, UUID studentId, Instant occurredAt) {
+	public record ReturnedTransition(
+		UUID id,
+		UUID studentId,
+		Instant occurredAt,
+		String fromStatus,
+		String toStatus
+	) {
 	}
 }

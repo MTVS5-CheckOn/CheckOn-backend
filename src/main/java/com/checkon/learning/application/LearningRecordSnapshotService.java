@@ -261,7 +261,7 @@ public class LearningRecordSnapshotService {
 			if (studentRef == null) continue;
 			evidence.add(AiDetectionRequest.DetectionEvidence.assignmentWindow(
 				ASSIGNMENT_WEEK_SUMMARY,
-				"assignment-summary:" + studentRef + ":" + summary.weekStart(),
+				summary.recordId(),
 				studentRef,
 				summary.weekStart(),
 				summary.expectedCount(),
@@ -274,9 +274,8 @@ public class LearningRecordSnapshotService {
 			var occurredAt = transition.occurredAt().atZone(SERVICE_ZONE).toOffsetDateTime();
 			evidence.add(AiDetectionRequest.DetectionEvidence.enrollmentTransition(
 				STUDENT_STATUS_HISTORY,
-				"status-history:" + studentRef + ":"
-					+ DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(occurredAt),
-				studentRef, occurredAt, "paused", "returned"
+				transition.id().toString(),
+				studentRef, occurredAt, transition.fromStatus(), transition.toStatus()
 			));
 		}
 		evidence.sort(EVIDENCE_ORDER);

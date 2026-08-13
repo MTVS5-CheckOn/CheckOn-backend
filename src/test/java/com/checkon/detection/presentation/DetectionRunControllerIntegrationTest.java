@@ -149,11 +149,13 @@ class DetectionRunControllerIntegrationTest {
 	@DisplayName("Given 과제 집계 행, When 탐지를 요청하면, Then R2 assignment window를 Kafka snapshot에 포함한다")
 	void givenAssignmentSummary_whenRequestingDetection_thenIncludesR2Evidence()
 		throws Exception {
+		UUID summaryId = UUID.fromString("0198b000-0000-7000-8000-000000000154");
 		jdbc.update("""
 			INSERT INTO detection_assignment_week_summaries(
-			    teacher_id, student_id, week_start, expected_count, submitted_count, calculated_at
-			) VALUES (?, ?, '2026-08-03', 3, 0, now())
-			""", TEACHER, STUDENT);
+			    id, teacher_id, student_id, week_start,
+			    expected_count, submitted_count, calculated_at
+			) VALUES (?, ?, ?, '2026-08-03', 3, 0, now())
+			""", summaryId, TEACHER, STUDENT);
 
 		mockMvc.perform(post("/api/v1/detection-runs")
 				.with(teacherAuthentication(TEACHER))
@@ -168,8 +170,41 @@ class DetectionRunControllerIntegrationTest {
 		);
 		assertThat(snapshot)
 			.contains("\"kind\":\"assignment_window\"")
+			.contains("\"record_id\":\"" + summaryId + "\"")
 			.contains("\"expected_count\":3")
 			.contains("\"submitted_count\":0");
+	}
+
+	@Test
+	@DisplayName("Given 분석 주에 returned 전환이 있을 때, When 탐지를 요청하면, Then 실제 이력 ID와 상태값을 R5 근거로 보낸다")
+	void givenReturnedTransitionInAnalysisWeek_whenRequestingDetection_thenIncludesR5Evidence()
+		throws Exception {
+		UUID transitionId = UUID.fromString("0198b000-0000-7000-8000-000000000155");
+		jdbc.update("""
+			INSERT INTO detection_student_status_history(
+			    id, teacher_id, student_id, occurred_at,
+			    from_status, to_status, created_at
+			) VALUES (?, ?, ?, '2026-08-02T15:00:00Z',
+			          'enrolled', 'returned', '2026-08-02T15:00:00Z')
+			""", transitionId, TEACHER, STUDENT);
+
+		mockMvc.perform(post("/api/v1/detection-runs")
+				.with(teacherAuthentication(TEACHER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"analysisDate\":\"2026-08-03\"}"))
+			.andExpect(status().isAccepted());
+
+		String snapshot = jdbc.queryForObject(
+			"SELECT snapshot_payload FROM detection_runs WHERE teacher_id = ?",
+			String.class,
+			TEACHER
+		);
+		assertThat(snapshot)
+			.contains("\"status\":\"returned\"")
+			.contains("\"kind\":\"enrollment_transition\"")
+			.contains("\"record_id\":\"" + transitionId + "\"")
+			.contains("\"from_status\":\"enrolled\"")
+			.contains("\"to_status\":\"returned\"");
 	}
 
 	@Test
