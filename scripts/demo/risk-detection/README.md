@@ -40,3 +40,15 @@ SQL은 `BEGIN` 후 검증 결과를 출력하고 자동 `COMMIT`하지 않는다
 전달본은 `st_12`를 미동의 학생으로 정의하지만 현재 백엔드에는 학생별 AI 동의 저장원이 없다. 임시 정책 `PRE_CONSENT_ALLOW_ALL`에서는 `st_12`도 요청에 포함된다. 전용 동의 기능과 저장 테이블이 구현되기 전에는 “응답 어디에도 없음” 기대값을 검증할 수 없다.
 
 Roster, 학생별 시나리오 매핑, 반 소속, 신규생 시작일은 이 SQL이 만들지 않는다. 이는 실제 API가 생성하는 불변식과 alias 발급 경로를 그대로 검증하기 위한 의도적인 경계다.
+
+## 로컬 E2E 자동 실행
+
+백엔드(8080), Kafka, 독립 Adapter(8081), AI 서버(8000)가 실행 중이면 다음 스크립트가 별도 시연 테넌트에 Roster와 실제 alias를 만들고, 원본 SQL을 적재한 뒤 Detection 실행 완료까지 기다린다.
+
+```powershell
+$env:TEST_ACCOUNT_ID = '0198f000-0000-7000-8000-000000009000'
+$env:TEST_TEACHER_PROFILE_ID = '0198f000-0000-7000-8000-000000009001'
+.\scripts\run-risk-detection-e2e.ps1 -AnalysisDate 2026-08-14
+```
+
+스크립트는 기존 기본 시연 강사와 분리된 고정 UUID를 사용한다. 같은 기준 주의 학습 기록과 동일 분석일 실행이 이미 있으면 중복 생성하지 않고 기존 데이터를 재검증한다. 완료 JSON의 `runId`, `status`, `rulesSkipped`, 규칙별 신호 수, evidence 수, Alert 수로 Kafka 왕복과 결과 영속화를 확인할 수 있다.
