@@ -31,14 +31,19 @@ public final class ProblemStudioViews {
 	) { }
 
 	public record WeaknessAnalysis(
+		UUID diagnosisId,
 		UUID studentId,
 		LocalDate windowStart,
 		LocalDate windowEnd,
 		int minimumSampleSize,
 		BigDecimal studentAveragePercent,
 		List<WeaknessCell> cells,
-		List<GenerationCapability> generationCapabilities
+		List<GenerationCapability> generationCapabilities,
+		DiagnosisProvenance diagnosis
 	) { }
+
+	public record DiagnosisProvenance(String status,String statusReason,String snapshotHash,
+		String taxonomyVersion,String graphVersion,String configVersion) { }
 
 	public record GenerationCapability(
 		String areaTag,
@@ -63,8 +68,11 @@ public final class ProblemStudioViews {
 		String projectionStatus,
 		String projectionErrorCode,
 		ReviewCounts counts,
-		List<ReviewItem> items
+		List<ReviewItem> items,
+		List<ReviewSlot> slots
 	) { }
+	public record ReviewSlot(int slotIndex,UUID itemId,String externalItemId,ProblemValidationStatus status,
+		int currentRevisionNo,String reviewReason,String failureReason) { }
 
 	public record ReviewCounts(int passed, int reviewRequired, int unverifiable, int excluded) { }
 

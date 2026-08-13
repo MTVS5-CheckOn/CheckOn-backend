@@ -31,6 +31,19 @@ public class ProblemGenerationExecutionRepository {
 			.update();
 	}
 
+	public void insertRejected(NewExecution value, String errorCode) {
+		jdbc.sql("""
+			INSERT INTO problem_generation_executions (
+			 id,teacher_id,problem_request_id,request_target_id,target_index,status,
+			 ai_idempotency_key,request_snapshot_hash,request_snapshot,error_code,completed_at,created_at,updated_at
+			) VALUES (:id,:teacherId,:requestId,:targetId,:targetIndex,'REJECTED_INSUFFICIENT',
+			 :aiKey,:snapshotHash,CAST(:snapshot AS jsonb),:errorCode,:now,:now,:now)
+			""").params(Map.ofEntries(Map.entry("id",value.id()),Map.entry("teacherId",value.teacherId()),
+			Map.entry("requestId",value.requestId()),Map.entry("targetId",value.targetId()),Map.entry("targetIndex",value.targetIndex()),
+			Map.entry("aiKey",value.aiIdempotencyKey()),Map.entry("snapshotHash",value.snapshotHash()),
+			Map.entry("snapshot",value.snapshot()),Map.entry("errorCode",errorCode),Map.entry("now",value.createdAt().atOffset(ZoneOffset.UTC)))).update();
+	}
+
 	public Optional<LockedExecution> findForUpdate(UUID id, UUID teacherId, UUID requestId) {
 		return jdbc.sql("""
 			SELECT id,status,adapter_execution_id,ai_execution_id,ai_job_id,ai_set_id,target_index

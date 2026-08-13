@@ -8,6 +8,7 @@ import com.checkon.problem.domain.ProblemTypeTag;
 
 public record CreateProblemStudioCommand(
 	UUID studentId,
+	UUID diagnosisId,
 	List<Target> targets,
 	ProblemDifficulty difficulty,
 	String clientIdempotencyKey

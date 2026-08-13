@@ -18,6 +18,7 @@ import org.springframework.stereotype.Repository;
 
 import com.checkon.problem.application.ProblemStudioViews.Option;
 import com.checkon.problem.application.ProblemStudioViews.ReviewItem;
+import com.checkon.problem.application.ProblemStudioViews.ReviewSlot;
 import com.checkon.problem.domain.ProblemValidationStatus;
 
 @Repository
@@ -180,6 +181,17 @@ public class ProblemStudioQueryRepository {
 			item.explanation(), item.sourceBasis(), item.validationStatus(),
 			item.validationMessage(), item.selected()
 		)).toList();
+	}
+
+	public List<ReviewSlot> findReviewSlots(UUID teacherId,UUID requestId) {
+		return jdbc.sql("""
+			SELECT slot_index,item_id,external_item_id,status,current_revision_no,review_reason,failure_reason
+			FROM problem_generation_slots WHERE teacher_id=:teacherId AND problem_request_id=:requestId
+			ORDER BY problem_execution_id,slot_index
+			""").param("teacherId",teacherId).param("requestId",requestId).query((rs,row)->new ReviewSlot(
+			rs.getInt("slot_index"),rs.getObject("item_id",UUID.class),rs.getString("external_item_id"),
+			ProblemValidationStatus.valueOf(rs.getString("status")),rs.getInt("current_revision_no"),
+			rs.getString("review_reason"),rs.getString("failure_reason"))).list();
 	}
 
 	public Optional<PrintableStudent> findPrintableStudent(UUID teacherId, UUID requestId) {

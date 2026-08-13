@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 import com.checkon.problem.domain.ProblemValidationStatus;
 import com.checkon.problem.infrastructure.persistence.ProblemStudioWorkflowRepository;
 import com.checkon.problem.infrastructure.persistence.ProblemStudioWorkflowRepository.NewItem;
+import com.checkon.problem.infrastructure.persistence.ProblemStudioWorkflowRepository.NewSlot;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -36,6 +37,10 @@ public class ProblemGenerationItemProjector {
 	}
 
 	public void project(UUID teacherId, UUID requestId, String resultPayload) {
+		project(teacherId,requestId,null,resultPayload);
+	}
+
+	public void project(UUID teacherId, UUID requestId, UUID executionId,String resultPayload) {
 		JsonNode result = read(resultPayload);
 		JsonNode items = locateItems(result);
 		if (items == null || !items.isArray() || items.isEmpty()) {
@@ -49,7 +54,17 @@ public class ProblemGenerationItemProjector {
 		Set<String> externalIds = new HashSet<>();
 		Instant now = Instant.now(clock);
 		for (int index = 0; index < items.size(); index++) {
-			JsonNode item = items.get(index);
+			JsonNode wrapper=items.get(index);
+			JsonNode item=executionId==null?wrapper:wrapper.get("item");
+			int slotIndex=executionId==null?index:intValue(wrapper,"slot_index",index);
+			String wrapperStatus=executionId==null?null:firstText(wrapper,"status");
+			if(executionId!=null && (item==null||!item.isObject())) {
+				workflow.insertSlot(new NewSlot(teacherId,requestId,executionId,slotIndex,null,
+					firstText(wrapper,"item_id"),ProblemValidationStatus.EXCLUDED,intValue(wrapper,"current_revision_no",0),
+					firstText(wrapper,"review_reason"),firstText(wrapper,"failure_reason"),
+					firstValue(wrapper,"failure_detail"),write(wrapper),now));
+				continue;
+			}
 			String stem = firstText(item, "stem", "question", "prompt", "question_text");
 			List<String> options = options(item);
 			if (isBlank(stem) || options.size() < 2) {
@@ -62,7 +77,7 @@ public class ProblemGenerationItemProjector {
 				unsupported++;
 			}
 			String correctAnswer = correctAnswer(item, options);
-			Validation validation = validation(item, correctAnswer);
+			Validation validation = validation(item, correctAnswer,wrapperStatus,firstText(wrapper,"review_reason"));
 			UUID itemId = workflow.insertItem(new NewItem(
 				teacherId, requestId, externalId, ordinalBase + index + 1, stem,
 				firstText(item, "passage", "context"), correctAnswer,
@@ -73,7 +88,16 @@ public class ProblemGenerationItemProjector {
 			for (int optionIndex = 0; optionIndex < options.size(); optionIndex++) {
 				workflow.insertOption(teacherId, requestId, itemId, optionIndex + 1, options.get(optionIndex));
 			}
+			if(executionId!=null) workflow.insertSlot(new NewSlot(teacherId,requestId,executionId,slotIndex,itemId,
+				firstText(wrapper,"item_id"),validation.status(),intValue(wrapper,"current_revision_no",0),
+				firstText(wrapper,"review_reason"),firstText(wrapper,"failure_reason"),firstValue(wrapper,"failure_detail"),
+				write(wrapper),now));
 			projected++;
+		}
+		if(executionId!=null) {
+			int requested=intValue(result,"requested_count",items.size()); int processed=intValue(result,"processed_count",items.size());
+			JsonNode counts=result.get("status_counts"); workflow.updateExecutionSummary(teacherId,executionId,requested,processed,
+				counts==null?"{}":write(counts));
 		}
 		if (projected == 0) {
 			workflow.markProjection(teacherId, requestId, "UNSUPPORTED", "ITEM_SCHEMA_UNSUPPORTED");
@@ -154,11 +178,11 @@ public class ProblemGenerationItemProjector {
 		return null;
 	}
 
-	private Validation validation(JsonNode item, String correctAnswer) {
-		String raw = firstText(item, "validation_status", "verification_status");
+	private Validation validation(JsonNode item, String correctAnswer,String statusOverride,String messageOverride) {
+		String raw = statusOverride==null?firstText(item, "validation_status", "verification_status"):statusOverride;
 		JsonNode verification = item.get("verification");
 		if (raw == null && verification != null) raw = firstText(verification, "status", "result");
-		String message = firstText(item, "validation_message", "verification_message", "exclusion_reason");
+		String message = messageOverride==null?firstText(item, "validation_message", "verification_message", "exclusion_reason"):messageOverride;
 		if (message == null && verification != null) message = firstText(verification, "message", "reason");
 		ProblemValidationStatus status = toValidationStatus(raw);
 		if (correctAnswer == null) {
@@ -171,6 +195,8 @@ public class ProblemGenerationItemProjector {
 		}
 		return new Validation(status, message);
 	}
+	private static int intValue(JsonNode node,String field,int fallback) { JsonNode value=node==null?null:node.get(field);
+		return value!=null&&value.canConvertToInt()&&value.asInt()>=0?value.asInt():fallback; }
 
 	private static ProblemValidationStatus toValidationStatus(String raw) {
 		if (isBlank(raw)) return null;
