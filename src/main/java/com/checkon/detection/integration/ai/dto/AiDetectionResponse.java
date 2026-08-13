@@ -1,5 +1,6 @@
 package com.checkon.detection.integration.ai.dto;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -52,8 +53,21 @@ public record AiDetectionResponse(
 		@JsonProperty("signals_raised") int signalsRaised,
 		@JsonProperty("excluded_under_2w") int excludedUnderTwoWeeks,
 		@JsonProperty("capped_out") int cappedOut,
-		@JsonProperty("rules_skipped") List<SkippedRule> rulesSkipped
+		@JsonProperty("rules_skipped") List<SkippedRule> rulesSkipped,
+		@JsonProperty("r1_threshold_pp") BigDecimal r1ThresholdPp,
+		@JsonProperty("r1_threshold_source") String r1ThresholdSource,
+		@JsonProperty("r1_pool_n") Integer r1PoolN
 	) {
+		public Stats(
+			int studentsEvaluated,
+			int signalsRaised,
+			int excludedUnderTwoWeeks,
+			int cappedOut,
+			List<SkippedRule> rulesSkipped
+		) {
+			this(studentsEvaluated, signalsRaised, excludedUnderTwoWeeks, cappedOut,
+				rulesSkipped, null, null, null);
+		}
 	}
 
 	public record SkippedRule(

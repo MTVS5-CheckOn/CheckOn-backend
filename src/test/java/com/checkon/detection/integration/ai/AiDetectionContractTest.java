@@ -52,6 +52,9 @@ class AiDetectionContractTest {
 		assertThat(response.meta().executionId()).isNotBlank();
 		assertThat(response.meta().versions()).containsEntry("schema", "0.1");
 		assertThat(response.data().stats().excludedUnderTwoWeeks()).isEqualTo(1);
+		assertThat(response.data().stats().r1ThresholdPp()).isEqualByComparingTo("12.50");
+		assertThat(response.data().stats().r1ThresholdSource()).isEqualTo("pooled");
+		assertThat(response.data().stats().r1PoolN()).isEqualTo(42);
 		assertThat(response.data().signals()).allSatisfy(signal -> {
 			assertThat(signal.score()).isBetween(0.0, 1.0);
 			assertThat(signal.evidence()).isNotEmpty();
@@ -94,6 +97,9 @@ class AiDetectionContractTest {
 				assertThat(evidence.recordId()).isEqualTo("le_1");
 			});
 		});
+		assertThat(response.data().stats().r1ThresholdPp()).isNull();
+		assertThat(response.data().stats().r1ThresholdSource()).isNull();
+		assertThat(response.data().stats().r1PoolN()).isNull();
 	}
 
 	private <T> T readFixture(String path, Class<T> type) throws Exception {

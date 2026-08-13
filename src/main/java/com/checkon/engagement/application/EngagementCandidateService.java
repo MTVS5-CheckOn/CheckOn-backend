@@ -44,6 +44,30 @@ public class EngagementCandidateService {
 			      FROM detection_result_evidence evidence
 			      WHERE evidence.detection_signal_result_id = signal.id
 			  )
+			  AND (
+			      signal.lifecycle <> 'ONGOING'
+			      OR NOT EXISTS (
+			          SELECT 1
+			          FROM engagement_alerts existing_alert
+			          JOIN detection_signal_results existing_signal
+			            ON existing_signal.id = existing_alert.detection_signal_result_id
+			          JOIN detection_runs existing_run
+			            ON existing_run.id = existing_signal.detection_run_id
+			          LEFT JOIN LATERAL (
+			              SELECT max(intervention.completed_at) AS completed_at
+			              FROM interventions intervention
+			              WHERE intervention.teacher_id = existing_alert.teacher_id
+			                AND intervention.alert_id = existing_alert.id
+			                AND intervention.status = 'COMPLETED'
+			          ) completed ON true
+			          WHERE existing_alert.teacher_id = run.teacher_id
+			            AND existing_run.teacher_id = run.teacher_id
+			            AND existing_alert.student_id = alias.student_id
+			            AND existing_signal.signal_type = signal.signal_type
+			            AND existing_alert.status <> 'REJECTED'
+			            AND completed.completed_at IS NULL
+			      )
+			  )
 			ON CONFLICT (detection_signal_result_id) DO NOTHING
 			RETURNING id, teacher_id, created_at
 			)

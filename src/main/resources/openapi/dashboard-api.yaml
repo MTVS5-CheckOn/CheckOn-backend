@@ -133,6 +133,9 @@ paths:
               durationSec: 120
               passageWordCount: 800
               areaTag: reading
+              subjectTrack: common
+              typeTag: infer
+              itemFormat: mcq
       responses:
         '201':
           description: 학습 기록 등록 성공
@@ -953,10 +956,26 @@ components:
         correct: {type: boolean, nullable: true}
         durationSec: {type: integer, format: int32, minimum: 0, nullable: true}
         passageWordCount: {type: integer, format: int32, minimum: 0, nullable: true}
-        areaTag: {type: string, maxLength: 80, nullable: true}
-        subjectTrack: {type: string, maxLength: 80, nullable: true}
-        typeTag: {type: string, maxLength: 80, nullable: true}
-        itemFormat: {type: string, maxLength: 80, nullable: true}
+        areaTag:
+          type: string
+          enum: [reading, literature, speech_writing, language, media]
+          nullable: true
+          description: 문항별 측정 영역. 지문 소재나 세트가 아니라 개별 문항 기준이며 speech와 writing은 허용하지 않는다.
+        subjectTrack:
+          type: string
+          enum: [common, elective]
+          nullable: true
+          description: areaTag와 함께 입력하면 reading/literature는 common, 나머지 영역은 elective여야 한다.
+        typeTag:
+          type: string
+          enum: [fact, infer, critic, concept, apply]
+          nullable: true
+          description: areaTag와 직교하는 문항 인지 유형. apply는 입력 가능하나 v1 R6 가중치에는 포함되지 않는다.
+        itemFormat:
+          type: string
+          enum: [mcq]
+          nullable: true
+          description: v1은 수능 국어 객관식 mcq만 지원한다.
         assignmentTitleText: {type: string, maxLength: 255, nullable: true}
     LearningRecordResponse:
       type: object

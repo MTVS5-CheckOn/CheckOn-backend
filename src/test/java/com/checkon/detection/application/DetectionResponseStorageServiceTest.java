@@ -78,7 +78,8 @@ class DetectionResponseStorageServiceTest {
 	}
 
 	@Test
-	void storesAiSignalsAndMarksTheRunAndAttemptSucceeded() throws IOException {
+	@DisplayName("Given R1 진단 stats가 있는 AI 응답, When 저장하면, Then 진단 필드와 성공 상태를 보존한다")
+	void givenR1DiagnosticStats_whenStoringResponse_thenPreservesStatsAndSuccess() throws IOException {
 		UUID runId = UUID.fromString("019846dc-7c00-7000-8000-000000000101");
 		UUID attemptId = UUID.fromString("019846dc-7c00-7000-8000-000000000102");
 		prepareRequestedRun(runId, attemptId, LocalDate.of(2026, 7, 28));
@@ -106,7 +107,10 @@ class DetectionResponseStorageServiceTest {
 			.isEqualTo("4a216cfb-f0b1-4efa-91a3-b8a34cd8e112");
 		assertThat(reloaded.aiVersionsPayload()).contains("\"pipeline\":\"0.1.0\"");
 		assertThat(reloaded.responseStatsPayload())
-			.contains("\"students_evaluated\":9");
+			.contains("\"students_evaluated\":9")
+			.contains("\"r1_threshold_pp\":12.50")
+			.contains("\"r1_threshold_source\":\"pooled\"")
+			.contains("\"r1_pool_n\":42");
 		assertThat(reloaded.attempts()).singleElement().satisfies(attempt -> {
 			assertThat(attempt.status())
 				.isEqualTo(DetectionRequestAttemptStatus.SUCCEEDED);
@@ -119,6 +123,37 @@ class DetectionResponseStorageServiceTest {
 				assertThat(evidence.id().version()).isEqualTo(7)
 			);
 		});
+	}
+
+	@Test
+	@DisplayName("Given R1 진단 stats가 없는 기존 AI 응답, When 저장하면, Then nullable 필드로 성공 처리한다")
+	void givenLegacyStatsWithoutR1Diagnostics_whenStoringResponse_thenRemainsCompatible()
+		throws IOException {
+		UUID runId = UUID.fromString("019846dc-7c00-7000-8000-000000000281");
+		UUID attemptId = UUID.fromString("019846dc-7c00-7000-8000-000000000282");
+		prepareRequestedRun(runId, attemptId, LocalDate.of(2026, 8, 6));
+		AiDetectionResponse base = readDemoResponse();
+		AiDetectionResponse legacyResponse = new AiDetectionResponse(
+			new AiDetectionResponse.Data(
+				List.of(), new AiDetectionResponse.Stats(1, 0, 0, 0, List.of())
+			),
+			null,
+			base.meta()
+		);
+
+		storageService.storeSuccessfulResponse(
+			TEACHER_ID, runId, attemptId, 200, legacyResponse,
+			Instant.parse("2026-07-27T17:10:03Z")
+		);
+
+		DetectionRun reloaded = runRepository.findByIdAndTeacherId(runId, TEACHER_ID)
+			.orElseThrow();
+		assertThat(reloaded.status()).isEqualTo(DetectionRunStatus.SUCCEEDED);
+		assertThat(reloaded.responseStatsPayload())
+			.contains("\"students_evaluated\":1")
+			.contains("\"r1_threshold_pp\":null")
+			.contains("\"r1_threshold_source\":null")
+			.contains("\"r1_pool_n\":null");
 	}
 
 	@Test

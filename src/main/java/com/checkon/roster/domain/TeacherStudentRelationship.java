@@ -98,6 +98,10 @@ public class TeacherStudentRelationship {
 		return studentId;
 	}
 
+	public Instant startedAt() {
+		return startedAt;
+	}
+
 	public RelationshipStatus status() {
 		return status;
 	}

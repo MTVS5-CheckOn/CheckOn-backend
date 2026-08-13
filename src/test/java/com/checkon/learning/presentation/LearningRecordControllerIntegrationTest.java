@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -131,6 +132,110 @@ class LearningRecordControllerIntegrationTest {
 	}
 
 	@Test
+	@DisplayName("Given AI 계약의 태그 조합, When 학습기록을 등록하면, Then 문항 단위 태그를 그대로 저장한다")
+	void givenContractTagCombinations_whenRegisteringRecords_thenStoresTagsExactly()
+		throws Exception {
+		// Given
+		List<String[]> combinations = List.of(
+			new String[]{"reading", "common", "fact", "mcq"},
+			new String[]{"literature", "common", "infer", "mcq"},
+			new String[]{"speech_writing", "elective", "critic", "mcq"},
+			new String[]{"language", "elective", "concept", "mcq"},
+			new String[]{"media", "elective", "apply", "mcq"}
+		);
+
+		// When
+		for (String[] tags : combinations) {
+			mockMvc.perform(post("/api/v1/learning-records")
+					.with(teacherAuthentication(TEACHER))
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(taggedRequest(tags[0], tags[1], tags[2], tags[3])))
+				.andExpect(status().isCreated());
+		}
+
+		// Then
+		assertThat(jdbc.queryForList("""
+			SELECT area_tag, subject_track, type_tag, item_format
+			FROM learning_records
+			ORDER BY area_tag
+			""")).extracting(
+			row -> row.get("area_tag") + ":" + row.get("subject_track") + ":"
+				+ row.get("type_tag") + ":" + row.get("item_format")
+		).containsExactlyInAnyOrder(
+			"reading:common:fact:mcq",
+			"literature:common:infer:mcq",
+			"speech_writing:elective:critic:mcq",
+			"language:elective:concept:mcq",
+			"media:elective:apply:mcq"
+		);
+		var snapshot = snapshotService.build(
+			TEACHER, LocalDate.of(2026, 8, 3), "normal",
+			OCCURRED_AT.minusSeconds(1), OCCURRED_AT.plusSeconds(1)
+		);
+		assertThat(snapshot.learningEvents()).extracting(event ->
+			event.areaTag() + ":" + event.subjectTrack() + ":"
+				+ event.typeTag() + ":" + event.itemFormat()
+		).containsExactlyInAnyOrder(
+			"reading:common:fact:mcq",
+			"literature:common:infer:mcq",
+			"speech_writing:elective:critic:mcq",
+			"language:elective:concept:mcq",
+			"media:elective:apply:mcq"
+		);
+	}
+
+	@Test
+	@DisplayName("Given null인 위험신호 태그, When 학습기록을 등록하면, Then 값을 추론하지 않고 null로 저장한다")
+	void givenNullDetectionTags_whenRegisteringRecord_thenKeepsTagsNull() throws Exception {
+		// Given
+		String request = taggedRequest(null, null, null, null);
+
+		// When
+		mockMvc.perform(post("/api/v1/learning-records")
+				.with(teacherAuthentication(TEACHER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(request))
+			.andExpect(status().isCreated());
+
+		// Then
+		assertThat(jdbc.queryForMap("""
+			SELECT area_tag, subject_track, type_tag, item_format
+			FROM learning_records
+			""")).allSatisfy((column, value) -> assertThat(value)
+			.as(column + " must remain null").isNull());
+	}
+
+	@Test
+	@DisplayName("Given 구버전·미지원·불일치 태그, When 학습기록을 등록하면, Then 해당 행만 400으로 거절한다")
+	void givenInvalidDetectionTags_whenRegisteringRecord_thenRejectsOnlyThatRecord()
+		throws Exception {
+		// Given
+		List<String> invalidRequests = List.of(
+			taggedRequest("speech", "elective", "fact", "mcq"),
+			taggedRequest("writing", "elective", "fact", "mcq"),
+			taggedRequest("Literature", "common", "infer", "mcq"),
+			taggedRequest("reading", "elective", "fact", "mcq"),
+			taggedRequest("language", "common", "concept", "mcq"),
+			taggedRequest("reading", "common", "analysis", "mcq"),
+			taggedRequest("reading", "common", "fact", "short"),
+			taggedRequest("reading", "common", "fact", "essay")
+		);
+
+		// When/Then
+		for (String request : invalidRequests) {
+			mockMvc.perform(post("/api/v1/learning-records")
+					.with(teacherAuthentication(TEACHER))
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(request))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+		}
+		assertThat(jdbc.queryForObject(
+			"SELECT count(*) FROM learning_records", Integer.class
+		)).isZero();
+	}
+
+	@Test
 	void concealsOtherTenantAndInactiveTargets() throws Exception {
 		for (String body : List.of(
 			validRequest(OTHER_STUDENT, null, null),
@@ -224,6 +329,36 @@ class LearningRecordControllerIntegrationTest {
 			classGroupId == null ? "" : "\"classGroupId\": \"" + classGroupId + "\",",
 			OCCURRED_AT,
 			externalRef == null ? "" : "\"externalRecordRef\": \"" + externalRef + "\",");
+	}
+
+	private String taggedRequest(
+		String areaTag,
+		String subjectTrack,
+		String typeTag,
+		String itemFormat
+	) {
+		return """
+			{
+			  "studentId": "%s",
+			  "classGroupId": "%s",
+			  "recordType": "SOLVE",
+			  "occurredAt": "%s",
+			  "correct": false,
+			  "durationSec": 180,
+			  "passageWordCount": 800,
+			  "areaTag": %s,
+			  "subjectTrack": %s,
+			  "typeTag": %s,
+			  "itemFormat": %s
+			}
+			""".formatted(
+			STUDENT, CLASS_GROUP, OCCURRED_AT,
+			jsonValue(areaTag), jsonValue(subjectTrack), jsonValue(typeTag), jsonValue(itemFormat)
+		);
+	}
+
+	private String jsonValue(String value) {
+		return value == null ? "null" : "\"" + value + "\"";
 	}
 
 	private void insertRoster(UUID teacherId, UUID studentId, UUID classId, String status) {
