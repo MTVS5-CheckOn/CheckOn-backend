@@ -292,6 +292,19 @@ components:
                   rule_id: { type: string }
                   signal_type: { type: string }
                   display_label: { type: string }
+                  metric:
+                    type: [string, 'null']
+                    description: Rule metric identifier; null for backend-first rollout and R5.
+                  observed:
+                    type: [number, 'null']
+                    description: Structured observed value for the signal.
+                  baseline:
+                    type: [number, 'null']
+                    description: Structured baseline value for R1, R3, and R4 only.
+                  sample_size:
+                    type: [integer, 'null']
+                    minimum: 0
+                    description: Optional denominator for the signal value.
                   score: { type: number }
                   rank: { type: integer }
                   advisory:
@@ -315,6 +328,20 @@ components:
                         source_table: { type: string }
                         record_id: { type: string }
                         summary: { type: string }
+                        role:
+                          type: [string, 'null']
+                          enum: [trigger, baseline, null]
+                          description: Required when any structured evidence value is present.
+                        observed:
+                          type: [number, 'null']
+                          description: Observed value belonging to this evidence record.
+                        sample_size:
+                          type: [integer, 'null']
+                          minimum: 0
+                          description: Optional denominator belonging to this evidence record.
+                        occurred_on:
+                          type: [string, 'null']
+                          format: date
             stats:
               type: object
               required: [students_evaluated, signals_raised, excluded_under_2w, capped_out, rules_skipped]

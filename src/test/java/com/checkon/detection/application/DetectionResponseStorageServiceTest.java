@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -123,6 +124,19 @@ class DetectionResponseStorageServiceTest {
 				assertThat(evidence.id().version()).isEqualTo(7)
 			);
 		});
+		assertThat(results).filteredOn(result -> result.ruleId().equals("R1"))
+			.singleElement().satisfies(result -> {
+				assertThat(result.metric()).isEqualTo("accuracy");
+				assertThat(result.observed()).isEqualByComparingTo("0.65");
+				assertThat(result.baseline()).isEqualByComparingTo("0.82");
+				assertThat(result.sampleSize()).isEqualTo(20);
+				assertThat(result.evidence()).singleElement().satisfies(evidence -> {
+					assertThat(evidence.role()).isEqualTo("trigger");
+					assertThat(evidence.observed()).isEqualByComparingTo("0.65");
+					assertThat(evidence.sampleSize()).isEqualTo(20);
+					assertThat(evidence.occurredOn()).isEqualTo(LocalDate.of(2026, 7, 20));
+				});
+			});
 	}
 
 	@Test
@@ -352,6 +366,65 @@ class DetectionResponseStorageServiceTest {
 	}
 
 	@Test
+	@DisplayName("Given R1 baseline evidence row, When storing, Then the response is rejected atomically")
+	void givenBaselineEvidenceForR1_whenStoring_thenRejectsWithoutPartialRows()
+		throws IOException {
+		UUID runId = UUID.fromString("019846dc-7c00-7000-8000-000000000291");
+		UUID attemptId = UUID.fromString("019846dc-7c00-7000-8000-000000000292");
+		prepareRequestedRun(runId, attemptId, LocalDate.of(2026, 8, 7));
+		AiDetectionResponse response = readDemoResponse();
+		AiDetectionResponse.Signal first = response.data().signals().getFirst();
+		AiDetectionResponse.Evidence source = first.evidence().getFirst();
+		AiDetectionResponse invalid = withSignals(response, List.of(new AiDetectionResponse.Signal(
+			first.signalId(), first.studentRef(), first.classRef(), first.ruleId(),
+			first.signalType(), first.displayLabel(), first.metric(), first.observed(),
+			first.baseline(), first.sampleSize(), first.score(), first.rank(), first.advisory(),
+			first.lifecycle(), first.brief(), List.of(new AiDetectionResponse.Evidence(
+				source.sourceTable(), source.recordId(), source.summary(), "baseline",
+				source.observed(), source.sampleSize(), source.occurredOn()
+			))
+		)));
+
+		assertRejectedWithoutPartialRows(runId, attemptId, invalid);
+	}
+
+	@Test
+	@DisplayName("Given R3 with four trigger evidence rows, When storing, Then the response is rejected atomically")
+	void givenR3WithFourTriggerEvidenceRows_whenStoring_thenRejectsWithoutPartialRows()
+		throws IOException {
+		UUID runId = UUID.fromString("019846dc-7c00-7000-8000-000000000301");
+		UUID attemptId = UUID.fromString("019846dc-7c00-7000-8000-000000000302");
+		List<AiDetectionRequest.DetectionEvidence> requestEvidence = new java.util.ArrayList<>();
+		List<AiDetectionResponse.Evidence> responseEvidence = new java.util.ArrayList<>();
+		for (int index = 0; index < 4; index++) {
+			LocalDate occurredOn = LocalDate.of(2026, 7, 20).plusWeeks(index);
+			String recordId = "activity:st_10:" + occurredOn;
+			requestEvidence.add(AiDetectionRequest.DetectionEvidence.weeklyActivity(
+				"student_week_activity", recordId, "st_10", occurredOn, index
+			));
+			responseEvidence.add(new AiDetectionResponse.Evidence(
+				"student_week_activity", recordId, "학습 활동 근거", "trigger",
+				BigDecimal.valueOf(index), null, occurredOn
+			));
+		}
+		prepareRequestedRunWithEvidence(
+			runId, attemptId, LocalDate.of(2026, 8, 8), requestEvidence
+		);
+		AiDetectionResponse base = readDemoResponse();
+		AiDetectionResponse.Signal source = base.data().signals().getFirst();
+		AiDetectionResponse.Signal r3 = new AiDetectionResponse.Signal(
+			source.signalId(), source.studentRef(), source.classRef(), "R3", "learning_gap",
+			"학습 공백", "activity_count", BigDecimal.ZERO, BigDecimal.TEN, null,
+			source.score(), source.rank(), source.advisory(), source.lifecycle(),
+			source.brief(), responseEvidence
+		);
+
+		assertRejectedWithoutPartialRows(
+			runId, attemptId, withSignals(base, List.of(r3))
+		);
+	}
+
+	@Test
 	@DisplayName("Given a requested v0.2 evidence snapshot, When AI changes source_table, Then the result is rejected")
 	void givenEvidenceSnapshot_whenAiChangesSourceTable_thenRejectsResult() throws IOException {
 		UUID runId = UUID.fromString("019846dc-7c00-7000-8000-000000000261");
@@ -415,6 +488,32 @@ class DetectionResponseStorageServiceTest {
 				"assignment-summary:st_10:2026-07-20",
 				"st_10", LocalDate.of(2026, 7, 20), 3, 0
 			))
+		);
+		String snapshotPayload = objectMapper.writeValueAsString(snapshot);
+		transactionTemplate.executeWithoutResult(status -> {
+			DetectionRun run = DetectionRun.prepare(
+				runId, TEACHER_ID, analysisDate, LocalDate.of(2026, 7, 20),
+				"tn_demo_teacher:" + runId, SNAPSHOT_HASH, snapshotPayload,
+				Instant.parse("2026-07-27T17:09:59Z")
+			);
+			run.startAttempt(attemptId, "request-" + attemptId,
+				Instant.parse("2026-07-27T17:10:00Z"));
+			runRepository.save(run);
+		});
+	}
+
+	private void prepareRequestedRunWithEvidence(
+		UUID runId,
+		UUID attemptId,
+		LocalDate analysisDate,
+		List<AiDetectionRequest.DetectionEvidence> detectionEvidence
+	) throws IOException {
+		AiDetectionRequest base = objectMapper.readValue(new ClassPathResource(
+			"ai/detect-contract-request.json"
+		).getContentAsString(java.nio.charset.StandardCharsets.UTF_8), AiDetectionRequest.class);
+		AiDetectionRequest snapshot = new AiDetectionRequest(
+			base.snapshotMeta(), base.students(), base.learningEvents(), base.alertContext(),
+			detectionEvidence
 		);
 		String snapshotPayload = objectMapper.writeValueAsString(snapshot);
 		transactionTemplate.executeWithoutResult(status -> {

@@ -61,9 +61,19 @@ class AiDetectionContractTest {
 		});
 		assertThat(response.data().signals())
 			.filteredOn(signal -> signal.signalType().equals("acc_drop"))
-			.singleElement()
-			.extracting(AiDetectionResponse.Signal::lifecycle)
-			.isEqualTo("ongoing");
+			.singleElement().satisfies(signal -> {
+				assertThat(signal.lifecycle()).isEqualTo("ongoing");
+				assertThat(signal.metric()).isEqualTo("accuracy");
+				assertThat(signal.observed()).isEqualByComparingTo("0.65");
+				assertThat(signal.baseline()).isEqualByComparingTo("0.82");
+				assertThat(signal.sampleSize()).isEqualTo(20);
+				assertThat(signal.evidence()).singleElement().satisfies(evidence -> {
+					assertThat(evidence.role()).isEqualTo("trigger");
+					assertThat(evidence.observed()).isEqualByComparingTo("0.65");
+					assertThat(evidence.sampleSize()).isEqualTo(20);
+					assertThat(evidence.occurredOn()).hasToString("2026-07-20");
+				});
+			});
 		assertThat(response.data().signals())
 			.filteredOn(signal -> signal.signalType().equals("return_care"))
 			.singleElement()
@@ -100,6 +110,12 @@ class AiDetectionContractTest {
 		assertThat(response.data().stats().r1ThresholdPp()).isNull();
 		assertThat(response.data().stats().r1ThresholdSource()).isNull();
 		assertThat(response.data().stats().r1PoolN()).isNull();
+		assertThat(response.data().signals()).singleElement().satisfies(signal -> {
+			assertThat(signal.metric()).isNull();
+			assertThat(signal.evidence()).singleElement().satisfies(evidence ->
+				assertThat(evidence.role()).isNull()
+			);
+		});
 	}
 
 	private <T> T readFixture(String path, Class<T> type) throws Exception {
