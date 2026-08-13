@@ -999,13 +999,33 @@ components:
         attemptNumber: {type: integer, format: int32, minimum: 1}
     DetectionRunStatusResponse:
       type: object
-      required: [runId, status, analysisDate, attemptCount, errorCode]
+      required: [runId, status, analysisDate, attemptCount, errorCode, stats]
       properties:
         runId: {type: string, format: uuid}
         status: {$ref: '#/components/schemas/DetectionRunStatus'}
         analysisDate: {type: string, format: date}
         attemptCount: {type: integer, format: int32, minimum: 0}
         errorCode: {type: string, nullable: true}
+        stats:
+          allOf: [{$ref: '#/components/schemas/DetectionRunStats'}]
+          nullable: true
+          description: 성공 결과가 저장되기 전에는 null. rulesSkipped로 신호 0건과 규칙 실행 불가를 구분한다.
+    DetectionRunStats:
+      type: object
+      required: [studentsEvaluated, signalsRaised, excludedUnderTwoWeeks, cappedOut, rulesSkipped]
+      properties:
+        studentsEvaluated: {type: integer, format: int32, minimum: 0}
+        signalsRaised: {type: integer, format: int32, minimum: 0}
+        excludedUnderTwoWeeks: {type: integer, format: int32, minimum: 0}
+        cappedOut: {type: integer, format: int32, minimum: 0}
+        rulesSkipped: {type: array, items: {$ref: '#/components/schemas/SkippedDetectionRule'}}
+    SkippedDetectionRule:
+      type: object
+      required: [ruleId, reason, students]
+      properties:
+        ruleId: {type: string, example: R2}
+        reason: {type: string, example: authoritative_evidence_missing}
+        students: {type: integer, format: int32, minimum: 0}
     ClassStatus: {type: string, enum: [ACTIVE, ARCHIVED]}
     ClassDetailsRequest:
       type: object
