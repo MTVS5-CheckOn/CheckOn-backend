@@ -8,6 +8,10 @@
         "rule_id": "R1",
         "signal_type": "acc_drop",
         "display_label": "정답률 하락",
+        "metric": "accuracy",
+        "observed": 0.65,
+        "baseline": 0.82,
+        "sample_size": 20,
         "score": 1.0,
         "rank": 1,
         "lifecycle": "ongoing",
@@ -20,7 +24,11 @@
           {
             "source_table": "learning_event",
             "record_id": "le_1053",
-            "summary": "acc_drop 근거 기록"
+            "summary": "acc_drop 근거 기록",
+            "role": "trigger",
+            "observed": 0.65,
+            "sample_size": 20,
+            "occurred_on": "2026-07-20"
           }
         ]
       },

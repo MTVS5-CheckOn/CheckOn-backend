@@ -1,6 +1,8 @@
 package com.checkon.detection.domain;
 
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -32,6 +34,18 @@ public class DetectionResultEvidence {
 	@Column(nullable = false, columnDefinition = "text")
 	private String summary;
 
+	@Column(length = 20)
+	private String role;
+
+	@Column
+	private BigDecimal observed;
+
+	@Column(name = "sample_size")
+	private Integer sampleSize;
+
+	@Column(name = "occurred_on")
+	private LocalDate occurredOn;
+
 	@Column(name = "created_at", nullable = false)
 	private Instant createdAt;
 
@@ -51,6 +65,10 @@ public class DetectionResultEvidence {
 		this.sourceHint = requireText(draft.sourceHint(), "sourceHint");
 		this.recordId = requireText(draft.recordId(), "recordId");
 		this.summary = requireText(draft.summary(), "summary");
+		this.role = draft.role();
+		this.observed = draft.observed();
+		this.sampleSize = draft.sampleSize();
+		this.occurredOn = draft.occurredOn();
 		this.createdAt = Objects.requireNonNull(createdAt, "createdAt must not be null");
 	}
 
@@ -79,6 +97,22 @@ public class DetectionResultEvidence {
 
 	public String summary() {
 		return summary;
+	}
+
+	public String role() {
+		return role;
+	}
+
+	public BigDecimal observed() {
+		return observed;
+	}
+
+	public Integer sampleSize() {
+		return sampleSize;
+	}
+
+	public LocalDate occurredOn() {
+		return occurredOn;
 	}
 
 	public Instant createdAt() {

@@ -1,7 +1,9 @@
 package com.checkon.engagement.application;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
@@ -87,7 +89,7 @@ public class EngagementService {
 			resultSet.getBoolean("fallback_used")
 		), alertId, teacherId);
 		List<EvidenceView> evidence = jdbcTemplate.query("""
-			SELECT id, source_hint, record_id, summary
+			SELECT id, source_hint, record_id, summary, role, observed, sample_size, occurred_on
 			FROM detection_result_evidence
 			WHERE detection_signal_result_id = ?
 			ORDER BY created_at, id
@@ -95,7 +97,11 @@ public class EngagementService {
 			resultSet.getObject("id", UUID.class),
 			resultSet.getString("source_hint"),
 			resultSet.getString("record_id"),
-			resultSet.getString("summary")
+			resultSet.getString("summary"),
+			resultSet.getString("role"),
+			resultSet.getBigDecimal("observed"),
+			resultSet.getObject("sample_size", Integer.class),
+			resultSet.getObject("occurred_on", LocalDate.class)
 		), alert.detectionSignalResultId());
 		return new AlertDetail(
 			alert.id(), metadata.runId(), alert.studentId(), metadata.studentName(), metadata.className(),
@@ -294,7 +300,16 @@ public class EngagementService {
 	) {
 	}
 
-	public record EvidenceView(UUID id, String sourceHint, String recordId, String summary) {
+	public record EvidenceView(
+		UUID id,
+		String sourceHint,
+		String recordId,
+		String summary,
+		String role,
+		BigDecimal observed,
+		Integer sampleSize,
+		LocalDate occurredOn
+	) {
 	}
 
 	public record AlertDetail(

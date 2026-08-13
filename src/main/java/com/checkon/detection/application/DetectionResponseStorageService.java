@@ -117,7 +117,11 @@ public class DetectionResponseStorageService {
 				nextId(ids),
 				item.sourceTable(),
 				item.recordId(),
-				item.summary()
+				item.summary(),
+				item.role(),
+				item.observed(),
+				item.sampleSize(),
+				item.occurredOn()
 			));
 		}
 
@@ -130,6 +134,10 @@ public class DetectionResponseStorageService {
 			signal.ruleId(),
 			signal.signalType(),
 			signal.displayLabel(),
+			signal.metric(),
+			signal.observed(),
+			signal.baseline(),
+			signal.sampleSize(),
 			BigDecimal.valueOf(signal.score()),
 			signal.rank(),
 			Boolean.TRUE.equals(signal.advisory()),
@@ -240,8 +248,11 @@ public class DetectionResponseStorageService {
 					"AI signal rank must be at least 1"
 				);
 			}
+			validateStructuredSignal(signal);
 			toLifecycle(signal.lifecycle());
 			Set<EvidenceReference> evidenceReferences = new HashSet<>();
+			int triggerEvidenceCount = 0;
+			int baselineEvidenceCount = 0;
 			for (AiDetectionResponse.Evidence evidence : signal.evidence()) {
 				if (evidence == null || isBlank(evidence.recordId())
 					|| isBlank(evidence.sourceTable())) {
@@ -275,8 +286,89 @@ public class DetectionResponseStorageService {
 						"AI evidence source and summary must not be blank"
 					);
 				}
+				String role = validateStructuredEvidence(signal.ruleId(), evidence);
+				if ("trigger".equals(role)) {
+					triggerEvidenceCount++;
+				}
+				else if ("baseline".equals(role)) {
+					baselineEvidenceCount++;
+				}
+			}
+			if ("R3".equals(signal.ruleId())
+				&& (triggerEvidenceCount > 3 || baselineEvidenceCount > 3
+					|| triggerEvidenceCount + baselineEvidenceCount > 6)) {
+				throw new DetectionResponseStorageException(
+					"R3 evidence must contain at most 3 trigger and 3 baseline records"
+				);
 			}
 		}
+	}
+
+	private void validateStructuredSignal(AiDetectionResponse.Signal signal) {
+		if (isBlank(signal.ruleId())) {
+			throw new DetectionResponseStorageException(
+				"AI signal rule_id must not be blank"
+			);
+		}
+		if (signal.sampleSize() != null && signal.sampleSize() < 0) {
+			throw new DetectionResponseStorageException(
+				"AI signal sample_size must not be negative"
+			);
+		}
+		if (signal.metric() != null && signal.metric().isBlank()) {
+			throw new DetectionResponseStorageException(
+				"AI signal metric must not be blank when present"
+			);
+		}
+		String expectedMetric = switch (signal.ruleId()) {
+			case "R1" -> "accuracy";
+			case "R2" -> "consecutive_missing_weeks";
+			case "R3" -> "activity_count";
+			case "R4" -> "norm_time";
+			case "R5" -> null;
+			case "R6" -> "error_share";
+			default -> signal.metric();
+		};
+		if (signal.metric() != null && !Objects.equals(signal.metric(), expectedMetric)) {
+			throw new DetectionResponseStorageException(
+				"AI signal metric does not match rule_id"
+			);
+		}
+		if (signal.baseline() != null
+			&& !Set.of("R1", "R3", "R4").contains(signal.ruleId())) {
+			throw new DetectionResponseStorageException(
+				"AI signal baseline is not supported for this rule_id"
+			);
+		}
+	}
+
+	private String validateStructuredEvidence(
+		String ruleId,
+		AiDetectionResponse.Evidence evidence
+	) {
+		if (evidence.sampleSize() != null && evidence.sampleSize() < 0) {
+			throw new DetectionResponseStorageException(
+				"AI evidence sample_size must not be negative"
+			);
+		}
+		boolean hasStructuredValue = evidence.role() != null
+			|| evidence.observed() != null
+			|| evidence.sampleSize() != null
+			|| evidence.occurredOn() != null;
+		if (!hasStructuredValue) {
+			return null;
+		}
+		if (!"trigger".equals(evidence.role()) && !"baseline".equals(evidence.role())) {
+			throw new DetectionResponseStorageException(
+				"Structured AI evidence role must be trigger or baseline"
+			);
+		}
+		if ("baseline".equals(evidence.role()) && !"R3".equals(ruleId)) {
+			throw new DetectionResponseStorageException(
+				"Baseline evidence records are supported only for R3"
+			);
+		}
+		return evidence.role();
 	}
 
 	private AiDetectionRequest readRequest(String snapshotPayload) {
