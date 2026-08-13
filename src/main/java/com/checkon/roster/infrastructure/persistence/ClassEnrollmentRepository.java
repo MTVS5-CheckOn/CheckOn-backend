@@ -25,6 +25,11 @@ public interface ClassEnrollmentRepository
 		RelationshipStatus status
 	);
 
+	List<ClassEnrollment> findAllByTeacherIdAndStatusIn(
+		UUID teacherId,
+		List<RelationshipStatus> statuses
+	);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
 		select enrollment

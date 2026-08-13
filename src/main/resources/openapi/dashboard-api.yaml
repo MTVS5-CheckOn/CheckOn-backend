@@ -220,6 +220,19 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/StudentNotFound'}
         '409': {$ref: '#/components/responses/InvalidStudentState'}
+  /detection-runs/latest:
+    get:
+      tags: [Detection]
+      operationId: getLatestDetectionRun
+      summary: 인증 강사의 최근 위험 탐지 실행 조회
+      description: 위험신호 0건과 배치 실패를 운영 화면에서 구분할 수 있도록 가장 최근 실행 상태를 반환한다.
+      responses:
+        '200':
+          description: 최근 실행 상태
+          content: {application/json: {schema: {$ref: '#/components/schemas/DetectionRunStatusResponse'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/DetectionRunNotFound'}
   /detection-runs/{runId}:
     get:
       tags: [Detection]
@@ -1035,6 +1048,11 @@ components:
       required: [analysisDate]
       properties:
         analysisDate: {type: string, format: date}
+        termContext:
+          type: string
+          enum: [normal, new_term, vacation]
+          default: normal
+          description: 수동 검증용 학기 맥락. 생략 시 normal이며 vacation에서는 AI가 R2·R3를 평가하지 않는다.
     DetectionRunResponse:
       type: object
       required: [runId, status, analysisDate, created, attemptNumber]

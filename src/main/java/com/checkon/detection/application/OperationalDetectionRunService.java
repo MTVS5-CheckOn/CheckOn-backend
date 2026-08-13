@@ -20,8 +20,6 @@ import com.checkon.learning.application.LearningRecordSnapshotService;
 public class OperationalDetectionRunService {
 
 	private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
-	private static final int ANALYSIS_DAYS = 56;
-	private static final String DEFAULT_TERM_CONTEXT = "normal";
 
 	private final LearningRecordSnapshotService snapshotService;
 	private final PrepareDetectionRunService prepareService;
@@ -41,17 +39,27 @@ public class OperationalDetectionRunService {
 	}
 
 	public OperationalDetectionRun execute(UUID teacherId, LocalDate analysisDate) {
+		return execute(teacherId, analysisDate, DetectionTermContext.NORMAL);
+	}
+
+	public OperationalDetectionRun execute(
+		UUID teacherId,
+		LocalDate analysisDate,
+		DetectionTermContext termContext
+	) {
 		Objects.requireNonNull(teacherId, "teacherId must not be null");
 		Objects.requireNonNull(analysisDate, "analysisDate must not be null");
+		Objects.requireNonNull(termContext, "termContext must not be null");
 
-		LocalDate fromDate = analysisDate.minusDays(ANALYSIS_DAYS - 1L);
-		Instant fromInclusive = fromDate.atStartOfDay(SERVICE_ZONE).toInstant();
-		Instant toExclusive = analysisDate.plusDays(1)
-			.atStartOfDay(SERVICE_ZONE)
-			.toInstant();
 		LocalDate weekStart = analysisDate.with(
 			TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)
 		);
+		Instant fromInclusive = weekStart.minusWeeks(9)
+			.atStartOfDay(SERVICE_ZONE)
+			.toInstant();
+		Instant toExclusive = analysisDate.plusDays(1)
+			.atStartOfDay(SERVICE_ZONE)
+			.toInstant();
 
 		// 클라이언트가 학습 snapshot을 만들면 다른 학생 기록을 섞거나 개인정보를
 		// 추가할 수 있다. 인증된 강사의 서버 소유 Learning Record를 RLS 안에서
@@ -59,7 +67,7 @@ public class OperationalDetectionRunService {
 		AiDetectionRequest snapshot = snapshotService.build(
 			teacherId,
 			weekStart,
-			DEFAULT_TERM_CONTEXT,
+			termContext.value(),
 			fromInclusive,
 			toExclusive
 		);

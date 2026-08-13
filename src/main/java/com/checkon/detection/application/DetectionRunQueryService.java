@@ -41,6 +41,20 @@ public class DetectionRunQueryService {
 		tenantContext.setCurrentTeacher(teacherId);
 		DetectionRun run = runRepository.findByIdAndTeacherId(runId, teacherId)
 			.orElseThrow(DetectionExecutionException::runNotFound);
+		return toView(run);
+	}
+
+	@Transactional(readOnly = true)
+	public DetectionRunView findLatest(UUID teacherId) {
+		Objects.requireNonNull(teacherId, "teacherId must not be null");
+		tenantContext.setCurrentTeacher(teacherId);
+		DetectionRun run = runRepository
+			.findFirstByTeacherIdOrderByPreparedAtDescIdDesc(teacherId)
+			.orElseThrow(DetectionExecutionException::runNotFound);
+		return toView(run);
+	}
+
+	private DetectionRunView toView(DetectionRun run) {
 		return new DetectionRunView(
 			run.id(),
 			run.status(),

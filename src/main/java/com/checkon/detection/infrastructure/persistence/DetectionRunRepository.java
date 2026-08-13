@@ -26,6 +26,9 @@ public interface DetectionRunRepository extends JpaRepository<DetectionRun, UUID
 	Optional<DetectionRun> findByIdAndTeacherId(UUID id, UUID teacherId);
 
 	@EntityGraph(attributePaths = "attempts")
+	Optional<DetectionRun> findFirstByTeacherIdOrderByPreparedAtDescIdDesc(UUID teacherId);
+
+	@EntityGraph(attributePaths = "attempts")
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("SELECT run FROM DetectionRun run WHERE run.id = :id AND run.teacherId = :teacherId")
 	Optional<DetectionRun> findByIdAndTeacherIdForUpdate(

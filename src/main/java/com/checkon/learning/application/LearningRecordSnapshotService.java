@@ -21,6 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.checkon.detection.application.AiDetectionConsentPolicy;
 import com.checkon.detection.application.AiDetectionConsentPolicy.Decision;
+import com.checkon.detection.application.DetectionAssignmentWeekSummaryService;
+import com.checkon.detection.application.DetectionAssignmentWeekSummaryService.AssignmentWeekSummary;
 import com.checkon.detection.application.DetectionStudentStatusHistoryService;
 import com.checkon.detection.application.DetectionStudentStatusHistoryService.ReturnedTransition;
 import com.checkon.detection.application.PrepareDetectionRunService;
@@ -42,6 +44,7 @@ public class LearningRecordSnapshotService {
 	private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 	private static final int EVIDENCE_WEEK_COUNT = 10;
 	private static final String STUDENT_WEEK_ACTIVITY = "student_week_activity";
+	private static final String ASSIGNMENT_WEEK_SUMMARY = "assignment_week_summary";
 	private static final String STUDENT_STATUS_HISTORY = "student_status_history";
 
 	private static final Comparator<LearningRecord> RECORD_ORDER =
@@ -59,6 +62,7 @@ public class LearningRecordSnapshotService {
 	private final EngagementAlertContextService alertContexts;
 	private final AiStudentAliasService aliases;
 	private final AiDetectionConsentPolicy consentPolicy;
+	private final DetectionAssignmentWeekSummaryService assignmentSummaries;
 	private final DetectionStudentStatusHistoryService statusHistory;
 	private final PrepareDetectionRunService prepareService;
 	private final TeacherTenantDatabaseContext tenantContext;
@@ -69,12 +73,14 @@ public class LearningRecordSnapshotService {
 		EngagementAlertContextService alertContexts,
 		AiStudentAliasService aliases,
 		AiDetectionConsentPolicy consentPolicy,
+		DetectionAssignmentWeekSummaryService assignmentSummaries,
 		DetectionStudentStatusHistoryService statusHistory,
 		PrepareDetectionRunService prepareService, TeacherTenantDatabaseContext tenantContext) {
 		this.records = records; this.enrollments = enrollments; this.aliases = aliases;
 		this.relationships = relationships;
 		this.alertContexts = alertContexts;
 		this.consentPolicy = consentPolicy;
+		this.assignmentSummaries = assignmentSummaries;
 		this.statusHistory = statusHistory;
 		this.prepareService = prepareService; this.tenantContext = tenantContext;
 	}
@@ -114,22 +120,24 @@ public class LearningRecordSnapshotService {
 				teacherId, evidenceFrom, evidenceTo)
 			.stream().sorted(RECORD_ORDER).toList();
 
-		// Absence can be a signal, so active students must not disappear merely
-		// because they have no event in the current 56-day learning-event range.
-		Map<UUID, TeacherStudentRelationship> activeRelationships = new LinkedHashMap<>();
-		relationships.findAllByTeacherIdAndStatus(teacherId, RelationshipStatus.ACTIVE)
+		// Absence can be a signal, so current students must not disappear merely
+		// because they have no event in the exact ten-week learning-event range.
+		Map<UUID, TeacherStudentRelationship> currentRelationships = new LinkedHashMap<>();
+		relationships.findAllByTeacherIdAndStatusIn(
+			teacherId, List.of(RelationshipStatus.ACTIVE, RelationshipStatus.PAUSED)
+		)
 			.stream()
 			.sorted(Comparator.comparing(TeacherStudentRelationship::studentId))
-			.forEach(relationship -> activeRelationships.put(
+			.forEach(relationship -> currentRelationships.put(
 				relationship.studentId(), relationship
 			));
 		// Historical records remain backend-owned, but an ended relationship must
 		// not make a former student part of the current AI request.
-		List<UUID> snapshotStudentIds = List.copyOf(new TreeSet<>(activeRelationships.keySet()));
-		Map<UUID, ClassEnrollment> activeEnrollments = new LinkedHashMap<>();
-		for (ClassEnrollment enrollment : enrollments.findAllByTeacherIdAndStatus(
-			teacherId, RelationshipStatus.ACTIVE)) {
-			activeEnrollments.put(enrollment.studentId(), enrollment);
+		List<UUID> snapshotStudentIds = List.copyOf(new TreeSet<>(currentRelationships.keySet()));
+		Map<UUID, ClassEnrollment> currentEnrollments = new LinkedHashMap<>();
+		for (ClassEnrollment enrollment : enrollments.findAllByTeacherIdAndStatusIn(
+			teacherId, List.of(RelationshipStatus.ACTIVE, RelationshipStatus.PAUSED))) {
+			currentEnrollments.put(enrollment.studentId(), enrollment);
 		}
 		Map<UUID, Decision> consentByStudent = new LinkedHashMap<>();
 		for (UUID studentId : snapshotStudentIds) {
@@ -141,10 +149,17 @@ public class LearningRecordSnapshotService {
 				aliasByStudent.put(studentId, aliases.getOrCreate(teacherId, studentId));
 			}
 		}
+		Instant returnWeekFrom = weekStart.atStartOfDay(SERVICE_ZONE).toInstant();
+		Instant returnWeekTo = weekStart.plusWeeks(1).atStartOfDay(SERVICE_ZONE).toInstant();
 		List<ReturnedTransition> returnedTransitions = statusHistory
-			.findReturnedTransitions(teacherId, evidenceFrom, evidenceTo)
+			.findReturnedTransitions(teacherId, returnWeekFrom, returnWeekTo)
 			.stream()
 			.filter(transition -> aliasByStudent.containsKey(transition.studentId()))
+			.toList();
+		List<AssignmentWeekSummary> assignmentWindows = assignmentSummaries
+			.findAll(teacherId, firstEvidenceWeek, weekStart)
+			.stream()
+			.filter(summary -> aliasByStudent.containsKey(summary.studentId()))
 			.toList();
 		var returnedStudentIds = returnedTransitions.stream()
 			.map(ReturnedTransition::studentId)
@@ -155,16 +170,18 @@ public class LearningRecordSnapshotService {
 		List<AiDetectionRequest.StudentSnapshot> students = new ArrayList<>();
 		for (var entry : aliasByStudent.entrySet()) {
 			UUID studentId = entry.getKey();
-			TeacherStudentRelationship relationship = activeRelationships.get(studentId);
-			ClassEnrollment enrollment = activeEnrollments.get(studentId);
+			TeacherStudentRelationship relationship = currentRelationships.get(studentId);
+			ClassEnrollment enrollment = currentEnrollments.get(studentId);
 			LearningRecord latestRecord = latestByStudent.get(studentId);
 			UUID classId = enrollment != null ? enrollment.classGroupId()
 				: latestRecord == null ? null : latestRecord.classGroupId();
 			int weeks = Math.max(0,
 				(int) (Duration.between(relationship.startedAt(), toExclusive).toDays() / 7));
+			String status = relationship.status() == RelationshipStatus.PAUSED
+				? "paused"
+				: returnedStudentIds.contains(studentId) ? "returned" : "enrolled";
 			students.add(new AiDetectionRequest.StudentSnapshot(entry.getValue(),
-				classRef(classId), weeks,
-				returnedStudentIds.contains(studentId) ? "returned" : "enrolled",
+				classRef(classId), weeks, status,
 				consentByStudent.get(studentId).requestConsent()));
 		}
 		students.sort(Comparator.comparing(AiDetectionRequest.StudentSnapshot::studentRef));
@@ -185,7 +202,7 @@ public class LearningRecordSnapshotService {
 			.sorted(Comparator.comparing(AiDetectionRequest.ClassReference::classRef)).toList();
 		List<AiDetectionRequest.DetectionEvidence> evidence = buildDetectionEvidence(
 			firstEvidenceWeek, weekStart, activityRecords, aliasByStudent,
-			activeRelationships, returnedTransitions
+			currentRelationships, assignmentWindows, returnedTransitions
 		);
 		List<AiDetectionRequest.AlertContext> alertContext = alertContexts
 			.latestByStudentAndSignalType(teacherId).stream()
@@ -210,7 +227,8 @@ public class LearningRecordSnapshotService {
 		LocalDate analysisWeek,
 		List<LearningRecord> activityRecords,
 		Map<UUID, String> aliasByStudent,
-		Map<UUID, TeacherStudentRelationship> activeRelationships,
+		Map<UUID, TeacherStudentRelationship> currentRelationships,
+		List<AssignmentWeekSummary> assignmentWindows,
 		List<ReturnedTransition> returnedTransitions
 	) {
 		Map<EvidenceWeek, Integer> activities = new LinkedHashMap<>();
@@ -226,7 +244,7 @@ public class LearningRecordSnapshotService {
 		for (var entry : aliasByStudent.entrySet()) {
 			UUID studentId = entry.getKey();
 			String studentRef = entry.getValue();
-			LocalDate firstEligibleWeek = mondayOf(activeRelationships.get(studentId).startedAt());
+			LocalDate firstEligibleWeek = mondayOf(currentRelationships.get(studentId).startedAt());
 			for (int index = 0; index < EVIDENCE_WEEK_COUNT; index++) {
 				LocalDate currentWeek = firstWeek.plusWeeks(index);
 				if (currentWeek.isBefore(firstEligibleWeek)) continue;
@@ -237,6 +255,18 @@ public class LearningRecordSnapshotService {
 					activities.getOrDefault(new EvidenceWeek(studentId, currentWeek), 0)
 				));
 			}
+		}
+		for (AssignmentWeekSummary summary : assignmentWindows) {
+			String studentRef = aliasByStudent.get(summary.studentId());
+			if (studentRef == null) continue;
+			evidence.add(AiDetectionRequest.DetectionEvidence.assignmentWindow(
+				ASSIGNMENT_WEEK_SUMMARY,
+				"assignment-summary:" + studentRef + ":" + summary.weekStart(),
+				studentRef,
+				summary.weekStart(),
+				summary.expectedCount(),
+				summary.submittedCount()
+			));
 		}
 		for (ReturnedTransition transition : returnedTransitions) {
 			String studentRef = aliasByStudent.get(transition.studentId());

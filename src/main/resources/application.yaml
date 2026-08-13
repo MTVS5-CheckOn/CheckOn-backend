@@ -7,20 +7,21 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      compression-type: zstd
       properties:
-        acks: all
-        enable.idempotence: true
-        # 40명 evidence snapshot(약 1.59 MiB)과 Kafka envelope를 수용한다.
-        max.request.size: 3145728
-        max.in.flight.requests.per.connection: 5
+        "[enable.idempotence]": true
+        # 100명 10주 snapshot의 비압축 상한과 Kafka envelope를 수용한다.
+        "[max.request.size]": 6291456
+        "[max.in.flight.requests.per.connection]": 5
     consumer:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       enable-auto-commit: false
       auto-offset-reset: earliest
       properties:
-        isolation.level: read_committed
-        max.partition.fetch.bytes: 3145728
+        "[isolation.level]": read_committed
+        "[max.partition.fetch.bytes]": 6291456
     listener:
       ack-mode: record
 

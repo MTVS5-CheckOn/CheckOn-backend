@@ -32,6 +32,11 @@ public interface TeacherStudentRelationshipRepository
 		com.checkon.roster.domain.RelationshipStatus status
 	);
 
+	List<TeacherStudentRelationship> findAllByTeacherIdAndStatusIn(
+		UUID teacherId,
+		List<com.checkon.roster.domain.RelationshipStatus> statuses
+	);
+
 	Optional<TeacherStudentRelationship> findByIdAndTeacherId(
 		UUID id,
 		UUID teacherId

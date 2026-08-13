@@ -1,14 +1,13 @@
 asyncapi: 2.6.0
 info:
   title: CheckOn Risk Detection Kafka Contract
-  version: 1.4.0
+  version: 1.5.0
   description: |
     Internal asynchronous contract between CheckOn control/outbox, its HTTP adapter,
     and its result consumer. The AI service itself exposes POST /v1/detect and does
     not connect to Kafka.
-    The v1 request emits weekly_activity evidence for R1/R3/R4/R6 and
-    enrollment_transition evidence for R5. Legacy assignment_window schemas remain
-    readable for stored payload compatibility.
+    The v1 request emits assignment_window evidence for R2, weekly_activity evidence
+    for R1/R3/R4/R6, and enrollment_transition evidence for R5.
     All timestamps are RFC 3339 instants. All identifiers are UUIDv7 except opaque aliases.
 servers:
   local:
@@ -225,13 +224,14 @@ components:
         detection_evidence:
           type: array
           description: |
-            Optional evidence facts. New v1 requests emit weekly_activity from each student's
-            relationship-start week through the analysis week, up to the ten-week snapshot
-            window, and enrollment_transition for a paused-to-returned event in that window.
+            Optional evidence facts. New v1 requests emit assignment_window rows that exist,
+            weekly_activity from each student's relationship-start week through the analysis
+            week, up to the ten-week snapshot window, and enrollment_transition for a
+            paused-to-returned event in the analysis week.
             Weeks before relationship start are omitted because no evidence exists; real
             zero-activity weeks on or after relationship start use activity_count=0.
-            assignment_window remains accepted for stored payload compatibility. Array
-            omission and [] have the same snapshot_hash meaning.
+            Missing assignment rows are omitted rather than synthesized as zero. Array omission
+            and [] have the same snapshot_hash meaning.
           items:
             oneOf:
               - $ref: '#/components/schemas/AssignmentWindowEvidence'

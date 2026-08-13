@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.Test;
 
 import com.checkon.detection.application.AiDetectionConsentMode;
 import com.checkon.detection.application.AiDetectionConsentPolicy;
+import com.checkon.detection.application.DetectionAssignmentWeekSummaryService;
 import com.checkon.detection.application.DetectionStudentStatusHistoryService;
 import com.checkon.detection.application.PrepareDetectionRunService;
 import com.checkon.detection.integration.ai.AiDetectionConsentProperties;
@@ -100,6 +102,58 @@ class LearningRecordSnapshotServiceTest {
 				assertThat(evidence.fromStatus()).isEqualTo("paused");
 				assertThat(evidence.toStatus()).isEqualTo("returned");
 			});
+		verify(fixture.statusHistory()).findReturnedTransitions(
+			TEACHER,
+			Instant.parse("2026-07-26T15:00:00Z"),
+			Instant.parse("2026-08-02T15:00:00Z")
+		);
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given PAUSED 학생, When 스냅샷을 만들면, Then paused 상태로 보내 AI 판정에서 제외한다")
+	void givenPausedStudent_whenBuildingSnapshot_thenSendsPausedStatus() {
+		Fixture fixture = fixture(AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true);
+		TeacherStudentRelationship paused = TeacherStudentRelationship.start(
+			TEACHER, STUDENT, FROM.minusSeconds(60), FROM.minusSeconds(60)
+		);
+		paused.pause();
+		when(fixture.relationships().findAllByTeacherIdAndStatusIn(
+			TEACHER, List.of(RelationshipStatus.ACTIVE, RelationshipStatus.PAUSED)
+		)).thenReturn(List.of(paused));
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.students()).singleElement().satisfies(student ->
+			assertThat(student.status()).isEqualTo("paused")
+		);
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 과제 주간 집계 행, When 스냅샷을 만들면, Then R2 assignment window를 보낸다")
+	void givenAssignmentSummary_whenBuildingSnapshot_thenSendsR2Evidence() {
+		Fixture fixture = fixture(AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true);
+		when(fixture.assignmentSummaries().findAll(
+			eq(TEACHER), any(LocalDate.class), any(LocalDate.class)
+		)).thenReturn(List.of(new DetectionAssignmentWeekSummaryService.AssignmentWeekSummary(
+			STUDENT, LocalDate.parse("2026-07-27"), 3, 0
+		)));
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.detectionEvidence())
+			.filteredOn(evidence -> evidence.kind().equals("assignment_window"))
+			.singleElement().satisfies(evidence -> {
+				assertThat(evidence.sourceTable()).isEqualTo("assignment_week_summary");
+				assertThat(evidence.recordId()).isEqualTo(
+					"assignment-summary:st_demo_student:2026-07-27"
+				);
+				assertThat(evidence.expectedCount()).isEqualTo(3);
+				assertThat(evidence.submittedCount()).isZero();
+			});
 	}
 
 	@Test
@@ -169,8 +223,8 @@ class LearningRecordSnapshotServiceTest {
 		when(recentEnrollment.studentId()).thenReturn(STUDENT);
 		when(recentEnrollment.classGroupId()).thenReturn(CLASS);
 		when(recentEnrollment.enrolledAt()).thenReturn(FROM.minus(1, ChronoUnit.DAYS));
-		when(fixture.enrollments().findAllByTeacherIdAndStatus(
-			TEACHER, RelationshipStatus.ACTIVE
+		when(fixture.enrollments().findAllByTeacherIdAndStatusIn(
+			TEACHER, List.of(RelationshipStatus.ACTIVE, RelationshipStatus.PAUSED)
 		)).thenReturn(List.of(recentEnrollment));
 
 		// When
@@ -196,8 +250,8 @@ class LearningRecordSnapshotServiceTest {
 			TEACHER, STUDENT_2, Instant.parse("2026-07-27T00:00:00Z"),
 			Instant.parse("2026-07-27T00:00:00Z")
 		);
-		when(fixture.relationships().findAllByTeacherIdAndStatus(
-			TEACHER, RelationshipStatus.ACTIVE
+		when(fixture.relationships().findAllByTeacherIdAndStatusIn(
+			TEACHER, List.of(RelationshipStatus.ACTIVE, RelationshipStatus.PAUSED)
 		)).thenReturn(List.of(
 			TeacherStudentRelationship.start(
 				TEACHER, STUDENT, Instant.parse("2026-07-13T00:00:00Z"),
@@ -304,6 +358,9 @@ class LearningRecordSnapshotServiceTest {
 		EngagementAlertContextService alertContexts = mock(EngagementAlertContextService.class);
 		AiStudentAliasService aliases = mock(AiStudentAliasService.class);
 		PrepareDetectionRunService prepareService = mock(PrepareDetectionRunService.class);
+		DetectionAssignmentWeekSummaryService assignmentSummaries = mock(
+			DetectionAssignmentWeekSummaryService.class
+		);
 		DetectionStudentStatusHistoryService statusHistory = mock(
 			DetectionStudentStatusHistoryService.class
 		);
@@ -313,13 +370,20 @@ class LearningRecordSnapshotServiceTest {
 		when(records.findAllByTeacherIdAndOccurredAtGreaterThanEqualAndOccurredAtLessThan(
 			eq(TEACHER), any(Instant.class), any(Instant.class)
 		)).thenReturn(includeRecord ? List.of(record) : List.of());
-		when(enrollments.findAllByTeacherIdAndStatus(TEACHER, RelationshipStatus.ACTIVE))
+		when(enrollments.findAllByTeacherIdAndStatusIn(
+			TEACHER, List.of(RelationshipStatus.ACTIVE, RelationshipStatus.PAUSED)
+		))
 			.thenReturn(List.of());
 		when(alertContexts.latestByStudentAndSignalType(TEACHER)).thenReturn(List.of());
 		when(statusHistory.findReturnedTransitions(
 			eq(TEACHER), any(Instant.class), any(Instant.class)
 		)).thenReturn(List.of());
-		when(relationships.findAllByTeacherIdAndStatus(TEACHER, RelationshipStatus.ACTIVE))
+		when(assignmentSummaries.findAll(
+			eq(TEACHER), any(LocalDate.class), any(LocalDate.class)
+		)).thenReturn(List.of());
+		when(relationships.findAllByTeacherIdAndStatusIn(
+			TEACHER, List.of(RelationshipStatus.ACTIVE, RelationshipStatus.PAUSED)
+		))
 			.thenReturn(activeRelationship ? List.of(TeacherStudentRelationship.start(
 				TEACHER, STUDENT, relationshipStartedAt, relationshipStartedAt
 			)) : List.of());
@@ -332,9 +396,10 @@ class LearningRecordSnapshotServiceTest {
 		);
 		return new Fixture(new LearningRecordSnapshotService(
 			records, enrollments, relationships, alertContexts, aliases,
-			consentPolicy, statusHistory,
+			consentPolicy, assignmentSummaries, statusHistory,
 			prepareService, tenantContext
-		), aliases, alertContexts, enrollments, relationships, statusHistory);
+		), aliases, alertContexts, enrollments, relationships,
+			assignmentSummaries, statusHistory);
 	}
 
 	private LearningRecord record() {
@@ -355,6 +420,7 @@ class LearningRecordSnapshotServiceTest {
 		EngagementAlertContextService alertContexts,
 		ClassEnrollmentRepository enrollments,
 		TeacherStudentRelationshipRepository relationships,
+		DetectionAssignmentWeekSummaryService assignmentSummaries,
 		DetectionStudentStatusHistoryService statusHistory
 	) {
 	}
