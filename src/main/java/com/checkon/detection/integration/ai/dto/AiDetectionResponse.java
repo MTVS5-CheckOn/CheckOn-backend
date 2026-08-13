@@ -64,7 +64,7 @@ public record AiDetectionResponse(
 		@JsonProperty("occurred_on") LocalDate occurredOn
 	) {
 		public Evidence(String sourceTable, String recordId, String summary) {
-			this(sourceTable, recordId, summary, null, null, null, null);
+			this(sourceTable, recordId, summary, "trigger", null, null, null);
 		}
 	}
 

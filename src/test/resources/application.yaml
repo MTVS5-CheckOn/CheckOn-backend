@@ -1,4 +1,12 @@
 spring:
+  kafka:
+    producer:
+      compression-type: zstd
+      properties:
+        "[max.request.size]": 6291456
+    consumer:
+      properties:
+        "[max.partition.fetch.bytes]": 6291456
   jpa:
     hibernate:
       ddl-auto: validate

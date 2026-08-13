@@ -89,9 +89,11 @@ class AiDetectionContractTest {
 			  "data":{"signals":[{
 			    "signal_id":"signal-1", "student_ref":"st_01", "class_ref":"cl_01",
 			    "rule_id":"R1", "signal_type":"acc_drop", "display_label":"정답률 하락",
+			    "future_signal_field":"ignored-for-compatible-rollout",
 			    "score":1.0, "rank":1, "advisory":true, "lifecycle":"follow_up",
 			    "brief":{"text":"참고 신호", "gate_passed":true, "fallback_used":false},
-			    "evidence":[{"source_table":"learning_event","record_id":"le_1","summary":"근거"}]
+			    "evidence":[{"source_table":"learning_event","record_id":"le_1","summary":"근거","role":"trigger",
+			      "future_evidence_field":"ignored-for-compatible-rollout"}]
 			  }],"stats":{"students_evaluated":1,"signals_raised":1,
 			    "excluded_under_2w":0,"capped_out":0,"rules_skipped":[]}},
 			  "error":null,
@@ -113,7 +115,7 @@ class AiDetectionContractTest {
 		assertThat(response.data().signals()).singleElement().satisfies(signal -> {
 			assertThat(signal.metric()).isNull();
 			assertThat(signal.evidence()).singleElement().satisfies(evidence ->
-				assertThat(evidence.role()).isNull()
+				assertThat(evidence.role()).isEqualTo("trigger")
 			);
 		});
 	}

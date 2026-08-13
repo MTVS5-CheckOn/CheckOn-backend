@@ -186,6 +186,53 @@ paths:
         '409': {$ref: '#/components/responses/DetectionConflict'}
         '422': {$ref: '#/components/responses/NoLearningRecords'}
         '502': {$ref: '#/components/responses/AiDetectionFailure'}
+  /students/{studentId}/pause:
+    post:
+      tags: [Roster]
+      operationId: pauseStudent
+      summary: 학생 휴원 처리
+      description: 인증 강사의 ACTIVE 관계와 활성 반 소속을 PAUSED로 전환하고 Detection 상태 이력을 기록한다.
+      parameters:
+        - $ref: '#/components/parameters/StudentId'
+      responses:
+        '200':
+          description: 휴원 처리 성공
+          content: {application/json: {schema: {$ref: '#/components/schemas/StudentLifecycleResponse'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/StudentNotFound'}
+        '409': {$ref: '#/components/responses/InvalidStudentState'}
+  /students/{studentId}/return:
+    post:
+      tags: [Roster]
+      operationId: returnStudent
+      summary: 학생 복귀 처리
+      description: 인증 강사의 PAUSED 관계와 반 소속을 ACTIVE로 전환하고 paused → returned Detection 근거를 기록한다.
+      parameters:
+        - $ref: '#/components/parameters/StudentId'
+      responses:
+        '200':
+          description: 복귀 처리 성공
+          content: {application/json: {schema: {$ref: '#/components/schemas/StudentLifecycleResponse'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/StudentNotFound'}
+        '409': {$ref: '#/components/responses/InvalidStudentState'}
+  /detection-runs/latest:
+    get:
+      tags: [Detection]
+      operationId: getLatestDetectionRun
+      summary: 인증 강사의 최근 위험 탐지 실행 조회
+      description: 위험신호 0건과 배치 실패를 운영 화면에서 구분할 수 있도록 가장 최근 실행 상태를 반환한다.
+      responses:
+        '200':
+          description: 최근 실행 상태
+          content: {application/json: {schema: {$ref: '#/components/schemas/DetectionRunStatusResponse'}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/DetectionRunNotFound'}
   /detection-runs/{runId}:
     get:
       tags: [Detection]
@@ -437,7 +484,7 @@ paths:
       tags: [Engagement]
       operationId: getEngagementAlertDetail
       summary: Alert 상세 조회
-      description: alertId 하나로 학생·반·신호 표시 정보와 생성순 Evidence를 반환한다.
+      description: alertId 하나로 학생·반·신호 표시 정보와 역할별 최신 Evidence를 반환한다. 신호 수치는 Evidence 개수가 아니라 signal의 observed를 사용한다.
       parameters: [{$ref: '#/components/parameters/AlertId'}]
       responses:
         '200':
@@ -871,6 +918,12 @@ components:
     InvalidClassState:
       description: 보관된 클래스 수정 또는 보관 불변식 위반
       content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: INVALID_CLASS_STATE, message: 현재 클래스 상태에서는 요청을 처리할 수 없습니다.}}}
+    StudentNotFound:
+      description: 없거나 다른 테넌트에 속한 학생 관계
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: STUDENT_NOT_FOUND, message: 학생을 찾을 수 없습니다.}}}
+    InvalidStudentState:
+      description: 허용되지 않는 학생 휴원·복귀 상태 전이
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: INVALID_STUDENT_STATE, message: 현재 학생 상태에서는 요청을 처리할 수 없습니다.}}}
     EngagementNotFound:
       description: 없거나 다른 테넌트에 속한 리소스
       content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: ENGAGEMENT_RESOURCE_NOT_FOUND, message: 대상을 찾을 수 없습니다.}}}
@@ -986,12 +1039,24 @@ components:
       required: [id]
       properties:
         id: {type: string, format: uuid}
+    StudentLifecycleResponse:
+      type: object
+      required: [studentId, status, occurredAt]
+      properties:
+        studentId: {type: string, format: uuid}
+        status: {type: string, enum: [ACTIVE, PAUSED]}
+        occurredAt: {type: string, format: date-time}
     DetectionRunStatus: {type: string, enum: [PREPARED, REQUESTED, SUCCEEDED, FAILED]}
     DetectionRunRequest:
       type: object
       required: [analysisDate]
       properties:
         analysisDate: {type: string, format: date}
+        termContext:
+          type: string
+          enum: [normal, new_term, vacation]
+          default: normal
+          description: 수동 검증용 학기 맥락. 생략 시 normal이며 vacation에서는 AI가 R2·R3를 평가하지 않는다.
     DetectionRunResponse:
       type: object
       required: [runId, status, analysisDate, created, attemptNumber]
@@ -1158,7 +1223,7 @@ components:
         createdAt: {type: string, format: date-time}
     AlertDetail:
       type: object
-      required: [alertId, runId, studentId, studentName, className, ruleId, signalType, displayLabel, brief, briefFallback, status, createdAt, evidence]
+      required: [alertId, runId, studentId, studentName, className, ruleId, signalType, displayLabel, metric, observed, baseline, sampleSize, brief, briefFallback, status, createdAt, evidence]
       properties:
         alertId: {type: string, format: uuid}
         runId: {type: string, format: uuid, description: Alert 원천 Signal이 속한 Detection run 식별자}
@@ -1168,11 +1233,15 @@ components:
         ruleId: {type: string}
         signalType: {type: string}
         displayLabel: {type: string}
+        metric: {type: string, nullable: true, description: 표시 단위 선택용 AI 지표. return_care는 null이다.}
+        observed: {type: number, nullable: true, description: 신호 전체의 관측값. 단위는 metric으로 판별하며 Evidence 개수로 대체하지 않는다.}
+        baseline: {type: number, nullable: true, description: 평소 비교값. null이면 평소 대비 문구를 표시하지 않는다.}
+        sampleSize: {type: integer, minimum: 0, nullable: true, description: 지표별 표본 수. 의미는 metric으로 판별한다.}
         brief: {type: string}
         briefFallback: {type: boolean}
         status: {$ref: '#/components/schemas/AlertStatus'}
         createdAt: {type: string, format: date-time}
-        evidence: {type: array, items: {$ref: '#/components/schemas/EvidenceView'}}
+        evidence: {type: array, description: "전량이 아닌 표시용 최신 근거다. trigger와 baseline 각각 최대 3건이며 각 역할 안에서는 occurredOn 최신순이다.", items: {$ref: '#/components/schemas/EvidenceView'}}
     EvidenceView:
       type: object
       required: [id, sourceHint, recordId, summary, role, observed, sampleSize, occurredOn]
@@ -1181,7 +1250,7 @@ components:
         sourceHint: {type: string}
         recordId: {type: string}
         summary: {type: string, description: 하위 호환용 문자열이며 신규 수치 표시의 데이터 원천으로 사용하지 않는다.}
-        role: {type: string, enum: [trigger, baseline], nullable: true}
+        role: {type: string, enum: [trigger, baseline]}
         observed: {type: number, nullable: true}
         sampleSize: {type: integer, minimum: 0, nullable: true}
         occurredOn: {type: string, format: date, nullable: true}

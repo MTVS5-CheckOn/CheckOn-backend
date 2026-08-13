@@ -15,6 +15,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.junit.jupiter.Container;
@@ -43,22 +44,34 @@ class CheckOnApplicationTests {
 	static final PostgreSQLContainer POSTGRESQL = new PostgreSQLContainer("postgres:18.4");
 	private final JdbcTemplate jdbcTemplate;
 	private final KafkaTemplate<?, ?> kafkaTemplate;
+	private final ConsumerFactory<?, ?> consumerFactory;
 	private final MockMvc mockMvc;
 
 	@Autowired
 	CheckOnApplicationTests(
 		JdbcTemplate jdbcTemplate,
 		KafkaTemplate<?, ?> kafkaTemplate,
+		ConsumerFactory<?, ?> consumerFactory,
 		MockMvc mockMvc
 	) {
 		this.jdbcTemplate = jdbcTemplate;
 		this.kafkaTemplate = kafkaTemplate;
+		this.consumerFactory = consumerFactory;
 		this.mockMvc = mockMvc;
 	}
 
 	@Test
 	void contextLoads() {
 		assertThat(kafkaTemplate).isNotNull();
+	}
+
+	@Test
+	void configuresDetectionSnapshotKafkaCapacityAndCompression() {
+		assertThat(kafkaTemplate.getProducerFactory().getConfigurationProperties())
+			.containsEntry("max.request.size", "6291456")
+			.containsEntry("compression.type", "zstd");
+		assertThat(consumerFactory.getConfigurationProperties())
+			.containsEntry("max.partition.fetch.bytes", "6291456");
 	}
 
 	@Test
@@ -200,6 +213,13 @@ class CheckOnApplicationTests {
 			  AND table_name = 'detection_result_evidence'
 			  AND column_name IN ('role', 'observed', 'sample_size', 'occurred_on')
 			""", Integer.class);
+		String evidenceRoleNullable = jdbcTemplate.queryForObject("""
+			SELECT is_nullable
+			FROM information_schema.columns
+			WHERE table_schema = 'public'
+			  AND table_name = 'detection_result_evidence'
+			  AND column_name = 'role'
+			""", String.class);
 
 		assertThat(detectionRuns).isEqualTo("detection_runs");
 		assertThat(detectionAttempts).isEqualTo("detection_request_attempts");
@@ -224,10 +244,11 @@ class CheckOnApplicationTests {
 		assertThat(advisoryColumns).isEqualTo(1);
 		assertThat(structuredSignalColumns).isEqualTo(4);
 		assertThat(structuredEvidenceColumns).isEqualTo(4);
+		assertThat(evidenceRoleNullable).isEqualTo("NO");
 		assertThat(jdbcTemplate.queryForObject(
 			"SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1",
 			String.class
-		)).isEqualTo("21");
+		)).isEqualTo("25");
 	}
 
 	@Test

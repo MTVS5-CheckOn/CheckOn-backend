@@ -301,6 +301,11 @@ public class DetectionResponseStorageService {
 					"R3 evidence must contain at most 3 trigger and 3 baseline records"
 				);
 			}
+			if (!"R3".equals(signal.ruleId()) && triggerEvidenceCount > 3) {
+				throw new DetectionResponseStorageException(
+					"AI evidence must contain at most 3 trigger records"
+				);
+			}
 		}
 	}
 
@@ -351,16 +356,9 @@ public class DetectionResponseStorageService {
 				"AI evidence sample_size must not be negative"
 			);
 		}
-		boolean hasStructuredValue = evidence.role() != null
-			|| evidence.observed() != null
-			|| evidence.sampleSize() != null
-			|| evidence.occurredOn() != null;
-		if (!hasStructuredValue) {
-			return null;
-		}
 		if (!"trigger".equals(evidence.role()) && !"baseline".equals(evidence.role())) {
 			throw new DetectionResponseStorageException(
-				"Structured AI evidence role must be trigger or baseline"
+				"AI evidence role must be trigger or baseline"
 			);
 		}
 		if ("baseline".equals(evidence.role()) && !"R3".equals(ruleId)) {

@@ -103,6 +103,20 @@ public class ClassEnrollment {
 		this.status = RelationshipStatus.ENDED;
 	}
 
+	public void pause() {
+		if (status != RelationshipStatus.ACTIVE) {
+			throw new IllegalStateException("only active enrollment can be paused");
+		}
+		this.status = RelationshipStatus.PAUSED;
+	}
+
+	public void resume() {
+		if (status != RelationshipStatus.PAUSED) {
+			throw new IllegalStateException("only paused enrollment can be resumed");
+		}
+		this.status = RelationshipStatus.ACTIVE;
+	}
+
 	public UUID id() {
 		return id;
 	}

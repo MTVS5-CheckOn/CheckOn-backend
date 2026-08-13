@@ -25,6 +25,24 @@ public interface ClassEnrollmentRepository
 		RelationshipStatus status
 	);
 
+	List<ClassEnrollment> findAllByTeacherIdAndStatusIn(
+		UUID teacherId,
+		List<RelationshipStatus> statuses
+	);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+		select enrollment
+		from ClassEnrollment enrollment
+		where enrollment.teacherId = :teacherId
+		  and enrollment.studentId = :studentId
+		  and enrollment.status <> com.checkon.roster.domain.RelationshipStatus.ENDED
+		""")
+	Optional<ClassEnrollment> findCurrentForUpdate(
+		@Param("teacherId") UUID teacherId,
+		@Param("studentId") UUID studentId
+	);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
 		select enrollment

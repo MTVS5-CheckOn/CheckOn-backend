@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.checkon.account.infrastructure.security.AuthenticatedAccount;
 import com.checkon.detection.application.OperationalDetectionRunService;
+import com.checkon.detection.application.DetectionTermContext;
 import com.checkon.detection.application.OperationalDetectionRunService.OperationalDetectionRun;
 import com.checkon.detection.application.DetectionRunQueryService;
 import com.checkon.detection.application.DetectionRunQueryService.DetectionRunStatsView;
@@ -48,7 +49,8 @@ public class DetectionRunController {
 		// 전달하고, 요청 body나 X-Teacher-Id를 권한 근거로 사용하지 않는다.
 		OperationalDetectionRun result = detectionRunService.execute(
 			authenticatedAccount.teacherProfileId(),
-			request.analysisDate()
+			request.analysisDate(),
+			request.termContext() == null ? DetectionTermContext.NORMAL : request.termContext()
 		);
 		DetectionRunResponse response = new DetectionRunResponse(
 			result.runId(),
@@ -77,7 +79,21 @@ public class DetectionRunController {
 		);
 	}
 
-	public record DetectionRunRequest(@NotNull LocalDate analysisDate) {
+	@GetMapping("/latest")
+	public DetectionRunStatusResponse findLatest(
+		@AuthenticationPrincipal AuthenticatedAccount authenticatedAccount
+	) {
+		var result = queryService.findLatest(authenticatedAccount.teacherProfileId());
+		return new DetectionRunStatusResponse(
+			result.runId(), result.status(), result.analysisDate(),
+			result.attemptCount(), result.errorCode(), result.stats()
+		);
+	}
+
+	public record DetectionRunRequest(
+		@NotNull LocalDate analysisDate,
+		DetectionTermContext termContext
+	) {
 	}
 
 	public record DetectionRunResponse(

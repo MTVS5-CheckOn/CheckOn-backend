@@ -67,6 +67,10 @@ public class EngagementService {
 			       signal.rule_id,
 			       signal.signal_type,
 			       signal.display_label,
+			       signal.metric,
+			       signal.observed,
+			       signal.baseline,
+			       signal.sample_size,
 			       signal.brief_text,
 			       signal.fallback_used
 			FROM engagement_alerts engagement
@@ -85,6 +89,10 @@ public class EngagementService {
 			resultSet.getString("rule_id"),
 			resultSet.getString("signal_type"),
 			resultSet.getString("display_label"),
+			resultSet.getString("metric"),
+			resultSet.getBigDecimal("observed"),
+			resultSet.getBigDecimal("baseline"),
+			resultSet.getObject("sample_size", Integer.class),
 			resultSet.getString("brief_text"),
 			resultSet.getBoolean("fallback_used")
 		), alertId, teacherId);
@@ -92,7 +100,11 @@ public class EngagementService {
 			SELECT id, source_hint, record_id, summary, role, observed, sample_size, occurred_on
 			FROM detection_result_evidence
 			WHERE detection_signal_result_id = ?
-			ORDER BY created_at, id
+			ORDER BY
+				CASE role WHEN 'trigger' THEN 0 ELSE 1 END,
+				occurred_on DESC NULLS LAST,
+				created_at,
+				id
 			""", (resultSet, rowNumber) -> new EvidenceView(
 			resultSet.getObject("id", UUID.class),
 			resultSet.getString("source_hint"),
@@ -105,7 +117,8 @@ public class EngagementService {
 		), alert.detectionSignalResultId());
 		return new AlertDetail(
 			alert.id(), metadata.runId(), alert.studentId(), metadata.studentName(), metadata.className(),
-			metadata.ruleId(), metadata.signalType(), metadata.displayLabel(), metadata.brief(),
+			metadata.ruleId(), metadata.signalType(), metadata.displayLabel(), metadata.metric(),
+			metadata.observed(), metadata.baseline(), metadata.sampleSize(), metadata.brief(),
 			metadata.briefFallback(), alert.status(), alert.createdAt(), evidence
 		);
 	}
@@ -321,6 +334,10 @@ public class EngagementService {
 		String ruleId,
 		String signalType,
 		String displayLabel,
+		String metric,
+		BigDecimal observed,
+		BigDecimal baseline,
+		Integer sampleSize,
 		String brief,
 		boolean briefFallback,
 		AlertStatus status,
@@ -336,6 +353,10 @@ public class EngagementService {
 		String ruleId,
 		String signalType,
 		String displayLabel,
+		String metric,
+		BigDecimal observed,
+		BigDecimal baseline,
+		Integer sampleSize,
 		String brief,
 		boolean briefFallback
 	) {
