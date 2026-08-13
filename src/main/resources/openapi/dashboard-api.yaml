@@ -1269,7 +1269,7 @@ components:
         notableSummary: {type: string, nullable: true}
     ProblemStudioWeaknessAnalysis:
       type: object
-      required: [studentId, windowStart, windowEnd, minimumSampleSize, cells]
+      required: [studentId, windowStart, windowEnd, minimumSampleSize, cells, generationCapabilities]
       properties:
         studentId: {type: string, format: uuid}
         windowStart: {type: string, format: date}
@@ -1277,6 +1277,18 @@ components:
         minimumSampleSize: {type: integer, enum: [10]}
         studentAveragePercent: {type: number, nullable: true}
         cells: {type: array, items: {$ref: '#/components/schemas/ProblemStudioWeaknessCell'}}
+        generationCapabilities:
+          type: array
+          description: 현재 AI evidence로 생성 가능한 셀만 포함한다. 프론트는 이 목록에 없는 셀을 비활성화한다.
+          items: {$ref: '#/components/schemas/ProblemStudioGenerationCapability'}
+    ProblemStudioGenerationCapability:
+      type: object
+      required: [areaTag, typeTag, maximumCount, recommendedMaximumCount]
+      properties:
+        areaTag: {type: string, enum: [language]}
+        typeTag: {type: string, enum: [CONCEPT, INFER]}
+        maximumCount: {type: integer, enum: [20]}
+        recommendedMaximumCount: {type: integer, enum: [3]}
     ProblemStudioWeaknessCell:
       type: object
       required: [areaTag, typeTag, solvedCount, correctCount, evaluation]
@@ -1305,8 +1317,8 @@ components:
       additionalProperties: false
       required: [areaTag, typeTag, count]
       properties:
-        areaTag: {type: string, minLength: 1, maxLength: 80}
-        typeTag: {$ref: '#/components/schemas/ProblemTypeTag'}
+        areaTag: {type: string, enum: [language]}
+        typeTag: {type: string, enum: [CONCEPT, INFER]}
         count: {type: integer, minimum: 1, maximum: 20}
     ProblemStudioRequestResponse:
       type: object

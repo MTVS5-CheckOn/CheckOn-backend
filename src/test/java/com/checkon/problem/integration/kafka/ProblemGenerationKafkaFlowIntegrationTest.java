@@ -118,7 +118,7 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 		void publishesOneKafkaEventPerStudioTarget() throws Exception {
 			UUID requestId = requestService.createStudio(TEACHER, new CreateProblemStudioCommand(
 				STUDENT, List.of(
-					new CreateProblemStudioCommand.Target("language",ProblemTypeTag.FACT,3),
+					new CreateProblemStudioCommand.Target("language",ProblemTypeTag.CONCEPT,3),
 					new CreateProblemStudioCommand.Target("language",ProblemTypeTag.INFER,2)),
 				ProblemDifficulty.MEDIUM,"studio-kafka-flow-0001")).requestId();
 			String tenantAlias = tenantAlias(requestId);

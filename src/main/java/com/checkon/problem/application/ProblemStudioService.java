@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 import com.checkon.problem.application.ProblemStudioViews.Assignment;
+import com.checkon.problem.application.ProblemStudioViews.GenerationCapability;
 import com.checkon.problem.application.ProblemStudioViews.Printable;
 import com.checkon.problem.application.ProblemStudioViews.Review;
 import com.checkon.problem.application.ProblemStudioViews.ReviewCounts;
@@ -28,6 +29,7 @@ import com.checkon.problem.application.ProblemStudioViews.StudentSummary;
 import com.checkon.problem.application.ProblemStudioViews.WeaknessAnalysis;
 import com.checkon.problem.application.ProblemStudioViews.WeaknessCell;
 import com.checkon.problem.domain.ProblemStudioEvaluation;
+import com.checkon.problem.domain.ProblemTypeTag;
 import com.checkon.problem.domain.ProblemValidationStatus;
 import com.checkon.problem.infrastructure.persistence.ProblemStudioQueryRepository;
 import com.checkon.problem.infrastructure.persistence.ProblemStudioWorkflowRepository;
@@ -36,6 +38,10 @@ import com.checkon.problem.infrastructure.persistence.ProblemStudioWorkflowRepos
 public class ProblemStudioService {
 	private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 	private static final int MINIMUM_SAMPLE_SIZE = 10;
+	private static final List<GenerationCapability> MVP_GENERATION_CAPABILITIES = List.of(
+		new GenerationCapability("language", ProblemTypeTag.CONCEPT, 20, 3),
+		new GenerationCapability("language", ProblemTypeTag.INFER, 20, 3)
+	);
 
 	private final ProblemStudioQueryRepository queries;
 	private final ProblemStudioWorkflowRepository workflow;
@@ -96,7 +102,7 @@ public class ProblemStudioService {
 				accuracy, gap, evaluation);
 		}).toList();
 		return new WeaknessAnalysis(studentId, from.atZone(SEOUL).toLocalDate(), to.atZone(SEOUL).toLocalDate(),
-			MINIMUM_SAMPLE_SIZE, average, cells);
+			MINIMUM_SAMPLE_SIZE, average, cells, MVP_GENERATION_CAPABILITIES);
 	}
 
 	@Transactional(readOnly = true)

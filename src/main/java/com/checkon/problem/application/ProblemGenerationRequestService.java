@@ -41,6 +41,11 @@ public class ProblemGenerationRequestService {
 	private static final String SCHEMA_VERSION = "pg-request-1";
 	private static final Pattern SKILL_NODE_PATTERN = Pattern.compile("[a-zA-Z0-9][a-zA-Z0-9._:-]{0,119}");
 	private static final Pattern CLIENT_KEY_PATTERN = Pattern.compile("[A-Za-z0-9._:-]{8,200}");
+	private static final String MVP_STUDIO_AREA = "language";
+	private static final List<ProblemTypeTag> MVP_STUDIO_TYPES = List.of(
+		ProblemTypeTag.CONCEPT,
+		ProblemTypeTag.INFER
+	);
 
 	private final ProblemGenerationRequestRepository requests;
 	private final ProblemGenerationExecutionRepository executions;
@@ -266,8 +271,13 @@ public class ProblemGenerationRequestService {
 		for (CreateProblemStudioCommand.Target target : command.targets()) {
 			if (target == null || target.typeTag() == null || target.count() < 1 || target.count() > 20)
 				throw ProblemGenerationException.invalidRequest("each target requires a type and count between 1 and 20");
+			String areaTag = requireText(target.areaTag(), "areaTag", 80).toLowerCase(Locale.ROOT);
+			if (!MVP_STUDIO_AREA.equals(areaTag) || !MVP_STUDIO_TYPES.contains(target.typeTag()))
+				throw ProblemGenerationException.invalidRequest(
+					"v1 supports only language area with CONCEPT or INFER type"
+				);
 			targets.add(new CreateProblemStudioCommand.Target(
-				requireText(target.areaTag(), "areaTag", 80), target.typeTag(), target.count()
+				areaTag, target.typeTag(), target.count()
 			));
 		}
 		if (new LinkedHashSet<>(targets.stream().map(value -> value.areaTag() + "\u0000" + value.typeTag()).toList()).size()
