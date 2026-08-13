@@ -2,7 +2,6 @@ package com.checkon.roster.presentation;
 
 import java.net.URI;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 import org.springframework.http.ResponseEntity;
@@ -17,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.checkon.account.infrastructure.security.AuthenticatedAccount;
+import com.checkon.global.presentation.PagedResponse;
 import com.checkon.roster.application.ClassManagementService;
 import com.checkon.roster.application.ClassManagementService.ClassPage;
 import com.checkon.roster.application.ClassManagementService.ClassView;
@@ -36,12 +36,18 @@ public class ClassGroupController {
 	}
 
 	@GetMapping
-	ClassPageResponse list(
+	PagedResponse<ClassResponse> list(
 		@AuthenticationPrincipal AuthenticatedAccount principal,
 		@RequestParam(defaultValue = "0") int page,
 		@RequestParam(defaultValue = "20") int size
 	) {
-		return ClassPageResponse.from(service.list(principal, page, size));
+		ClassPage result = service.list(principal, page, size);
+		return PagedResponse.of(
+			result.content().stream().map(ClassResponse::from).toList(),
+			result.page(),
+			result.size(),
+			result.totalElements()
+		);
 	}
 
 	@PostMapping
@@ -89,24 +95,6 @@ public class ClassGroupController {
 		@NotBlank String subject,
 		@Size(max = 1000) String memo
 	) {
-	}
-
-	public record ClassPageResponse(
-		List<ClassResponse> content,
-		int page,
-		int size,
-		long totalElements,
-		long totalPages
-	) {
-		static ClassPageResponse from(ClassPage page) {
-			return new ClassPageResponse(
-				page.content().stream().map(ClassResponse::from).toList(),
-				page.page(),
-				page.size(),
-				page.totalElements(),
-				page.totalPages()
-			);
-		}
 	}
 
 	public record ClassResponse(

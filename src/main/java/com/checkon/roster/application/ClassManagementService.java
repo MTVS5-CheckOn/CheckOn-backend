@@ -50,15 +50,11 @@ public class ClassManagementService {
 		UUID teacherId = setTenantScope(principal);
 		validatePage(page, size);
 		var result = queries.findActive(teacherId, page, size);
-		long totalPages = result.totalElements() == 0
-			? 0
-			: ((result.totalElements() - 1) / size) + 1;
 		return new ClassPage(
 			result.content().stream().map(ClassManagementService::toView).toList(),
 			page,
 			size,
-			result.totalElements(),
-			totalPages
+			result.totalElements()
 		);
 	}
 
@@ -222,8 +218,7 @@ public class ClassManagementService {
 		List<ClassView> content,
 		int page,
 		int size,
-		long totalElements,
-		long totalPages
+		long totalElements
 	) {
 		public ClassPage {
 			content = List.copyOf(content);

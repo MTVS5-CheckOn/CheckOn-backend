@@ -53,7 +53,16 @@ class ClassManagementOpenApiContractTest {
 
 		assertThat(asList(asMap(schemas.get("ClassPage")).get("required")))
 			.containsExactlyInAnyOrderElementsOf(Set.of(
-				"content", "page", "size", "totalElements", "totalPages"
+				"metadata", "items"
+			));
+		assertThat(asList(asMap(schemas.get("ProblemStudioStudentPage")).get("required")))
+			.containsExactlyInAnyOrderElementsOf(Set.of(
+				"metadata", "items"
+			));
+		assertThat(asList(asMap(schemas.get("PaginationMetadata")).get("required")))
+			.containsExactlyInAnyOrderElementsOf(Set.of(
+				"pageNumber", "pageSize", "itemCount", "totalItemCount",
+				"totalPageCount", "isFirst", "isLast"
 			));
 	}
 
