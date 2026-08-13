@@ -88,7 +88,7 @@ public class ProblemGenerationResultProcessor {
 			event.adapterExecutionId(),event.aiExecutionId(),event.jobId(),event.setId(),event.resultStatus(),error,
 			event.resultPayload(),event.versionsPayload(),event.executionStatus().terminal()?event.occurredAt():null,now));
 		if (event.executionStatus() == com.checkon.problem.domain.ProblemGenerationExecutionStatus.SUCCEEDED)
-			itemProjector.project(teacherId,request.id(),event.resultPayload());
+			itemProjector.project(teacherId,request.id(),child.id(),event.resultPayload());
 		aggregateParent(teacherId,request.id(),now);
 	}
 

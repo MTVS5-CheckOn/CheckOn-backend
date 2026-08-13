@@ -76,6 +76,10 @@ checkon:
         # 동의 기능 배포 시 REQUIRE_RECORDED_GRANT로 전환한다.
         mode: ${AI_DETECTION_CONSENT_MODE:PRE_CONSENT_ALLOW_ALL}
     problem-generation:
+      adapter-base-url: ${AI_PROBLEM_ADAPTER_BASE_URL:http://localhost:8081}
+      diagnosis-path: ${AI_PROBLEM_DIAGNOSIS_PATH:/internal/v1/problem-diagnoses}
+      connect-timeout: ${AI_PROBLEM_CONNECT_TIMEOUT:2s}
+      diagnosis-read-timeout: ${AI_PROBLEM_DIAGNOSIS_READ_TIMEOUT:10s}
       kafka:
         enabled: ${AI_PROBLEM_KAFKA_ENABLED:false}
         request-topic: ${AI_PROBLEM_REQUEST_TOPIC:checkon.ai.problem-generation.requests.v1}

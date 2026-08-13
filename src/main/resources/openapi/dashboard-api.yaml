@@ -1390,8 +1390,9 @@ components:
         notableSummary: {type: string, nullable: true}
     ProblemStudioWeaknessAnalysis:
       type: object
-      required: [studentId, windowStart, windowEnd, minimumSampleSize, cells, generationCapabilities]
+      required: [diagnosisId, studentId, windowStart, windowEnd, minimumSampleSize, cells, generationCapabilities, diagnosis]
       properties:
+        diagnosisId: {type: string, format: uuid, description: Step 2 요청이 그대로 참조해야 하는 불변 진단 ID}
         studentId: {type: string, format: uuid}
         windowStart: {type: string, format: date}
         windowEnd: {type: string, format: date}
@@ -1402,6 +1403,17 @@ components:
           type: array
           description: 현재 AI evidence로 생성 가능한 셀만 포함한다. 프론트는 이 목록에 없는 셀을 비활성화한다.
           items: {$ref: '#/components/schemas/ProblemStudioGenerationCapability'}
+        diagnosis: {$ref: '#/components/schemas/ProblemStudioDiagnosisProvenance'}
+    ProblemStudioDiagnosisProvenance:
+      type: object
+      required: [status, snapshotHash]
+      properties:
+        status: {type: string, enum: [GENERATED, REJECTED_INSUFFICIENT, UNAVAILABLE]}
+        statusReason: {type: string, nullable: true}
+        snapshotHash: {type: string, pattern: '^sha256:[0-9a-f]{64}$'}
+        taxonomyVersion: {type: string, nullable: true}
+        graphVersion: {type: string, nullable: true}
+        configVersion: {type: string, nullable: true}
     ProblemStudioGenerationCapability:
       type: object
       required: [areaTag, typeTag, maximumCount, recommendedMaximumCount]
@@ -1424,9 +1436,10 @@ components:
     ProblemStudioRequest:
       type: object
       additionalProperties: false
-      required: [studentId, targets, difficulty]
+      required: [studentId, diagnosisId, targets, difficulty]
       properties:
         studentId: {type: string, format: uuid}
+        diagnosisId: {type: string, format: uuid, description: 동일 학생의 GENERATED 진단 ID}
         targets:
           type: array
           minItems: 1
@@ -1451,7 +1464,7 @@ components:
     ProblemValidationStatus: {type: string, enum: [PASSED, REVIEW_REQUIRED, UNVERIFIABLE, EXCLUDED]}
     ProblemStudioReview:
       type: object
-      required: [requestId, requestStatus, projectionStatus, counts, items]
+      required: [requestId, requestStatus, projectionStatus, counts, items, slots]
       properties:
         requestId: {type: string, format: uuid}
         requestStatus: {$ref: '#/components/schemas/ProblemGenerationStatus'}
@@ -1459,6 +1472,18 @@ components:
         projectionErrorCode: {type: string, nullable: true}
         counts: {$ref: '#/components/schemas/ProblemStudioReviewCounts'}
         items: {type: array, items: {$ref: '#/components/schemas/ProblemStudioReviewItem'}}
+        slots: {type: array, items: {$ref: '#/components/schemas/ProblemStudioReviewSlot'}}
+    ProblemStudioReviewSlot:
+      type: object
+      required: [slotIndex, status, currentRevisionNo]
+      properties:
+        slotIndex: {type: integer, minimum: 0}
+        itemId: {type: string, format: uuid, nullable: true}
+        externalItemId: {type: string, nullable: true}
+        status: {$ref: '#/components/schemas/ProblemValidationStatus'}
+        currentRevisionNo: {type: integer, minimum: 0}
+        reviewReason: {type: string, nullable: true}
+        failureReason: {type: string, nullable: true}
     ProblemStudioReviewCounts:
       type: object
       required: [passed, reviewRequired, unverifiable, excluded]

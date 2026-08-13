@@ -94,6 +94,7 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 		jdbc.update("DELETE FROM problem_generation_executions");
 		jdbc.update("DELETE FROM problem_generation_request_targets");
 		jdbc.update("DELETE FROM problem_generation_requests");
+		jdbc.update("DELETE FROM problem_diagnosis_snapshots");
 		jdbc.update("DELETE FROM ai_tenant_aliases");
 		jdbc.update("DELETE FROM ai_student_aliases");
 		jdbc.update("DELETE FROM teacher_student_relationships");
@@ -116,8 +117,9 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 		@Test
 		@DisplayName("When 스튜디오 복수 셀을 요청하면 Then target별 child Kafka 이벤트를 각각 발행한다")
 		void publishesOneKafkaEventPerStudioTarget() throws Exception {
+			UUID diagnosisId=insertGeneratedDiagnosis();
 			UUID requestId = requestService.createStudio(TEACHER, new CreateProblemStudioCommand(
-				STUDENT, List.of(
+				STUDENT,diagnosisId, List.of(
 					new CreateProblemStudioCommand.Target("language",ProblemTypeTag.CONCEPT,3),
 					new CreateProblemStudioCommand.Target("language",ProblemTypeTag.INFER,2)),
 				ProblemDifficulty.MEDIUM,"studio-kafka-flow-0001")).requestId();
@@ -137,6 +139,21 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 				});
 			}
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM problem_generation_executions WHERE problem_request_id=? AND status='DISPATCHED'",Integer.class,requestId)).isEqualTo(2);
+		}
+
+		private UUID insertGeneratedDiagnosis() {
+			UUID id=UUID.randomUUID(); String hash="sha256:"+"c".repeat(64);
+			String response="""
+				{"data":{"status":"generated","weakness_map":{"graph_version":"graph-v1","taxonomy_version":"v1","config_version":"config-v1",
+				"snapshot_hash":"%s","nodes":{"node.concept":{"verdict":"suspect","basis":["cell:language×concept"]},
+				"node.infer":{"verdict":"suspect","basis":["cell:language×infer"]}}}}}
+				""".formatted(hash);
+			jdbc.update("""
+				INSERT INTO problem_diagnosis_snapshots(id,teacher_id,student_id,student_ref,status,snapshot_hash,taxonomy_version,
+				 graph_version,config_version,request_payload,response_payload,diagnosed_at,created_at)
+				VALUES (?,?,?,'st_0123456789abcdef0123456789abcdef','GENERATED',?,'v1','graph-v1','config-v1','{}'::jsonb,CAST(? AS jsonb),?,?)
+				""",id,TEACHER,STUDENT,hash,response,time(),time());
+			return id;
 		}
 
 		@Test

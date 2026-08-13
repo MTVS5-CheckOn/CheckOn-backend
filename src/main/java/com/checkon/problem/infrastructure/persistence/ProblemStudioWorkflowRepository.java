@@ -70,6 +70,30 @@ public class ProblemStudioWorkflowRepository {
 			.param("position", position).param("content", content).update();
 	}
 
+	public void insertSlot(NewSlot slot) {
+		jdbc.sql("""
+			INSERT INTO problem_generation_slots (
+			 teacher_id,problem_request_id,problem_execution_id,slot_index,item_id,external_item_id,status,
+			 current_revision_no,review_reason,failure_reason,failure_detail,raw_payload,created_at,updated_at
+			) VALUES (:teacherId,:requestId,:executionId,:slotIndex,:itemId,:externalId,:status,
+			 :revision,:reviewReason,:failureReason,CAST(:failureDetail AS jsonb),CAST(:raw AS jsonb),:now,:now)
+			ON CONFLICT (problem_execution_id,slot_index) DO NOTHING
+			""").params(Map.ofEntries(Map.entry("teacherId",slot.teacherId()),Map.entry("requestId",slot.requestId()),
+			Map.entry("executionId",slot.executionId()),Map.entry("slotIndex",slot.slotIndex()),Map.entry("itemId",nullable(slot.itemId())),
+			Map.entry("externalId",nullable(slot.externalItemId())),Map.entry("status",slot.status().name()),
+			Map.entry("revision",slot.revision()),Map.entry("reviewReason",nullable(slot.reviewReason())),
+			Map.entry("failureReason",nullable(slot.failureReason())),Map.entry("failureDetail",nullable(slot.failureDetail())),
+			Map.entry("raw",slot.rawPayload()),Map.entry("now",slot.now().atOffset(ZoneOffset.UTC)))).update();
+	}
+
+	public void updateExecutionSummary(UUID teacherId,UUID executionId,int requested,int processed,String statusCounts) {
+		jdbc.sql("""
+			UPDATE problem_generation_executions SET requested_count=:requested,processed_count=:processed,
+			 status_counts=CAST(:counts AS jsonb) WHERE id=:executionId AND teacher_id=:teacherId
+			""").param("requested",requested).param("processed",processed).param("counts",statusCounts)
+			.param("executionId",executionId).param("teacherId",teacherId).update();
+	}
+
 	public void markProjection(UUID teacherId, UUID requestId, String status, String errorCode) {
 		jdbc.sql("""
 			UPDATE problem_generation_requests
@@ -223,6 +247,9 @@ public class ProblemStudioWorkflowRepository {
 	public record NewItem(UUID teacherId, UUID requestId, String externalId, int ordinal,
 		String stem, String passage, String correctAnswer, String explanation, String sourceBasis,
 		ProblemValidationStatus validationStatus, String validationMessage, String rawPayload, Instant now) { }
+	public record NewSlot(UUID teacherId,UUID requestId,UUID executionId,int slotIndex,UUID itemId,String externalItemId,
+		ProblemValidationStatus status,int revision,String reviewReason,String failureReason,String failureDetail,
+		String rawPayload,Instant now) { }
 	public record SavedSetRow(UUID id, String status, Instant savedAt) { }
 	public record AssignmentRow(UUID id, UUID setId, UUID studentId, String status, Instant publishedAt) { }
 }

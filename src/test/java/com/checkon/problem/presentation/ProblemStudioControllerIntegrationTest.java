@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -29,6 +31,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -36,6 +39,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import com.checkon.account.domain.AccountRole;
 import com.checkon.account.infrastructure.security.AuthenticatedAccount;
 import com.checkon.problem.integration.kafka.ProblemGenerationResultEventHandler;
+import com.checkon.problem.integration.ai.ProblemDiagnosisClient;
 import com.checkon.support.RosterTestFixture;
 
 import tools.jackson.databind.ObjectMapper;
@@ -59,6 +63,7 @@ class ProblemStudioControllerIntegrationTest {
 	@Autowired JdbcTemplate jdbc;
 	@Autowired ObjectMapper objectMapper;
 	@Autowired ProblemGenerationResultEventHandler resultHandler;
+	@MockitoBean ProblemDiagnosisClient diagnosisClient;
 
 	@BeforeEach
 	void setUp() {
@@ -66,12 +71,14 @@ class ProblemStudioControllerIntegrationTest {
 		jdbc.update("DELETE FROM saved_problem_set_items");
 		jdbc.update("DELETE FROM saved_problem_sets");
 		jdbc.update("DELETE FROM problem_generation_item_options");
+		jdbc.update("DELETE FROM problem_generation_slots");
 		jdbc.update("DELETE FROM problem_generation_items");
 		jdbc.update("DELETE FROM problem_generation_consumed_events");
 		jdbc.update("DELETE FROM problem_generation_outbox");
 		jdbc.update("DELETE FROM problem_generation_executions");
 		jdbc.update("DELETE FROM problem_generation_request_targets");
 		jdbc.update("DELETE FROM problem_generation_requests");
+		jdbc.update("DELETE FROM problem_diagnosis_snapshots");
 		jdbc.update("DELETE FROM ai_class_aliases");
 		jdbc.update("DELETE FROM ai_tenant_aliases");
 		jdbc.update("DELETE FROM ai_student_aliases");
@@ -84,6 +91,7 @@ class ProblemStudioControllerIntegrationTest {
 		RosterTestFixture.insertTeacher(jdbc, TEACHER);
 		RosterTestFixture.insertTeacher(jdbc, OTHER_TEACHER);
 		insertRoster();
+		when(diagnosisClient.diagnose(any(),any())).thenAnswer(invocation->diagnosisResponse(invocation.getArgument(0)));
 	}
 
 	@Nested
@@ -121,12 +129,10 @@ class ProblemStudioControllerIntegrationTest {
 					.value(3))
 				.andExpect(jsonPath("$.generationCapabilities[?(@.areaTag == 'language' && @.typeTag == 'INFER')].maximumCount")
 					.value(20))
-				.andExpect(jsonPath("$.cells[?(@.areaTag == '독서' && @.typeTag == 'FACT')].evaluation")
-					.value("GOOD"))
-				.andExpect(jsonPath("$.cells[?(@.areaTag == '독서' && @.typeTag == 'INFER')].evaluation")
-					.value("ON_HOLD"))
-				.andExpect(jsonPath("$.cells[?(@.areaTag == '문학' && @.typeTag == 'CRITIC')].evaluation")
-					.value("WEAK_SIGNAL"));
+				.andExpect(jsonPath("$.diagnosis.status").value("GENERATED"))
+				.andExpect(jsonPath("$.diagnosis.taxonomyVersion").value("v1"))
+				.andExpect(jsonPath("$.cells[?(@.areaTag == 'language' && @.typeTag == 'CONCEPT')].evaluation").value("GOOD"))
+				.andExpect(jsonPath("$.cells[?(@.areaTag == 'language' && @.typeTag == 'INFER')].evaluation").value("WEAK_SIGNAL"));
 		}
 	}
 
@@ -136,6 +142,7 @@ class ProblemStudioControllerIntegrationTest {
 		@Test
 		@DisplayName("When Step 2부터 Step 4까지 수행하면 Then 투영·선택·저장·발행이 멱등하게 완성된다")
 		void completesReviewSaveAndPublishIdempotently() throws Exception {
+			UUID diagnosisId=diagnose();
 			MvcResult created = mvc.perform(post("/api/v1/problem-studio/requests")
 					.with(teacherAuthentication(TEACHER))
 					.header("Idempotency-Key", "studio-request-key-0001")
@@ -143,13 +150,14 @@ class ProblemStudioControllerIntegrationTest {
 					.content("""
 						{
 						  "studentId":"%s",
+						  "diagnosisId":"%s",
 						  "targets":[
 						    {"areaTag":"LANGUAGE","typeTag":"CONCEPT","count":3},
 						    {"areaTag":"language","typeTag":"INFER","count":2}
 						  ],
 						  "difficulty":"LOW"
 						}
-						""".formatted(STUDENT)))
+						""".formatted(STUDENT,diagnosisId)))
 				.andExpect(status().isAccepted())
 				.andExpect(header().string("Location", org.hamcrest.Matchers.startsWith("/api/v1/problem-requests/")))
 				.andExpect(jsonPath("$.status").value("QUEUED"))
@@ -252,11 +260,11 @@ class ProblemStudioControllerIntegrationTest {
 					.header("Idempotency-Key", "studio-request-key-0002")
 					.contentType(MediaType.APPLICATION_JSON)
 					.content("""
-						{"studentId":"%s","targets":[
+						{"studentId":"%s","diagnosisId":"%s","targets":[
 						 {"areaTag":"language","typeTag":"CONCEPT","count":12},
 						 {"areaTag":"language","typeTag":"INFER","count":9}
 						],"difficulty":"MEDIUM"}
-						""".formatted(STUDENT)))
+						""".formatted(STUDENT,UUID.randomUUID())))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM problem_generation_requests", Integer.class)).isZero();
@@ -270,10 +278,10 @@ class ProblemStudioControllerIntegrationTest {
 					.header("Idempotency-Key", "studio-request-key-0003")
 					.contentType(MediaType.APPLICATION_JSON)
 					.content("""
-						{"studentId":"%s","targets":[
+						{"studentId":"%s","diagnosisId":"%s","targets":[
 						 {"areaTag":"language","typeTag":"FACT","count":1}
 						],"difficulty":"MEDIUM"}
-						""".formatted(STUDENT)))
+						""".formatted(STUDENT,UUID.randomUUID())))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM problem_generation_requests", Integer.class)).isZero();
@@ -350,11 +358,34 @@ class ProblemStudioControllerIntegrationTest {
 	}
 
 	private String childSuccessEvent(UUID requestId, UUID executionId, int targetIndex, String tenantAlias) {
-		return successEvent(requestId, tenantAlias).replace(
-			"\"worker_kind\":\"problem_generation\",\"problem_request_id\":\"%s\",".formatted(requestId),
-			"\"worker_kind\":\"problem_generation\",\"problem_request_id\":\"%s\",\"problem_execution_id\":\"%s\",\"target_index\":%d,\"adapter_execution_id\":\"%s\",".formatted(
-				requestId, executionId, targetIndex, UUID.randomUUID()));
+		return """
+			{"event_id":"%s","event_type":"worker_job.succeeded","occurred_at":"%s","tenant_id":"%s",
+			 "schema_version":"worker-job-1","correlation_id":"%s","payload":{"worker_kind":"problem_generation",
+			 "problem_request_id":"%s","problem_execution_id":"%s","target_index":%d,"adapter_execution_id":"%s",
+			 "job_id":"studio-job","execution_id":"studio-execution","set_id":"studio-set","result_status":"completed",
+			 "result":{"set_id":"studio-set","requested_count":4,"processed_count":4,
+			 "status_counts":{"verified":1,"needs_review":1,"verification_unavailable":1,"dropped":1},"items":[
+			 {"slot_index":0,"item_id":"p1","status":"verified","current_revision_no":0,"item":{"stem":"음운 변동 유형을 고르세요.","choices":[{"no":1,"text":"오답1"},{"no":2,"text":"오답2"},{"no":3,"text":"정답"}],"answer":{"correct_no":3},"evidence":[{"kind":"rule","ref":"grammar:1"}]}},
+			 {"slot_index":1,"item_id":"p2","status":"needs_review","current_revision_no":0,"review_reason":"manual_target_first","item":{"stem":"문학 표현법을 고르세요.","choices":[{"no":1,"text":"정답"},{"no":2,"text":"오답"}],"answer":{"correct_no":1}}},
+			 {"slot_index":2,"item_id":"p3","status":"verification_unavailable","current_revision_no":0,"item":{"stem":"검증 불가 문항","choices":[{"no":1,"text":"정답"},{"no":2,"text":"오답"}],"answer":{"correct_no":1}}},
+			 {"slot_index":3,"item_id":null,"status":"dropped","current_revision_no":0,"failure_reason":"generation_exhausted","item":null}]},
+			 "versions":{"contract":"0.1"}}}
+			""".formatted(UUID.randomUUID(),Instant.now().plusSeconds(60),tenantAlias,requestId,requestId,
+				executionId,targetIndex,UUID.randomUUID());
 	}
+
+	private UUID diagnose() throws Exception {
+		String body=mvc.perform(get("/api/v1/problem-studio/students/{studentId}/weakness-analysis",STUDENT)
+			.with(teacherAuthentication(TEACHER))).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+		return UUID.fromString(objectMapper.readTree(body).get("diagnosisId").asText());
+	}
+	private String diagnosisResponse(String request) throws Exception { String hash=objectMapper.readTree(request).get("snapshot_hash").asText(); return """
+		{"data":{"status":"generated","status_reason":null,"weakness_map":{"graph_version":"graph-v1","taxonomy_version":"v1",
+		"config_version":"config-v1","snapshot_hash":"%s",
+		"nodes":{"node.concept":{"verdict":"suspect","basis":["cell:language×concept"]},"node.infer":{"verdict":"suspect","basis":["cell:language×infer"]}}},
+		"grid":{"cell_min_items":10,"cells":[{"area_tag":"language","type_tag":"concept","acc":0.8,"n":10,"verdict":"ok"},
+		{"area_tag":"language","type_tag":"infer","acc":0.2,"n":10,"verdict":"weak"}]}}}
+		""".formatted(hash); }
 
 	private String childFailedEvent(UUID requestId, UUID executionId, int targetIndex, String tenantAlias) {
 		return """

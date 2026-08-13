@@ -26,6 +26,7 @@ import com.checkon.problem.infrastructure.persistence.ProblemGenerationRequestRe
 import com.checkon.problem.infrastructure.persistence.ProblemGenerationRequestRepository.NewRequest;
 import com.checkon.problem.infrastructure.persistence.ProblemGenerationExecutionRepository;
 import com.checkon.problem.infrastructure.persistence.ProblemGenerationExecutionRepository.NewExecution;
+import com.checkon.problem.infrastructure.persistence.ProblemDiagnosisSnapshotRepository.Snapshot;
 import com.checkon.problem.infrastructure.persistence.ProblemStudioWorkflowRepository;
 import com.checkon.roster.domain.ClassGroupStatus;
 import com.checkon.roster.domain.RelationshipStatus;
@@ -57,6 +58,8 @@ public class ProblemGenerationRequestService {
 	private final AiProblemAliasService problemAliases;
 	private final ProblemGenerationIdGenerator ids;
 	private final ProblemGenerationPayloadHasher hasher;
+	private final ProblemDiagnosisTransactionService diagnoses;
+	private final ProblemDiagnosisNodeSelector nodeSelector;
 	private final TeacherTenantDatabaseContext tenantContext;
 	private final ObjectMapper objectMapper;
 	private final Clock clock;
@@ -66,10 +69,12 @@ public class ProblemGenerationRequestService {
 		TeacherStudentRelationshipRepository relationships,
 		ClassGroupRepository classes, AiStudentAliasService studentAliases, AiProblemAliasService problemAliases,
 		ProblemGenerationIdGenerator ids, ProblemGenerationPayloadHasher hasher,
+		ProblemDiagnosisTransactionService diagnoses, ProblemDiagnosisNodeSelector nodeSelector,
 		TeacherTenantDatabaseContext tenantContext, ObjectMapper objectMapper, Clock clock) {
 		this.requests = requests; this.executions = executions; this.studioWorkflow = studioWorkflow; this.outbox = outbox;
 		this.relationships = relationships; this.classes = classes;
 		this.studentAliases = studentAliases; this.problemAliases = problemAliases; this.ids = ids; this.hasher = hasher;
+		this.diagnoses=diagnoses; this.nodeSelector=nodeSelector;
 		this.tenantContext = tenantContext; this.objectMapper = objectMapper; this.clock = clock;
 	}
 
@@ -77,20 +82,22 @@ public class ProblemGenerationRequestService {
 	public CreationResult create(UUID authenticatedTeacherId, CreateProblemGenerationCommand rawCommand) {
 		UUID teacherId = requireTeacher(authenticatedTeacherId);
 		NormalizedCommand command = normalize(rawCommand);
-		return createNormalized(teacherId, command, List.of());
+		return createNormalized(teacherId, command, List.of(), null);
 	}
 
 	@Transactional
 	public CreationResult createStudio(UUID authenticatedTeacherId, CreateProblemStudioCommand rawCommand) {
 		UUID teacherId = requireTeacher(authenticatedTeacherId);
 		StudioCommand studio = normalizeStudio(rawCommand);
-		return createNormalized(teacherId, studio.command(), studio.targets());
+		Snapshot diagnosis=diagnoses.requireGenerated(teacherId,rawCommand.studentId(),rawCommand.diagnosisId());
+		return createNormalized(teacherId, studio.command(), studio.targets(), diagnosis);
 	}
 
 	private CreationResult createNormalized(
 		UUID teacherId,
 		NormalizedCommand command,
-		List<CreateProblemStudioCommand.Target> studioTargets
+		List<CreateProblemStudioCommand.Target> studioTargets,
+		Snapshot diagnosis
 	) {
 		tenantContext.setCurrentTeacher(teacherId);
 		String tenantAlias = problemAliases.getOrCreateTenantAlias(teacherId);
@@ -103,14 +110,14 @@ public class ProblemGenerationRequestService {
 
 		LinkedHashMap<String, Object> aiPayload = studioTargets.isEmpty()
 			? buildAiPayload(command, targetRef)
-			: buildStudioAiPayload(command, targetRef, studioTargets);
+			: buildStudioAiPayload(command, targetRef, studioTargets, diagnosis);
 		String snapshotHash = hasher.sha256(writeJson(aiPayload));
 		aiPayload.put("snapshot_hash", snapshotHash);
 		String requestPayload = writeJson(aiPayload);
 		boolean inserted = requests.insert(new NewRequest(requestId, teacherId, tenantAlias, command.targetKind(),
 			command.targetKind() == ProblemTargetKind.STUDENT ? command.targetId() : null,
 			command.targetKind() == ProblemTargetKind.CLASS ? command.targetId() : null,
-			targetRef, command.clientIdempotencyKey(), aiIdempotencyKey, snapshotHash, requestPayload, now));
+			diagnosis==null?null:diagnosis.id(),targetRef, command.clientIdempotencyKey(), aiIdempotencyKey, snapshotHash, requestPayload, now));
 		if (!inserted) {
 			var existing = requests.findByClientKey(teacherId, command.clientIdempotencyKey())
 				.orElseThrow(ProblemGenerationException::idempotencyConflict);
@@ -120,21 +127,31 @@ public class ProblemGenerationRequestService {
 		if (!studioTargets.isEmpty()) {
 			List<UUID> targetIds = studioWorkflow.insertTargets(teacherId, requestId, studioTargets);
 			List<UUID> childIds = ids.nextIds(studioTargets.size() * 2);
+			List<ProblemDiagnosisNodeSelector.NodeCandidate> candidates=diagnosisCandidates(diagnosis);
+			int rejected=0;
 			for (int index = 0; index < studioTargets.size(); index++) {
 				UUID executionId = childIds.get(index * 2);
 				UUID childEventId = childIds.get(index * 2 + 1);
 				String childKey = "pgc_" + compact(executionId);
-				LinkedHashMap<String,Object> childRequest = buildStudioChildPayload(command, targetRef, studioTargets.get(index));
+				var target=studioTargets.get(index);
+				List<String> nodes=nodeSelector.select(target.areaTag(),target.typeTag().name(),candidates);
+				LinkedHashMap<String,Object> childRequest = buildStudioChildPayload(command, targetRef, target, diagnosis, nodes);
 				String childHash = hasher.sha256(writeJson(childRequest));
 				childRequest.put("snapshot_hash", childHash);
 				String childSnapshot = writeJson(childRequest);
-				executions.insert(new NewExecution(executionId, teacherId, requestId, targetIds.get(index), index,
-					childKey, childHash, childSnapshot, now));
-				String childEvent = writeJson(buildChildEnvelope(childEventId, requestId, executionId, index,
-					tenantAlias, childKey, childRequest, now));
-				outbox.insert(new NewOutboxEvent(childEventId, teacherId, requestId, executionId,
-					EVENT_TYPE, "pg-child-request-1", tenantAlias, childEvent, now));
+				NewExecution execution=new NewExecution(executionId, teacherId, requestId, targetIds.get(index), index,
+					childKey, childHash, childSnapshot, now);
+				if(nodes.isEmpty()) { executions.insertRejected(execution,"NO_EVIDENCE_READY_TARGET"); rejected++; }
+				else {
+					executions.insert(execution);
+					String childEvent = writeJson(buildChildEnvelope(childEventId, requestId, executionId, index,
+						tenantAlias, childKey, childRequest, now));
+					outbox.insert(new NewOutboxEvent(childEventId, teacherId, requestId, executionId,
+						EVENT_TYPE, "pg-child-request-1", tenantAlias, childEvent, now));
+				}
 			}
+			if(rejected==studioTargets.size()) requests.updateAggregatedStatus(requestId,teacherId,
+				com.checkon.problem.domain.ProblemGenerationStatus.FAILED,"NO_EVIDENCE_READY_TARGET",now);
 		} else {
 			String eventPayload = writeJson(buildEnvelope(eventId, requestId, tenantAlias, aiIdempotencyKey, aiPayload, now));
 			outbox.insert(new NewOutboxEvent(eventId, teacherId, requestId, null, EVENT_TYPE, SCHEMA_VERSION, tenantAlias, eventPayload, now));
@@ -182,13 +199,16 @@ public class ProblemGenerationRequestService {
 	private static LinkedHashMap<String, Object> buildStudioAiPayload(
 		NormalizedCommand command,
 		String targetRef,
-		List<CreateProblemStudioCommand.Target> targets
+		List<CreateProblemStudioCommand.Target> targets,
+		Snapshot diagnosis
 	) {
 		LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
 		payload.put("target_kind", "student");
 		payload.put("target_ref", targetRef);
 		payload.put("target_source", "teacher_weakness_selection");
-		payload.put("taxonomy_version", command.taxonomyVersion());
+		payload.put("taxonomy_version", diagnosis.taxonomyVersion());
+		payload.put("diagnosis_id",diagnosis.id().toString());
+		payload.put("diagnosis_snapshot_hash",diagnosis.snapshotHash());
 		List<Map<String, Object>> generationTargets = targets.stream().map(target -> {
 			LinkedHashMap<String, Object> value = new LinkedHashMap<>();
 			value.put("area_tag", target.areaTag());
@@ -210,10 +230,11 @@ public class ProblemGenerationRequestService {
 	}
 
 	private static LinkedHashMap<String,Object> buildStudioChildPayload(NormalizedCommand command, String targetRef,
-		CreateProblemStudioCommand.Target target) {
+		CreateProblemStudioCommand.Target target,Snapshot diagnosis,List<String> nodes) {
 		LinkedHashMap<String,Object> payload = new LinkedHashMap<>();
 		payload.put("target_kind", "student"); payload.put("target_ref", targetRef);
-		payload.put("target_source", "teacher_manual"); payload.put("taxonomy_version", command.taxonomyVersion());
+		payload.put("target_source", "teacher_manual"); payload.put("manual_targets",nodes);
+		payload.put("taxonomy_version", diagnosis.taxonomyVersion());
 		payload.put("area_tag", target.areaTag()); payload.put("type_tags", List.of(target.typeTag().name().toLowerCase(Locale.ROOT)));
 		payload.put("item_format", "mcq"); payload.put("count", target.count());
 		payload.put("requested_difficulty", command.requestedDifficulty()); payload.put("target", "auto"); payload.put("passage", null);
@@ -261,8 +282,8 @@ public class ProblemGenerationRequestService {
 	}
 
 	private StudioCommand normalizeStudio(CreateProblemStudioCommand command) {
-		if (command == null || command.studentId() == null)
-			throw ProblemGenerationException.invalidRequest("studentId is required");
+		if (command == null || command.studentId() == null || command.diagnosisId()==null)
+			throw ProblemGenerationException.invalidRequest("studentId and diagnosisId are required");
 		if (command.difficulty() == null)
 			throw ProblemGenerationException.invalidRequest("difficulty is required");
 		if (command.targets() == null || command.targets().isEmpty() || command.targets().size() > 20)
@@ -294,6 +315,18 @@ public class ProblemGenerationRequestService {
 			normalizeClientKey(command.clientIdempotencyKey())
 		);
 		return new StudioCommand(normalized, List.copyOf(targets));
+	}
+	private List<ProblemDiagnosisNodeSelector.NodeCandidate> diagnosisCandidates(Snapshot diagnosis) {
+		try {
+			var root=objectMapper.readTree(diagnosis.responsePayload());
+			var nodes=root.get("data").get("weakness_map").get("nodes");
+			List<ProblemDiagnosisNodeSelector.NodeCandidate> result=new ArrayList<>();
+			nodes.properties().forEach(entry->{ var node=entry.getValue(); List<String> basis=new ArrayList<>();
+				var basisNode=node.get("basis"); if(basisNode!=null&&basisNode.isArray()) for(var value:basisNode) if(value.isTextual()) basis.add(value.asText());
+				result.add(new ProblemDiagnosisNodeSelector.NodeCandidate(entry.getKey(),node.get("verdict").asText(),List.copyOf(basis))); });
+			return List.copyOf(result);
+		}
+		catch(RuntimeException exception) { throw ProblemGenerationException.invalidState("stored diagnosis contract is invalid"); }
 	}
 	private static List<String> normalizeManualTargets(List<String> values) {
 		if (values == null || values.isEmpty() || values.size() > 20)

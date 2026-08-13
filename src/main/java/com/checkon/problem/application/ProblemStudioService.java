@@ -45,17 +45,20 @@ public class ProblemStudioService {
 
 	private final ProblemStudioQueryRepository queries;
 	private final ProblemStudioWorkflowRepository workflow;
+	private final ProblemDiagnosisService diagnoses;
 	private final TeacherTenantDatabaseContext tenantContext;
 	private final Clock clock;
 
 	public ProblemStudioService(
 		ProblemStudioQueryRepository queries,
 		ProblemStudioWorkflowRepository workflow,
+		ProblemDiagnosisService diagnoses,
 		TeacherTenantDatabaseContext tenantContext,
 		Clock clock
 	) {
 		this.queries = queries;
 		this.workflow = workflow;
+		this.diagnoses = diagnoses;
 		this.tenantContext = tenantContext;
 		this.clock = clock;
 	}
@@ -80,28 +83,8 @@ public class ProblemStudioService {
 		return new StudentPage(content, page, size, total);
 	}
 
-	@Transactional(readOnly = true)
 	public WeaknessAnalysis analyzeWeakness(UUID authenticatedTeacherId, UUID studentId) {
-		UUID teacherId = requireTeacher(authenticatedTeacherId);
-		Objects.requireNonNull(studentId, "studentId must not be null");
-		tenantContext.setCurrentTeacher(teacherId);
-		if (!queries.hasActiveStudent(teacherId, studentId)) throw ProblemGenerationException.inaccessibleTarget();
-		Instant to = Instant.now(clock);
-		Instant from = to.minus(Duration.ofDays(56));
-		var overall = queries.findOverallAccuracy(teacherId, studentId, from, to);
-		BigDecimal average = percentage(overall.correctCount(), overall.solvedCount());
-		List<WeaknessCell> cells = queries.findWeaknessRows(teacherId, studentId, from, to).stream().map(row -> {
-			BigDecimal accuracy = percentage(row.correctCount(), row.solvedCount());
-			BigDecimal gap = average == null ? null : accuracy.subtract(average).setScale(1, RoundingMode.HALF_UP);
-			ProblemStudioEvaluation evaluation;
-			if (row.solvedCount() < MINIMUM_SAMPLE_SIZE || average == null) evaluation = ProblemStudioEvaluation.ON_HOLD;
-			else if (accuracy.compareTo(average) >= 0) evaluation = ProblemStudioEvaluation.GOOD;
-			else evaluation = ProblemStudioEvaluation.WEAK_SIGNAL;
-			return new WeaknessCell(row.areaTag(), row.typeTag(), row.solvedCount(), row.correctCount(),
-				accuracy, gap, evaluation);
-		}).toList();
-		return new WeaknessAnalysis(studentId, from.atZone(SEOUL).toLocalDate(), to.atZone(SEOUL).toLocalDate(),
-			MINIMUM_SAMPLE_SIZE, average, cells, MVP_GENERATION_CAPABILITIES);
+		return diagnoses.diagnose(requireTeacher(authenticatedTeacherId),studentId);
 	}
 
 	@Transactional(readOnly = true)
@@ -110,14 +93,15 @@ public class ProblemStudioService {
 		tenantContext.setCurrentTeacher(teacherId);
 		var request = requireRequest(teacherId, requestId);
 		List<ReviewItem> items = queries.findReviewItems(teacherId, requestId, false);
+		var slots=queries.findReviewSlots(teacherId,requestId);
 		ReviewCounts counts = new ReviewCounts(
-			count(items, ProblemValidationStatus.PASSED),
-			count(items, ProblemValidationStatus.REVIEW_REQUIRED),
-			count(items, ProblemValidationStatus.UNVERIFIABLE),
-			count(items, ProblemValidationStatus.EXCLUDED)
+			slots.isEmpty()?count(items, ProblemValidationStatus.PASSED):countSlots(slots,ProblemValidationStatus.PASSED),
+			slots.isEmpty()?count(items, ProblemValidationStatus.REVIEW_REQUIRED):countSlots(slots,ProblemValidationStatus.REVIEW_REQUIRED),
+			slots.isEmpty()?count(items, ProblemValidationStatus.UNVERIFIABLE):countSlots(slots,ProblemValidationStatus.UNVERIFIABLE),
+			slots.isEmpty()?count(items, ProblemValidationStatus.EXCLUDED):countSlots(slots,ProblemValidationStatus.EXCLUDED)
 		);
 		return new Review(requestId, request.status(), request.projectionStatus(),
-			request.projectionErrorCode(), counts, items);
+			request.projectionErrorCode(), counts, items,slots);
 	}
 
 	@Transactional
@@ -195,6 +179,9 @@ public class ProblemStudioService {
 
 	private static int count(List<ReviewItem> items, ProblemValidationStatus status) {
 		return (int) items.stream().filter(item -> item.validationStatus() == status).count();
+	}
+	private static int countSlots(List<ProblemStudioViews.ReviewSlot> slots,ProblemValidationStatus status) {
+		return (int)slots.stream().filter(slot->slot.status()==status).count();
 	}
 
 	private static BigDecimal percentage(int numerator, int denominator) {

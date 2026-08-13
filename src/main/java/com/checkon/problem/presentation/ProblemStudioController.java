@@ -117,11 +117,12 @@ public class ProblemStudioController {
 
 	public record StudioRequest(
 		@NotNull UUID studentId,
+		@NotNull UUID diagnosisId,
 		@NotEmpty @Size(max = 20) List<@Valid Target> targets,
 		@NotNull ProblemDifficulty difficulty
 	) {
 		CreateProblemStudioCommand toCommand(String idempotencyKey) {
-			return new CreateProblemStudioCommand(studentId,
+			return new CreateProblemStudioCommand(studentId, diagnosisId,
 				targets.stream().map(Target::toCommand).toList(), difficulty, idempotencyKey);
 		}
 	}

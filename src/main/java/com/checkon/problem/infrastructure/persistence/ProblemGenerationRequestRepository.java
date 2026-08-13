@@ -34,12 +34,12 @@ public class ProblemGenerationRequestRepository {
 	public boolean insert(NewRequest request) {
 		return jdbcClient.sql("""
 			INSERT INTO problem_generation_requests (
-			    id, teacher_id, tenant_alias, target_kind, student_id,
+			    id, teacher_id, tenant_alias, target_kind, student_id, diagnosis_id,
 			    class_group_id, target_ref, client_idempotency_key,
 			    ai_idempotency_key, snapshot_hash, request_payload, status,
 			    requested_at, updated_at
 			) VALUES (
-			    :id, :teacherId, :tenantAlias, :targetKind, :studentId,
+			    :id, :teacherId, :tenantAlias, :targetKind, :studentId, :diagnosisId,
 			    :classGroupId, :targetRef, :clientKey,
 			    :aiKey, :snapshotHash, CAST(:requestPayload AS jsonb), 'QUEUED',
 			    :requestedAt, :requestedAt
@@ -48,6 +48,7 @@ public class ProblemGenerationRequestRepository {
 			Map.entry("id", request.id()), Map.entry("teacherId", request.teacherId()),
 			Map.entry("tenantAlias", request.tenantAlias()), Map.entry("targetKind", request.targetKind().name()),
 			Map.entry("studentId", nullable(request.studentId())), Map.entry("classGroupId", nullable(request.classGroupId())),
+			Map.entry("diagnosisId", nullable(request.diagnosisId())),
 			Map.entry("targetRef", request.targetRef()), Map.entry("clientKey", nullable(request.clientIdempotencyKey())),
 			Map.entry("aiKey", request.aiIdempotencyKey()), Map.entry("snapshotHash", request.snapshotHash()),
 			Map.entry("requestPayload", request.requestPayload()), Map.entry("requestedAt", databaseTime(request.requestedAt()))
@@ -152,7 +153,7 @@ public class ProblemGenerationRequestRepository {
 	}
 
 	public record NewRequest(UUID id, UUID teacherId, String tenantAlias, ProblemTargetKind targetKind,
-		UUID studentId, UUID classGroupId, String targetRef, String clientIdempotencyKey,
+		UUID studentId, UUID classGroupId, UUID diagnosisId, String targetRef, String clientIdempotencyKey,
 		String aiIdempotencyKey, String snapshotHash, String requestPayload, Instant requestedAt) { }
 	public record IdempotentRequest(UUID id, String snapshotHash) { }
 	public record LockedRequest(UUID id, UUID teacherId, String tenantAlias, ProblemGenerationStatus status,
