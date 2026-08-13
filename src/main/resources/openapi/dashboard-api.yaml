@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
-  title: CheckOn Frontend API
-  version: 1.0.0
+  title: CheckOn API
+  version: 1.1.0
   description: |
     프론트엔드 화면 데이터 v1 연동 기준 계약이다. JSON 필드는 camelCase, 날짜는
     yyyy-MM-dd, Instant는 RFC 3339 date-time이며 서비스 논리 시간대는 Asia/Seoul이다.
@@ -15,14 +15,192 @@ servers:
 security:
   - bearerAuth: []
 tags:
+  - name: Authentication
   - name: Class Management
   - name: Dashboard
+  - name: Learning Records
+  - name: Detection
   - name: Engagement
   - name: Todo
   - name: Problem Generation
   - name: Roster Support
     description: 대시보드 학생 실명 표시를 지원하지만 대시보드 자체 API는 아니다.
 paths:
+  /auth/sign-up/teachers:
+    post:
+      tags: [Authentication]
+      operationId: signUpTeacher
+      summary: 강사 회원가입
+      description: 이메일을 소문자로 정규화하고 TEACHER 계정과 강사 프로필을 함께 생성한다.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TeacherSignUpRequest'}
+            example: {email: teacher@example.com, password: safe-password-123, displayName: 김서현}
+      responses:
+        '201':
+          description: 강사 계정 생성 성공
+          headers:
+            Location:
+              description: 생성된 Account 리소스 경로
+              schema: {type: string, format: uri-reference}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TeacherSignUpResponse'}
+        '400': {$ref: '#/components/responses/SignUpInvalidRequest'}
+        '409': {$ref: '#/components/responses/EmailAlreadyExists'}
+  /auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      summary: 로그인
+      description: Access Token은 응답 본문으로, Refresh Token은 HttpOnly 쿠키로 발급한다.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LoginRequest'}
+            example: {email: teacher@example.com, password: safe-password-123}
+      responses:
+        '200':
+          description: 로그인 성공
+          headers:
+            Set-Cookie:
+              description: Path=/api/v1/auth로 제한된 HttpOnly Refresh Token 쿠키
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuthenticationResponse'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/AuthenticationFailed'}
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      operationId: refreshAuthentication
+      summary: 인증 토큰 갱신
+      description: HttpOnly Refresh Token 쿠키를 회전시키고 새 Access Token을 발급한다. 브라우저 Origin은 서버 허용 목록과 일치해야 한다.
+      security:
+        - refreshCookie: []
+      responses:
+        '200':
+          description: 토큰 갱신 성공
+          headers:
+            Set-Cookie:
+              description: 회전된 HttpOnly Refresh Token 쿠키
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuthenticationResponse'}
+        '401': {$ref: '#/components/responses/InvalidSession'}
+        '403': {$ref: '#/components/responses/OriginNotAllowed'}
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logout
+      summary: 현재 인증 세션 로그아웃
+      description: 현재 Access Token의 세션을 폐기하고 Refresh Token 쿠키를 만료시킨다.
+      responses:
+        '204':
+          description: 로그아웃 성공
+          headers:
+            Set-Cookie:
+              description: Max-Age=0으로 만료된 Refresh Token 쿠키
+              schema: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /learning-records:
+    post:
+      tags: [Learning Records]
+      operationId: registerLearningRecord
+      summary: 수동 학습 기록 등록
+      description: |
+        인증 강사가 현재 관리하는 학생의 원본 학습 기록을 등록한다. classGroupId가 있으면
+        occurredAt 시점의 해당 반 소속도 확인한다. externalRecordRef는 nullable이며 멱등 키나
+        유일 값으로 취급하지 않는다. teacherId와 sourceType은 요청에서 받지 않는다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LearningRecordRequest'}
+            example:
+              studentId: 0198c000-0000-7000-8000-000000000002
+              classGroupId: 0198c000-0000-7000-8000-000000000003
+              recordType: SOLVE
+              occurredAt: '2026-08-03T01:00:00Z'
+              correct: true
+              durationSec: 120
+              passageWordCount: 800
+              areaTag: reading
+      responses:
+        '201':
+          description: 학습 기록 등록 성공
+          headers:
+            Location:
+              description: 생성된 학습 기록 경로
+              schema: {type: string, format: uri-reference}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LearningRecordResponse'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/LearningRecordTargetNotFound'}
+  /detection-runs:
+    post:
+      tags: [Detection]
+      operationId: requestDetectionRun
+      summary: 위험 탐지 실행 요청
+      description: |
+        인증 강사의 analysisDate 기준 56일 학습 Snapshot을 준비하고 Kafka 요청 Outbox를 저장한다.
+        동일 분석일과 동일 Snapshot의 재요청은 기존 실행을 재사용한다. status가 REQUESTED이면
+        202, 이미 종료된 실행을 재사용하면 200을 반환한다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DetectionRunRequest'}
+            example: {analysisDate: '2026-08-03'}
+      responses:
+        '200':
+          description: 이미 종료된 동일 실행 조회
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DetectionRunResponse'}
+        '202':
+          description: 비동기 위험 탐지 요청 접수
+          headers:
+            Location:
+              description: 실행 상태 조회 경로
+              schema: {type: string, format: uri-reference}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DetectionRunResponse'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/DetectionConflict'}
+        '422': {$ref: '#/components/responses/NoLearningRecords'}
+        '502': {$ref: '#/components/responses/AiDetectionFailure'}
+  /detection-runs/{runId}:
+    get:
+      tags: [Detection]
+      operationId: getDetectionRun
+      summary: 위험 탐지 실행 상태 조회
+      description: 다른 강사의 실행은 존재 여부를 숨기기 위해 RUN_NOT_FOUND로 처리한다.
+      parameters:
+        - $ref: '#/components/parameters/DetectionRunId'
+      responses:
+        '200':
+          description: 실행 상태 조회 성공
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DetectionRunStatusResponse'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/DetectionRunNotFound'}
   /classes:
     get:
       tags: [Class Management]
@@ -600,6 +778,11 @@ paths:
 components:
   securitySchemes:
     bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: CHECKON_REFRESH
+      description: 실제 쿠키 이름은 서버의 REFRESH_COOKIE_NAME 설정으로 변경할 수 있다.
   parameters:
     BriefingDate: {name: date, in: query, required: true, schema: {type: string, format: date}, example: '2026-08-05'}
     StartedAt: {name: startedAt, in: query, required: true, description: 월요일, schema: {type: string, format: date}, example: '2026-08-03'}
@@ -611,6 +794,7 @@ components:
     StudentId: {name: studentId, in: path, required: true, schema: {type: string, format: uuid}}
     ClassId: {name: classId, in: path, required: true, schema: {type: string, format: uuid}}
     ProblemRequestId: {name: requestId, in: path, required: true, schema: {type: string, format: uuid}}
+    DetectionRunId: {name: runId, in: path, required: true, schema: {type: string, format: uuid}}
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -625,6 +809,55 @@ components:
     InvalidRequest:
       description: 요청 값 오류
       content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: INVALID_REQUEST, message: 요청 값을 확인해 주세요.}}}
+    SignUpInvalidRequest:
+      description: 회원가입 요청 값 오류
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/TeacherSignUpErrorResponse'}
+          example:
+            code: INVALID_REQUEST
+            message: 요청 값을 확인해 주세요.
+            fieldErrors: [{field: email, message: 공백일 수 없습니다}]
+    EmailAlreadyExists:
+      description: 이미 가입된 이메일
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/TeacherSignUpErrorResponse'}
+          example: {code: EMAIL_ALREADY_EXISTS, message: 이미 가입된 이메일입니다., fieldErrors: []}
+    AuthenticationFailed:
+      description: 자격 증명 오류 또는 비활성 계정
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+          examples:
+            credentials: {value: {code: INVALID_CREDENTIALS, message: 이메일 또는 비밀번호를 확인해 주세요.}}
+            inactive: {value: {code: ACCOUNT_NOT_ACTIVE, message: 사용할 수 없는 계정입니다.}}
+    InvalidSession:
+      description: Refresh Token이 없거나 세션이 만료·폐기됨
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: SESSION_INVALID, message: 인증 세션이 유효하지 않습니다.}}}
+    OriginNotAllowed:
+      description: 브라우저 Origin이 서버 허용 목록과 불일치
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: ORIGIN_NOT_ALLOWED, message: 허용되지 않은 요청입니다.}}}
+    LearningRecordTargetNotFound:
+      description: 관리하지 않는 학생·반 또는 occurredAt 시점에 유효하지 않은 반 소속
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: LEARNING_RECORD_TARGET_NOT_FOUND, message: 등록 대상 학생 또는 반을 찾을 수 없습니다.}}}
+    DetectionConflict:
+      description: 동일 분석일의 Snapshot 충돌 또는 허용되지 않는 실행 상태
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+          examples:
+            idempotency: {value: {code: IDEMPOTENCY_CONFLICT, message: 같은 분석일에 다른 학습 snapshot이 이미 준비되었습니다.}}
+            state: {value: {code: DETECTION_RUN_STATE_CONFLICT, message: 현재 Detection 실행 상태에서는 요청을 처리할 수 없습니다.}}
+    NoLearningRecords:
+      description: 분석할 활성 학생 또는 학습 근거가 없음
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: NO_LEARNING_RECORDS, message: 분석 기간에 학습 기록이 없습니다.}}}
+    AiDetectionFailure:
+      description: AI 연동 또는 Detection 결과 처리 실패
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: AI_SERVER_ERROR, message: AI 분석 요청에 실패했습니다.}}}
+    DetectionRunNotFound:
+      description: 없거나 다른 테넌트에 속한 Detection 실행
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: RUN_NOT_FOUND, message: Detection 실행을 찾을 수 없습니다.}}}
     ClassNotFound:
       description: 없거나 다른 테넌트에 속한 클래스
       content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: CLASS_NOT_FOUND, message: 클래스를 찾을 수 없습니다.}}}
@@ -647,6 +880,113 @@ components:
       description: Reminder 상태 변경 성공
       content: {application/json: {schema: {$ref: '#/components/schemas/ReminderView'}}}
   schemas:
+    AccountRole: {type: string, enum: [TEACHER, PARENT, STUDENT]}
+    TeacherSignUpRequest:
+      type: object
+      required: [email, password, displayName]
+      properties:
+        email: {type: string, maxLength: 320, description: 앞뒤 공백 제거 후 소문자로 정규화한다.}
+        password: {type: string, format: password, minLength: 8, writeOnly: true}
+        displayName: {type: string, minLength: 1, maxLength: 80}
+    TeacherSignUpResponse:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/TeacherSignUpData'}
+    TeacherSignUpData:
+      type: object
+      required: [accountId, teacherId, role, email]
+      properties:
+        accountId: {type: string, format: uuid}
+        teacherId: {type: string, format: uuid}
+        role: {type: string, enum: [TEACHER]}
+        email: {type: string, format: email}
+    TeacherSignUpErrorResponse:
+      type: object
+      required: [code, message, fieldErrors]
+      properties:
+        code: {type: string}
+        message: {type: string}
+        fieldErrors: {type: array, items: {$ref: '#/components/schemas/FieldViolation'}}
+    FieldViolation:
+      type: object
+      required: [field, message]
+      properties:
+        field: {type: string}
+        message: {type: string}
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: {type: string, maxLength: 320}
+        password: {type: string, format: password, maxLength: 200, writeOnly: true}
+    AuthenticationResponse:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/AuthenticationData'}
+    AuthenticationData:
+      type: object
+      required: [accessToken, accessTokenExpiresAt, account]
+      properties:
+        accessToken: {type: string, description: Bearer Access Token}
+        accessTokenExpiresAt: {type: string, format: date-time}
+        account: {$ref: '#/components/schemas/AuthenticatedAccount'}
+    AuthenticatedAccount:
+      type: object
+      required: [id, role, email, teacherProfileId]
+      properties:
+        id: {type: string, format: uuid}
+        role: {$ref: '#/components/schemas/AccountRole'}
+        email: {type: string, format: email}
+        teacherProfileId: {type: string, format: uuid, nullable: true}
+    LearningRecordType: {type: string, enum: [SOLVE, SUBMIT]}
+    LearningRecordRequest:
+      type: object
+      required: [studentId, recordType, occurredAt]
+      properties:
+        studentId: {type: string, format: uuid}
+        classGroupId: {type: string, format: uuid, nullable: true}
+        recordType: {$ref: '#/components/schemas/LearningRecordType'}
+        occurredAt: {type: string, format: date-time}
+        externalRecordRef: {type: string, maxLength: 255, nullable: true, description: 유일성이나 멱등성을 보장하지 않는 외부 참조}
+        correct: {type: boolean, nullable: true}
+        durationSec: {type: integer, format: int32, minimum: 0, nullable: true}
+        passageWordCount: {type: integer, format: int32, minimum: 0, nullable: true}
+        areaTag: {type: string, maxLength: 80, nullable: true}
+        subjectTrack: {type: string, maxLength: 80, nullable: true}
+        typeTag: {type: string, maxLength: 80, nullable: true}
+        itemFormat: {type: string, maxLength: 80, nullable: true}
+        assignmentTitleText: {type: string, maxLength: 255, nullable: true}
+    LearningRecordResponse:
+      type: object
+      required: [id]
+      properties:
+        id: {type: string, format: uuid}
+    DetectionRunStatus: {type: string, enum: [PREPARED, REQUESTED, SUCCEEDED, FAILED]}
+    DetectionRunRequest:
+      type: object
+      required: [analysisDate]
+      properties:
+        analysisDate: {type: string, format: date}
+    DetectionRunResponse:
+      type: object
+      required: [runId, status, analysisDate, created, attemptNumber]
+      properties:
+        runId: {type: string, format: uuid}
+        status: {$ref: '#/components/schemas/DetectionRunStatus'}
+        analysisDate: {type: string, format: date}
+        created: {type: boolean, description: 새 실행을 생성했으면 true, 기존 실행을 재사용하면 false}
+        attemptNumber: {type: integer, format: int32, minimum: 1}
+    DetectionRunStatusResponse:
+      type: object
+      required: [runId, status, analysisDate, attemptCount, errorCode]
+      properties:
+        runId: {type: string, format: uuid}
+        status: {$ref: '#/components/schemas/DetectionRunStatus'}
+        analysisDate: {type: string, format: date}
+        attemptCount: {type: integer, format: int32, minimum: 0}
+        errorCode: {type: string, nullable: true}
     ClassStatus: {type: string, enum: [ACTIVE, ARCHIVED]}
     ClassDetailsRequest:
       type: object

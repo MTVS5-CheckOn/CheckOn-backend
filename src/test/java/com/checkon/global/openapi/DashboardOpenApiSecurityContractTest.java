@@ -16,9 +16,13 @@ class DashboardOpenApiSecurityContractTest {
 	private static final Set<String> HTTP_METHODS = Set.of(
 		"get", "put", "post", "delete", "options", "head", "patch", "trace"
 	);
+	private static final Set<String> PUBLIC_OPERATIONS = Set.of(
+		"POST /auth/sign-up/teachers",
+		"POST /auth/login"
+	);
 
 	@Test
-	void everyOperationRequiresBearerAuthentication() {
+	void everyOperationDocumentsItsActualAuthenticationBoundary() {
 		Map<String, Object> document = loadDocument();
 
 		assertThat(document.get("openapi")).isEqualTo("3.0.3");
@@ -35,6 +39,13 @@ class DashboardOpenApiSecurityContractTest {
 			.containsEntry("type", "http")
 			.containsEntry("scheme", "bearer")
 			.containsEntry("bearerFormat", "JWT");
+		Map<String, Object> refreshCookie = asMap(
+			schemes.get("refreshCookie"), "components.securitySchemes.refreshCookie"
+		);
+		assertThat(refreshCookie)
+			.containsEntry("type", "apiKey")
+			.containsEntry("in", "cookie")
+			.containsEntry("name", "CHECKON_REFRESH");
 
 		Map<String, Object> paths = asMap(document.get("paths"), "paths");
 		List<String> operations = new ArrayList<>();
@@ -52,7 +63,19 @@ class DashboardOpenApiSecurityContractTest {
 				Object effectiveSecurity = operation.containsKey("security")
 					? operation.get("security")
 					: document.get("security");
-				assertBearerRequired(effectiveSecurity, operationLabel);
+				if (PUBLIC_OPERATIONS.contains(operationLabel)) {
+					assertThat(asList(effectiveSecurity, operationLabel))
+						.as(operationLabel)
+						.isEmpty();
+				}
+				else if ("POST /auth/refresh".equals(operationLabel)) {
+					assertSecuritySchemeRequired(
+						effectiveSecurity, "refreshCookie", operationLabel
+					);
+				}
+				else {
+					assertBearerRequired(effectiveSecurity, operationLabel);
+				}
 			});
 		});
 
@@ -69,6 +92,14 @@ class DashboardOpenApiSecurityContractTest {
 	}
 
 	private void assertBearerRequired(Object securityValue, String label) {
+		assertSecuritySchemeRequired(securityValue, "bearerAuth", label);
+	}
+
+	private void assertSecuritySchemeRequired(
+		Object securityValue,
+		String scheme,
+		String label
+	) {
 		List<Object> alternatives = asList(securityValue, label);
 		assertThat(alternatives).as(label).isNotEmpty();
 
@@ -80,8 +111,8 @@ class DashboardOpenApiSecurityContractTest {
 			assertThat(requirement)
 				.as(alternativeLabel)
 				.isNotEmpty()
-				.containsKey("bearerAuth");
-			assertThat(asList(requirement.get("bearerAuth"), alternativeLabel + " scopes"))
+				.containsKey(scheme);
+			assertThat(asList(requirement.get(scheme), alternativeLabel + " scopes"))
 				.as(alternativeLabel + " scopes")
 				.isEmpty();
 		}

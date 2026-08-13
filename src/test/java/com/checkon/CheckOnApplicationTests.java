@@ -11,9 +11,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -21,11 +23,17 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.checkon.support.RosterTestFixture;
 
 @SpringBootTest
+@AutoConfigureMockMvc
 @Testcontainers
 @Transactional
 class CheckOnApplicationTests {
@@ -35,16 +43,34 @@ class CheckOnApplicationTests {
 	static final PostgreSQLContainer POSTGRESQL = new PostgreSQLContainer("postgres:18.4");
 	private final JdbcTemplate jdbcTemplate;
 	private final KafkaTemplate<?, ?> kafkaTemplate;
+	private final MockMvc mockMvc;
 
 	@Autowired
-	CheckOnApplicationTests(JdbcTemplate jdbcTemplate, KafkaTemplate<?, ?> kafkaTemplate) {
+	CheckOnApplicationTests(
+		JdbcTemplate jdbcTemplate,
+		KafkaTemplate<?, ?> kafkaTemplate,
+		MockMvc mockMvc
+	) {
 		this.jdbcTemplate = jdbcTemplate;
 		this.kafkaTemplate = kafkaTemplate;
+		this.mockMvc = mockMvc;
 	}
 
 	@Test
 	void contextLoads() {
 		assertThat(kafkaTemplate).isNotNull();
+	}
+
+	@Test
+	void exposesSwaggerUiAndCodeConfirmedOpenApiDocumentWithoutAuthentication()
+		throws Exception {
+		mockMvc.perform(get("/openapi/dashboard-api.yaml"))
+			.andExpect(status().isOk())
+			.andExpect(content().string(containsString("title: CheckOn API")));
+
+		mockMvc.perform(get("/swagger-ui.html"))
+			.andExpect(status().is3xxRedirection())
+			.andExpect(header().string("Location", containsString("/swagger-ui/index.html")));
 	}
 
 	@Test
