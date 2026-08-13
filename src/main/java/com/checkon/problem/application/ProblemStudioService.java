@@ -77,8 +77,7 @@ public class ProblemStudioService {
 				return new StudentSummary(row.studentId(), row.studentName(), row.className(), row.subject(),
 					days, row.recentSignalCount(), notable);
 			}).toList();
-		int totalPages = total == 0 ? 0 : (int) ((total + size - 1) / size);
-		return new StudentPage(content, page, size, total, totalPages);
+		return new StudentPage(content, page, size, total);
 	}
 
 	@Transactional(readOnly = true)
