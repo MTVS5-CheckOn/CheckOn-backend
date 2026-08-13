@@ -16,9 +16,12 @@ import com.checkon.learning.application.LearningRecordSource;
 import com.checkon.learning.application.RegisterLearningRecordCommand;
 import com.checkon.learning.application.RegisterLearningRecordService;
 import com.checkon.learning.domain.LearningRecordType;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
@@ -59,12 +62,27 @@ public class LearningRecordController {
 		Boolean correct,
 		@PositiveOrZero Integer durationSec,
 		@PositiveOrZero Integer passageWordCount,
-		@Size(max = 80) String areaTag,
-		@Size(max = 80) String subjectTrack,
-		@Size(max = 80) String typeTag,
-		@Size(max = 80) String itemFormat,
+		@Pattern(regexp = "^(reading|literature|speech_writing|language|media)$")
+		String areaTag,
+		@Pattern(regexp = "^(common|elective)$") String subjectTrack,
+		@Pattern(regexp = "^(fact|infer|critic|concept|apply)$") String typeTag,
+		@Pattern(regexp = "^mcq$") String itemFormat,
 		@Size(max = 255) String assignmentTitleText
 	) {
+		@JsonIgnore
+		@AssertTrue(message = "subjectTrack must match areaTag")
+		public boolean isSubjectTrackConsistent() {
+			if (areaTag == null || subjectTrack == null) {
+				return true;
+			}
+			String expected = switch (areaTag) {
+				case "reading", "literature" -> "common";
+				case "speech_writing", "language", "media" -> "elective";
+				default -> null;
+			};
+			return expected != null && expected.equals(subjectTrack);
+		}
+
 		RegisterLearningRecordCommand toCommand() {
 			return new RegisterLearningRecordCommand(
 				studentId, classGroupId, recordType, occurredAt, LearningRecordSource.MANUAL,

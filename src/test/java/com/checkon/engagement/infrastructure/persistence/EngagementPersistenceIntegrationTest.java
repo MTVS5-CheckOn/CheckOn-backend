@@ -5,8 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.time.DayOfWeek;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.temporal.TemporalAdjusters;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -46,6 +49,9 @@ class EngagementPersistenceIntegrationTest {
 	);
 	private static final UUID STUDENT = UUID.fromString(
 		"0198e100-0000-7000-8000-000000000003"
+	);
+	private static final UUID OTHER_STUDENT = UUID.fromString(
+		"0198e100-0000-7000-8000-000000000007"
 	);
 	private static final UUID SIGNAL_WITH_EVIDENCE = UUID.fromString(
 		"0198e100-0000-7000-8000-000000000004"
@@ -91,9 +97,18 @@ class EngagementPersistenceIntegrationTest {
 			VALUES (?, 'engagement-student', 1, ?, ?)
 			""", STUDENT, offset(NOW), offset(NOW));
 		jdbc.update("""
+			INSERT INTO student_profiles (id, alias, grade, created_at, updated_at)
+			VALUES (?, 'engagement-other-student', 2, ?, ?)
+			""", OTHER_STUDENT, offset(NOW), offset(NOW));
+		jdbc.update("""
 			INSERT INTO ai_student_aliases (teacher_id, student_id, alias, created_at)
 			VALUES (?, ?, 'st_cccccccccccccccccccccccccccccccc', ?)
 			""", TEACHER, STUDENT, offset(NOW));
+		jdbc.update("""
+			INSERT INTO ai_student_aliases (teacher_id, student_id, alias, created_at)
+			VALUES (?, ?, 'st_dddddddddddddddddddddddddddddddd', ?),
+			       (?, ?, 'st_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', ?)
+			""", TEACHER, OTHER_STUDENT, offset(NOW), OTHER_TEACHER, STUDENT, offset(NOW));
 
 		UUID run = UUID.randomUUID();
 		jdbc.update("""
@@ -185,6 +200,118 @@ class EngagementPersistenceIntegrationTest {
 		assertThat(jdbc.queryForObject(
 			"SELECT count(*) FROM alert_follow_up_todos", Integer.class
 		)).isZero();
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given PENDING_REVIEW open Alert와 ONGOING 신호, When 후보를 만들면, Then signal과 evidence만 보존한다")
+	void givenPendingOpenAlertAndOngoingSignal_whenCreatingCandidates_thenPreservesSignalWithoutAlertOrTodo() {
+		jdbc.update("DELETE FROM interventions");
+		jdbc.update("UPDATE engagement_alerts SET status = 'PENDING_REVIEW', decided_at = NULL");
+		UUID run = insertRun(TEACHER, LocalDate.parse("2026-08-05"), "ongoing-pending");
+		UUID signal = insertCandidateSignal(run, "ongoing-pending", "ONGOING", "RISK",
+			"st_cccccccccccccccccccccccccccccccc");
+
+		engagementCandidateService.createPendingAlerts(TEACHER, run, NOW.plusSeconds(60));
+
+		assertThat(countAlerts(signal)).isZero();
+		assertThat(countTodos(signal)).isZero();
+		assertThat(jdbc.queryForObject(
+			"SELECT count(*) FROM detection_signal_results WHERE id = ?", Integer.class, signal
+		)).isOne();
+		assertThat(jdbc.queryForObject(
+			"SELECT count(*) FROM detection_result_evidence WHERE detection_signal_result_id = ?",
+			Integer.class, signal
+		)).isOne();
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given APPROVED이지만 미완료인 open Alert와 ONGOING 신호, When 후보를 만들면, Then 새 Alert와 Todo를 만들지 않는다")
+	void givenApprovedOpenAlertAndOngoingSignal_whenCreatingCandidates_thenSkipsAlertAndTodo() {
+		UUID run = insertRun(TEACHER, LocalDate.parse("2026-08-05"), "ongoing-approved");
+		UUID signal = insertCandidateSignal(run, "ongoing-approved", "ONGOING", "RISK",
+			"st_cccccccccccccccccccccccccccccccc");
+
+		engagementCandidateService.createPendingAlerts(TEACHER, run, NOW.plusSeconds(60));
+
+		assertThat(countAlerts(signal)).isZero();
+		assertThat(countTodos(signal)).isZero();
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given resolved Alert와 ONGOING 신호, When 후보를 만들면, Then 새 Alert와 Todo를 만든다")
+	void givenResolvedAlertAndOngoingSignal_whenCreatingCandidates_thenCreatesAlertAndTodo() {
+		Instant completedAt = NOW.plusSeconds(30);
+		jdbc.update("""
+			UPDATE interventions
+			SET status = 'COMPLETED', completed_at = ?, updated_at = ?
+			WHERE id = ?
+			""", offset(completedAt), offset(completedAt), intervention);
+		UUID run = insertRun(TEACHER, LocalDate.parse("2026-08-05"), "ongoing-resolved");
+		UUID signal = insertCandidateSignal(run, "ongoing-resolved", "ONGOING", "RISK",
+			"st_cccccccccccccccccccccccccccccccc");
+
+		engagementCandidateService.createPendingAlerts(TEACHER, run, NOW.plusSeconds(60));
+
+		assertThat(countAlerts(signal)).isOne();
+		assertThat(countTodos(signal)).isOne();
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 기존 open Alert와 NEW 및 FOLLOW_UP 신호, When 후보를 만들면, Then lifecycle별 새 Alert와 Todo를 만든다")
+	void givenOpenAlertAndNonOngoingSignals_whenCreatingCandidates_thenCreatesAlertsAndTodos() {
+		UUID newRun = insertRun(TEACHER, LocalDate.parse("2026-08-05"), "new-signal");
+		UUID newSignal = insertCandidateSignal(newRun, "new-signal", "NEW", "RISK",
+			"st_cccccccccccccccccccccccccccccccc");
+		UUID followUpRun = insertRun(TEACHER, LocalDate.parse("2026-08-06"), "follow-up-signal");
+		UUID followUpSignal = insertCandidateSignal(followUpRun, "follow-up-signal", "FOLLOW_UP", "RISK",
+			"st_cccccccccccccccccccccccccccccccc");
+
+		engagementCandidateService.createPendingAlerts(TEACHER, newRun, NOW.plusSeconds(60));
+		engagementCandidateService.createPendingAlerts(TEACHER, followUpRun, NOW.plusSeconds(120));
+
+		assertThat(countAlerts(newSignal)).isOne();
+		assertThat(countTodos(newSignal)).isOne();
+		assertThat(countAlerts(followUpSignal)).isOne();
+		assertThat(countTodos(followUpSignal)).isOne();
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 다른 signal_type의 open Alert와 ONGOING 신호, When 후보를 만들면, Then 서로 다른 유형은 억제하지 않는다")
+	void givenOpenAlertForDifferentSignalType_whenCreatingOngoingCandidate_thenCreatesAlertAndTodo() {
+		UUID run = insertRun(TEACHER, LocalDate.parse("2026-08-05"), "ongoing-other-type");
+		UUID signal = insertCandidateSignal(run, "ongoing-other-type", "ONGOING", "OTHER_RISK",
+			"st_cccccccccccccccccccccccccccccccc");
+
+		engagementCandidateService.createPendingAlerts(TEACHER, run, NOW.plusSeconds(60));
+
+		assertThat(countAlerts(signal)).isOne();
+		assertThat(countTodos(signal)).isOne();
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 다른 학생의 open Alert와 ONGOING 신호, When 후보를 만들면, Then 학생 경계를 넘어 억제하지 않는다")
+	void givenOpenAlertForDifferentStudent_whenCreatingOngoingCandidate_thenCreatesAlertAndTodo() {
+		UUID run = insertRun(TEACHER, LocalDate.parse("2026-08-05"), "ongoing-other-student");
+		UUID signal = insertCandidateSignal(run, "ongoing-other-student", "ONGOING", "RISK",
+			"st_dddddddddddddddddddddddddddddddd");
+
+		engagementCandidateService.createPendingAlerts(TEACHER, run, NOW.plusSeconds(60));
+
+		assertThat(countAlerts(signal)).isOne();
+		assertThat(countTodos(signal)).isOne();
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 다른 tenant의 open Alert와 ONGOING 신호, When 후보를 만들면, Then tenant 경계를 넘어 억제하지 않는다")
+	void givenOpenAlertForDifferentTenant_whenCreatingOngoingCandidate_thenCreatesAlertAndTodo() {
+		UUID run = insertRun(OTHER_TEACHER, LocalDate.parse("2026-08-04"), "ongoing-other-tenant");
+		UUID signal = insertCandidateSignal(run, "ongoing-other-tenant", "ONGOING", "RISK",
+			"st_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+
+		engagementCandidateService.createPendingAlerts(OTHER_TEACHER, run, NOW.plusSeconds(60));
+
+		assertThat(countAlerts(signal)).isOne();
+		assertThat(countTodos(signal)).isOne();
 	}
 
 	@Test
@@ -306,6 +433,63 @@ class EngagementPersistenceIntegrationTest {
 			        'class', 'R1', 'RISK', '위험', 0.8,
 			        1, 'NEW', 'summary', true, false, ?)
 			""", signal, run, externalId, offset(NOW));
+	}
+
+	private UUID insertRun(UUID teacherId, LocalDate analysisDate, String idempotencyKey) {
+		UUID run = UUID.randomUUID();
+		jdbc.update("""
+			INSERT INTO detection_runs (
+			    id, teacher_id, analysis_date, week_start, idempotency_key,
+			    snapshot_hash, snapshot_payload, created_at, updated_at
+			)
+			VALUES (?, ?, ?, ?, ?,
+			        'sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+			        '{}', ?, ?)
+			""", run, teacherId, analysisDate,
+			analysisDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)), idempotencyKey,
+			offset(NOW), offset(NOW));
+		return run;
+	}
+
+	private UUID insertCandidateSignal(
+		UUID run,
+		String externalId,
+		String lifecycle,
+		String signalType,
+		String studentRef
+	) {
+		UUID signal = UUID.randomUUID();
+		jdbc.update("""
+			INSERT INTO detection_signal_results (
+			    id, detection_run_id, external_signal_id, student_ref, class_ref,
+			    rule_id, signal_type, display_label, score, rank, lifecycle,
+			    brief_text, gate_passed, fallback_used, created_at
+			)
+			VALUES (?, ?, ?, ?, 'class', 'R1', ?, '위험', 0.8,
+			        1, ?, 'summary', true, false, ?)
+			""", signal, run, externalId, studentRef, signalType, lifecycle, offset(NOW));
+		jdbc.update("""
+			INSERT INTO detection_result_evidence
+			    (detection_signal_result_id, source_hint, record_id, summary)
+			VALUES (?, 'learning_records', ?, 'verified evidence')
+			""", signal, externalId + "-evidence");
+		return signal;
+	}
+
+	private int countAlerts(UUID signal) {
+		return jdbc.queryForObject(
+			"SELECT count(*) FROM engagement_alerts WHERE detection_signal_result_id = ?",
+			Integer.class, signal
+		);
+	}
+
+	private int countTodos(UUID signal) {
+		return jdbc.queryForObject("""
+			SELECT count(*)
+			FROM alert_follow_up_todos todo
+			JOIN engagement_alerts alert ON alert.id = todo.alert_id
+			WHERE alert.detection_signal_result_id = ?
+			""", Integer.class, signal);
 	}
 
 	private static java.time.OffsetDateTime offset(Instant instant) {

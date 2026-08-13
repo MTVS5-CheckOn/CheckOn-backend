@@ -205,8 +205,9 @@
 - 구현 상태: `IMPLEMENTED`
 - 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
 - 정책: 검증된 Detection signal과 하나 이상의 Evidence만 경보 후보가 된다. AI 결과는 `PENDING_REVIEW`이며 인증된 강사가 `APPROVED` 또는 `REJECTED`로 최종 판단한다. 같은 판단의 재요청은 멱등 처리하고 반대 판단으로 변경하지 않는다.
+- ongoing 중복 억제: 같은 강사·학생·`signal_type`의 open Alert가 이미 있고 새 signal의 `lifecycle=ONGOING`이면 새 Alert와 Todo만 만들지 않는다. 새 signal과 evidence는 Detection 이력으로 보존한다. open은 `REJECTED`가 아니고 완료된 Intervention도 없는 Alert이며, `NEW`·`FOLLOW_UP`과 일반 재발·쿨다운 정책은 이 규칙으로 변경하지 않는다.
 - 코드 근거: `V9__create_engagement_review_flow.sql`, `EngagementAlert`, `EngagementCandidateService`
-- 마지막 검증일: 2026-08-04
+- 마지막 검증일: 2026-08-13
 
 #### ENG-002 승인 경보 기반 개입과 리마인드
 
@@ -349,6 +350,24 @@
 - 금지 사항: 현 단계에서 `external_record_ref`를 문항 ID 또는 멱등 키로 간주하지 않는다.
 - 마지막 검증일: 2026-08-04
 
+#### LR-010 위험신호 학습 태그 입력 계약
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `EXTERNAL_CONTRACT`
+- nullable 경계: `areaTag`, `subjectTrack`, `typeTag`, `itemFormat`은 모두 nullable이다. null을 임의 값으로 보정하거나 누락 때문에 학습기록 등록 전체를 거절하지 않는다.
+- 허용 값: `areaTag`는 `reading`, `literature`, `speech_writing`, `language`, `media`, `subjectTrack`은 `common`, `elective`, `typeTag`는 `fact`, `infer`, `critic`, `concept`, `apply`, v1 `itemFormat`은 `mcq`만 허용한다. 대소문자·한글 표시명·임의 값은 입력 시점에 거절한다.
+- 영역 의미: `areaTag`는 지문 세트나 소재가 아니라 문항별 측정 대상이다. `speech`와 `writing`은 `speech_writing`으로 조용히 매핑하지 않고 구버전 값으로 거절한다.
+- 과목 유도: 두 값이 모두 있으면 `reading`·`literature`의 `subjectTrack`은 `common`, `speech_writing`·`language`·`media`는 `elective`여야 한다. 한 값이 null이면 다른 값을 자동 생성하지 않는다.
+- 유형 의미: `typeTag`는 `areaTag`와 직교하며 특정 영역에 하나의 유형을 강제하지 않는다. `apply`는 입력 사실로 보존하되 v1 R6 집계 제외 여부는 AI 규칙 책임이다.
+- 규칙 입력: R1은 `SOLVE.correct`, R4는 `SOLVE.durationSec`과 선택적 `passageWordCount`, R6는 `areaTag`·`typeTag`·`correct`를 사용한다. 입력 검증은 태그 어휘와 영역-과목 정합을 보장하고 AI 신호 발화용 데이터를 인위적으로 만들지 않는다.
+- 실패 경계: 잘못된 태그 한 건은 `POST /api/v1/learning-records`에서 `400 INVALID_REQUEST`로 거절하여, 저장 후 Detection 요청 전체가 AI `400 INVALID_SCHEMA`가 되는 것을 방지한다.
+- 코드 근거:
+  - `src/main/java/com/checkon/learning/presentation/LearningRecordController.java`
+  - `src/main/resources/openapi/dashboard-api.yaml`
+  - `src/test/java/com/checkon/learning/presentation/LearningRecordControllerIntegrationTest.java`
+- 마지막 검증일: 2026-08-13
+
 ### Detection·AI 연동
 
 #### DET-001 운영 Detection 입력과 분석 기간
@@ -357,8 +376,10 @@
 - 구현 상태: `IMPLEMENTED`
 - 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
 - 정책: 운영 API는 인증된 강사와 `analysisDate`를 기준으로 서버가 테넌트 키와 56일 학습 기록 스냅샷을 만든다. 서비스 시간대는 `Asia/Seoul`이다.
-- 빈 기록 처리: 56일 `learning_events`가 비어도 활성·전송 가능 학생이 있으면 10주 `detection_evidence`를 포함해 분석한다. 활성·전송 가능 학생이 전혀 없을 때만 기존 `NO_LEARNING_RECORDS` 응답으로 거절한다.
-- 학생 상태: 현재 강사와의 관계가 `ACTIVE`인 학생만 AI 요청에 포함한다. 종료 관계의 과거 학습 기록은 보존하되 현재 Detection 요청에서는 제외한다. AI 계약에 없는 `recorded`는 만들지 않으며, 활성 반 등록이 있으면 `enrolled`, 활성 관계지만 활성 반 등록이 없으면 `paused`, 분석 주에 `paused → returned` 전이가 있으면 `returned`를 사용한다.
+- 빈 기록 처리: 56일 `learning_events`가 비어도 활성·전송 가능 학생이 있으면 관계 시작 주부터 최대 10주 `detection_evidence`를 포함해 분석한다. 활성·전송 가능 학생이 전혀 없을 때만 기존 `NO_LEARNING_RECORDS` 응답으로 거절한다.
+- 학생 상태: 현재 강사와의 관계가 `ACTIVE`인 학생만 AI 요청에 포함하고 반 배정 여부와 무관하게 `enrolled`로 보낸다. Backend v1에는 휴원·복귀 상태 전환 기능이 없으므로 반 미배정을 `paused`로 해석하지 않는다. 종료 관계의 과거 학습 기록은 보존하되 현재 Detection 요청에서는 제외한다. 반 미배정 학생의 `class_ref`는 `cl_unassigned`다.
+- 재원 기간: `students[].enrolled_weeks`는 반 등록 시각이 아니라 현재 강사-학생 관계의 `teacher_student_relationships.started_at`부터 계산한다. 반 변경·미배정으로 재원 기간을 초기화하지 않으며 결과는 0 이상이다.
+- 학습기록 source: v1 학습기록 유입 경로는 강사 수기 입력뿐이며 저장된 `MANUAL`을 변환하지 않고 `learning_events[].source`로 보낸다. source whitelist나 임의 제외 규칙을 Backend에 추가하지 않는다.
 - 코드 근거:
   - `src/main/java/com/checkon/detection/application/OperationalDetectionRunService.java`
   - `src/main/java/com/checkon/detection/application/DetectionTenantKey.java`
@@ -384,10 +405,11 @@
 - 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
 - 정책: AI 응답의 학생·반·근거 소유권, 필수 값, 중복 ID, 점수·순위·lifecycle·metadata를 요청 스냅샷과 대조한 뒤 저장한다.
 - 원자성: 응답 일부만 저장되면 안 되며 검증 또는 저장 실패 시 signal과 evidence 전체를 롤백한다. 요청 시도 이력은 별도 경계에서 보존한다.
+- 진단 통계: AI의 `r1_threshold_pp`, `r1_threshold_source`, `r1_pool_n`은 nullable 진단 메타데이터로 Adapter completed 이벤트를 거쳐 `detection_runs.response_stats_payload`에 보존한다. 화면 API에는 노출하지 않으며 필드가 없는 기존 응답도 허용한다.
 - 코드 근거:
   - `src/main/java/com/checkon/detection/application/DetectionResponseStorageService.java`
   - `src/test/java/com/checkon/detection/application/DetectionResponseStorageServiceTest.java`
-- 마지막 검증일: 2026-08-04
+- 마지막 검증일: 2026-08-13
 
 #### DET-004 일일 Detection 자동 실행
 
@@ -397,7 +419,7 @@
 - 실행 시각: 매일 `02:10`, `Asia/Seoul`. Spring cron은 초를 포함한 `0 10 2 * * *`를 사용하고 JVM 기본 시간대에 의존하지 않는다.
 - 분석 날짜: 주입된 `Clock`으로 실행 시각의 `Asia/Seoul` 날짜를 계산하고 그 당일을 `analysisDate`로 사용한다.
 - 실행 대상: `teacher_profiles`가 존재하며 연결된 Account의 역할과 상태가 각각 `TEACHER`, `ACTIVE`인 강사다. 활성 학생 관계나 학습 기록 존재 여부를 대상 목록 SQL에 중복 구현하지 않는다.
-- 빈 기록: 56일 학습 기록이 0건이어도 활성·전송 가능 학생이 있으면 주간 활동 `0` 근거를 넣어 실행한다. 활성·전송 가능 학생도 없을 때만 `NO_LEARNING_RECORDS`로 건너뛰고 다음 강사를 계속 처리한다.
+- 빈 기록: 56일 학습 기록이 0건이어도 활성·전송 가능 학생이 있으면 관계 시작 주부터 주간 활동 `0` 근거를 넣어 실행한다. 활성·전송 가능 학생도 없을 때만 `NO_LEARNING_RECORDS`로 건너뛰고 다음 강사를 계속 처리한다.
 - 실패 격리: 강사별 실행을 독립적으로 처리하고 한 강사의 실패가 나머지 강사의 실행을 중단시키지 않는다. 성공, 이미 완료·중복, 학습 기록 없음, 실패를 집계한다. 복구 불가능한 JVM `Error`는 삼키지 않는다.
 - 일별 멱등성: 같은 강사와 `analysisDate`에는 논리적인 Detection run 하나만 허용한다. 기존 `(teacher_id, analysis_date)` 및 `idempotency_key` 유일 제약과 일별 멱등 키를 재사용한다. 이미 `SUCCEEDED`인 run은 AI를 다시 호출하지 않으며 기존 `FAILED` run은 새 attempt로 재시도한다.
 - 실행 방식: 첫 구현은 강사를 정해진 순서로 순차 실행한다. 무제한 병렬 처리와 별도 비동기 executor를 사용하지 않는다.
@@ -406,10 +428,12 @@
 - 이벤트 계약: Backend `checkon.risk-detection.requested.v1` → 독립 Adapter, 독립 Adapter → Backend Result Consumer `checkon.risk-detection.completed.v1`/`checkon.risk-detection.failed.v1`를 사용한다. 모든 메시지는 `schema_version=1.0` envelope와 `event_id`, `correlation_id(=run_id)`, `causation_id`, `tenant_alias`, `run_id`, `attempt_id`, `request_id`, `idempotency_key`, `snapshot_hash`를 가진다. AI와의 외부 계약 정본은 AI OpenAPI `POST /v1/detect`, Backend-Adapter Kafka 정본은 `docs/contracts/risk-detection-kafka.asyncapi.yaml`이다.
 - HTTP 변환: Adapter는 `payload` 전체를 요청 body로 보내고 envelope의 `tenant_alias`를 `X-Tenant-Id`, `request_id`를 `X-Request-Id`, `idempotency_key`를 `Idempotency-Key`로 그대로 보낸다. 동일 requested 이벤트의 재전달은 세 값과 body·snapshot hash를 유지한다. Read timeout은 AI 계약의 최소 60초보다 긴 65초를 기본으로 둔다. HTTP 200은 completed, 400·409는 재시도하지 않는 failed로 변환한다. 네트워크·timeout·빈 응답·5xx는 Kafka 재시도 후 DLT에 보존하고 최종 failed 이벤트를 발행한다.
 - 과거 경보 컨텍스트: AI 요청의 `alert_context`는 현재 분석 대상 학생의 기존 Engagement Alert를 학생 AI alias와 `signal_type` 기준으로 제공한다. 미검토 또는 후속 조치가 끝나지 않은 Alert는 `open`, 거절 또는 완료된 Intervention이 있는 Alert는 `resolved`로 보낸다. 완료 Intervention이 있으면 `followed_up=true`와 완료 시각을, 거절이면 `followed_up=false`와 결정 시각을 사용한다. 같은 학생·신호 유형에 open 이력이 있으면 가장 최근 open을 우선하고, 없으면 가장 최근 resolved만 보낸다.
-- 부재·복귀 근거: `payload.detection_evidence`는 선택 필드이며 기존 v1 request도 계속 읽는다. 전송 시 활성·동의 허용 학생별 최근 10주 `assignment_window`·`weekly_activity`를 모두 만들고, 분석 주의 `paused → returned`만 `enrollment_transition`으로 추가한다. 활동이 0건이어도 행을 생략하지 않는다. 논리 `source_table`은 `assignment_week_summary`, `student_week_activity`, `student_status_history`로 고정하고 실제 PostgreSQL 물리 테이블명은 외부에 노출하지 않는다.
+- v1 위험신호 범위: v1은 R1(정답률 하락)·R3(학습 공백)·R4(숨은 위기)·R6(유형 편중)만 사용한다. 과제 예정 건수와 휴원·복귀를 만드는 production 기능이 없는 동안 R2(제출 저조)·R5(복귀 케어)는 제외한다.
+- 학습 공백 근거: `payload.detection_evidence`는 선택 필드이며 기존 request와 저장 snapshot의 `assignment_window`·`enrollment_transition` 역직렬화 호환성은 유지한다. 새 v1 요청은 `weekly_activity`만 만든다. 학생별 `teacher_student_relationships.started_at`의 `Asia/Seoul` 소속 주 월요일보다 이전 주는 근거 미존재로 행을 생략하고, 관계 시작 주부터 실제 활동이 0건이면 `activity_count=0`을 보낸다. 논리 `source_table`은 `student_week_activity`로 고정하고 실제 PostgreSQL 물리 테이블명은 외부에 노출하지 않는다. 적용된 V15 테이블과 RLS 정책은 변경하지 않는다.
 - 근거 조회: AI 완료 결과의 `(source_table, record_id)`는 해당 run의 불변 요청 스냅샷에 존재하는 정확한 쌍만 저장한다. 기존 학습 기록의 legacy source name은 호환을 위해 record_id 기준으로 읽되, 새 부재·복귀 근거는 쌍을 엄격히 대조한다. 강사 Alert 상세 화면은 저장된 source·record_id·AI 요약을 제공한다.
 - advisory 신호: AI 응답의 `advisory`는 `detection_signal_results`에 보존한다. `true`이면 학생 상세 참고용으로만 유지하며 Engagement Alert·오늘 할 일(Todo)·대시보드 확인 필요 신호 후보에서 제외하고 TOP N 슬롯을 소비하지 않는다. `false`만 기존 Alert 후보 흐름을 따른다.
-- hash: `detection_evidence`는 `snapshot_hash` 대상이다. 누락과 빈 배열은 동일하고, 배열은 `(kind, student_ref, at, source_table, record_id)`, JSON key는 오름차순, UTF-8·공백 없는 JSON으로 정규화한다. `snapshot_hash` 자신과 `classes`는 hash 입력에서 제외한다.
+- advisory lifecycle: advisory 신호는 Alert와 `alert_context`를 만들지 않으며 반복 실행에서 `lifecycle=new`가 될 수 있는 현재 동작을 유지한다.
+- hash: `detection_evidence`는 `snapshot_hash` 대상이다. 누락과 빈 배열은 동일하고, 배열은 `(kind, student_ref, at, source_table, record_id)`, JSON key는 오름차순, UTF-8·공백 없는 JSON으로 정규화한다. `snapshot_hash` 자신과 `classes`는 hash 입력에서 제외한다. AI 팀이 수정된 참조 구현과 실요청형 벡터를 제공하기 전까지 Java hasher와 고정 벡터 테스트를 변경하지 않는다.
 - 메시지 크기: 40명 기준 약 1.59 MiB payload와 Kafka envelope를 수용하도록 개발 Compose broker와 Spring producer/consumer는 3 MiB로 설정한다. 운영 broker·AI consumer도 같은 값 이상을 배포 설정에서 보장해야 한다.
 - 기존 Run 호환: Kafka 도입 전 `teacher_<uuid>:date` 형식으로 저장된 기존 `idempotency_key`는 데이터 마이그레이션으로 일괄 수정하지 않는다. 백엔드 내부에서만 legacy key를 인정해 기존 run의 상태·재시도를 보존하고, 새 Kafka 메시지에는 항상 `tenant_alias:date`만 넣는다.
 - 요청 내구성: Detection run·attempt·Outbox 행을 같은 DB 트랜잭션으로 저장한다. Outbox publisher는 `PENDING`을 at-least-once로 발행하고 최대 8회 전송 실패하면 Outbox와 해당 run을 `KAFKA_PUBLISH_FAILED`로 실패 처리한다. 같은 날짜의 후속 수동/스케줄 요청은 새 attempt로 재시도할 수 있다.
@@ -429,9 +453,9 @@
   - `src/main/java/com/checkon/detection/integration/kafka/KafkaOutboxPublisher.java`
   - `src/main/java/com/checkon/detection/integration/kafka/KafkaDetectionResultListener.java`
   - `src/main/java/com/checkon/detection/integration/kafka/KafkaDetectionHttpAdapterListener.java`
-	  - `src/main/java/com/checkon/detection/infrastructure/persistence/DetectionEvidenceProjectionRepository.java`
+  - `src/main/java/com/checkon/learning/application/LearningRecordSnapshotService.java`
   - `src/main/resources/db/migration/V14__add_risk_detection_kafka_outbox.sql`
-	  - `src/main/resources/db/migration/V15__create_detection_evidence_projections.sql`
+  - `src/main/resources/db/migration/V15__create_detection_evidence_projections.sql`
   - `docs/contracts/risk-detection-kafka.asyncapi.yaml`
   - `src/test/java/com/checkon/detection/infrastructure/scheduling/DetectionSchedulerTest.java`
   - `src/test/java/com/checkon/detection/application/ScheduledDetectionJobTest.java`
@@ -676,6 +700,8 @@
 
 | 날짜 | 변경 | 검증 |
 | --- | --- | --- |
+| 2026-08-13 | 위험신호 학습 태그 4종의 nullable·화이트리스트·영역-과목 유도 계약을 LR-010으로 구현 | 입력 거절·null 보존·DB 및 Detection snapshot 전달 집중 테스트와 Backend 전체 240건 `clean build` 통과 |
+| 2026-08-13 | 위험신호 v1을 R1·R3·R4·R6으로 한정하고 ACTIVE 학생 상태·관계 기준 재원 기간·등록 후 weekly activity·ONGOING open Alert 중복 억제·R1 진단 stats 보존 정책을 구현 | Backend 237건·Adapter 37건 테스트와 두 저장소 전체 Gradle `clean build` 통과 |
 | 2026-08-13 | PR #43의 독립 Kafka Adapter 경계를 정본으로 유지하면서 위험신호 화면 계약, 과거 Alert context, 종료 학생 제외, advisory 소비 규칙을 통합 | 집중 단위·PostgreSQL 통합 테스트와 전체 Gradle build 224건 통과 |
 | 2026-08-12 | 문제 출제 studio 요청을 target별 child Outbox 이벤트로 fan-out하고 child 결과 멱등 처리·AI ID 고정·부모 `PARTIAL_SUCCESS` 집계를 구현 | child DB·화면 통합 테스트와 임베디드 Kafka fan-out·기존 단일 요청 호환 테스트, 전체 211건 및 Gradle build 통과 |
 | 2026-08-12 | 위험탐지 `DET-004`를 AI 기능 공통 Kafka 신뢰성 정본으로 확정하고, 문제 출제 fan-out·21분 관찰·문항 전량 이벤트·부분 성공을 기능별 예외로 분리해 PG-002·003·005 확정 | 사용자 승인과 AI 최종 회신을 정책 문서에 정적 반영. 코드·DB·테스트는 변경하지 않음 |
