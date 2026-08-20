@@ -95,9 +95,9 @@ checkon:
       adapter-base-url: ${AI_COUNSEL_ADAPTER_BASE_URL:http://localhost:8081}
       drafts-path: ${AI_COUNSEL_DRAFTS_PATH:/v1/counsel/drafts}
       connect-timeout: ${AI_COUNSEL_CONNECT_TIMEOUT:2s}
-      # POST /v1/counsel/drafts는 자기 잡 하나를 끝까지 돌린다(K=1) — 잡당 최악
-      # 5 LLM 콜 x 90초 = 450초다(8/20 갱신 · 종전 15초/225초). Kafka는 쓰지 않으므로
-      # 480초 미만으로 두면 정상 요청이 클라이언트에서 끊긴다.
+      # 초안 생성은 카프카로 이동했다(2026-08-20 Kafka-철회 문서로 재확정) — 이
+      # 타임아웃은 이제 GET /v1/counsel/drafts/{jobId}와 refine 턴 호출에만
+      # 쓰인다. AI팀이 더 짧은 값을 재검토 중이라 확정 전까지는 기존 값을 유지한다.
       read-timeout: ${AI_COUNSEL_READ_TIMEOUT:500s}
     classify:
       adapter-base-url: ${AI_CLASSIFY_ADAPTER_BASE_URL:http://localhost:8081}
@@ -130,3 +130,15 @@ checkon:
       producer-send-timeout: ${RISK_DETECTION_PRODUCER_SEND_TIMEOUT:10s}
       outbox-batch-size: ${RISK_DETECTION_OUTBOX_BATCH_SIZE:20}
       outbox-max-attempts: ${RISK_DETECTION_OUTBOX_MAX_ATTEMPTS:8}
+    counsel-draft:
+      enabled: ${COUNSEL_DRAFT_KAFKA_ENABLED:true}
+      requested-topic: ${COUNSEL_DRAFT_REQUESTED_TOPIC:checkon.counsel-draft.requested.v1}
+      completed-topic: ${COUNSEL_DRAFT_COMPLETED_TOPIC:checkon.counsel-draft.completed.v1}
+      failed-topic: ${COUNSEL_DRAFT_FAILED_TOPIC:checkon.counsel-draft.failed.v1}
+      consumer-group-id: ${COUNSEL_DRAFT_CONSUMER_GROUP:checkon-backend-counsel-draft-v1}
+      outbox-poll-delay: ${COUNSEL_DRAFT_OUTBOX_POLL_DELAY:1s}
+      outbox-lock-timeout: ${COUNSEL_DRAFT_OUTBOX_LOCK_TIMEOUT:30s}
+      outbox-retry-delay: ${COUNSEL_DRAFT_OUTBOX_RETRY_DELAY:5s}
+      producer-send-timeout: ${COUNSEL_DRAFT_PRODUCER_SEND_TIMEOUT:10s}
+      outbox-batch-size: ${COUNSEL_DRAFT_OUTBOX_BATCH_SIZE:20}
+      outbox-max-attempts: ${COUNSEL_DRAFT_OUTBOX_MAX_ATTEMPTS:8}
