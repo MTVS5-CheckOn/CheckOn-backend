@@ -9,17 +9,26 @@ import com.checkon.counsel.integration.ai.dto.CounselDraftGetResponse;
 import com.checkon.counsel.integration.ai.dto.CounselDraftRefineRequest;
 import com.checkon.counsel.integration.ai.dto.CounselDraftRefineResponse;
 
+/**
+ * GET and refine now run on separate {@link RestClient}s with different read
+ * timeouts (AI-A 2026-08-20 타임아웃권고 실측) -- GET never runs a job so it
+ * only needs a few seconds, but refine is still a synchronous LLM call and
+ * must keep its old generous budget. A single {@code JdkClientHttpRequestFactory}
+ * only supports one read timeout, so two are wired up rather than one.
+ */
 final class HttpCounselClient implements CounselClient {
 
 	static final String TENANT_ID_HEADER = "X-Tenant-Id";
 	static final String REQUEST_ID_HEADER = "X-Request-Id";
 	static final String IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
 
-	private final RestClient restClient;
+	private final RestClient getRestClient;
+	private final RestClient refineRestClient;
 	private final String draftsPath;
 
-	HttpCounselClient(RestClient restClient, String draftsPath) {
-		this.restClient = restClient;
+	HttpCounselClient(RestClient getRestClient, RestClient refineRestClient, String draftsPath) {
+		this.getRestClient = getRestClient;
+		this.refineRestClient = refineRestClient;
 		if (draftsPath == null || draftsPath.isBlank() || !draftsPath.startsWith("/")) {
 			throw new IllegalArgumentException("draftsPath must start with '/'");
 		}
@@ -31,7 +40,7 @@ final class HttpCounselClient implements CounselClient {
 	@Override
 	public CounselDraftGetResponse getDraft(String jobId, String tenantAlias, String requestId) {
 		try {
-			RestClient.RequestHeadersSpec<?> spec = restClient.get()
+			RestClient.RequestHeadersSpec<?> spec = getRestClient.get()
 				.uri(draftsPath + "/{jobId}", jobId)
 				.header(TENANT_ID_HEADER, tenantAlias);
 			if (requestId != null) spec = spec.header(REQUEST_ID_HEADER, requestId);
@@ -47,7 +56,7 @@ final class HttpCounselClient implements CounselClient {
 	@Override
 	public CounselDraftRefineResponse refineDraft(String jobId, CounselDraftRefineRequest request, RequestHeaders headers) {
 		try {
-			RestClient.RequestBodySpec spec = restClient.post()
+			RestClient.RequestBodySpec spec = refineRestClient.post()
 				.uri(draftsPath + "/{jobId}/refine", jobId)
 				.header(TENANT_ID_HEADER, headers.tenantAlias())
 				.header(IDEMPOTENCY_KEY_HEADER, headers.idempotencyKey())

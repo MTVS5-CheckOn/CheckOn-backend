@@ -37,9 +37,13 @@ class HttpCounselClientTest {
 
 	@BeforeEach
 	void setUp() {
+		// GET and refine now run on separate RestClients (different read
+		// timeouts) -- one MockRestServiceServer-bound RestClient is reused
+		// for both here since these tests don't exercise timeout behavior.
 		RestClient.Builder builder = RestClient.builder().baseUrl(BASE_URL);
 		server = MockRestServiceServer.bindTo(builder).build();
-		client = new HttpCounselClient(builder.build(), "/v1/counsel/drafts");
+		RestClient restClient = builder.build();
+		client = new HttpCounselClient(restClient, restClient, "/v1/counsel/drafts");
 	}
 
 	@Nested
