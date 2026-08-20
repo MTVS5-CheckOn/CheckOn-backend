@@ -1,0 +1,26 @@
+{
+  "data": {
+    "applied": true,
+    "text": "안녕하세요, 어머님. 2026년 7월 학습 상황을 편하게 전해 드릴게요.",
+    "citations": [
+      { "cite_id": "L1", "record_id": "le_2041", "summary": "6월 지문 42개·312문항" }
+    ],
+    "blocked_reason": null
+  },
+  "error": null,
+  "meta": {
+    "execution_id": "019846dc-7c00-7000-8000-0000000006b2",
+    "versions": {
+      "pipeline": "0.1.0",
+      "engine": "counsel-pack-0.1",
+      "threshold": null,
+      "prompt": "0.3",
+      "schema": "0.1",
+      "contract": "0.1",
+      "graph": null,
+      "taxonomy": null,
+      "verify_config": null,
+      "difficulty_calib": null
+    }
+  }
+}
