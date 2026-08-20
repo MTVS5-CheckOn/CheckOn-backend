@@ -25,11 +25,10 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.test.EmbeddedKafkaBroker;
-import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.kafka.test.utils.KafkaTestUtils;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import com.checkon.problem.application.CreateProblemGenerationCommand;
@@ -41,23 +40,22 @@ import com.checkon.problem.domain.ProblemTypeTag;
 import com.checkon.problem.infrastructure.outbox.ProblemGenerationOutboxPublisher;
 import com.checkon.support.RosterTestFixture;
 
+/**
+ * Uses a real Testcontainers {@link KafkaContainer} instead of
+ * {@code @EmbeddedKafka} -- the in-JVM embedded broker's KRaft shutdown has
+ * repeatedly hung or OOM'd this repo's CI (see the sibling comment on
+ * {@code counsel.integration.kafka.KafkaCounselDraftOutboxPublisherTest}). A
+ * containerized broker has its own separately-managed lifecycle (Ryuk), so a
+ * shutdown race here can no longer block the whole test JVM from exiting.
+ */
 @SpringBootTest(properties = {
 	"checkon.ai.problem-generation.kafka.enabled=true",
 	"checkon.ai.problem-generation.kafka.request-topic=problem-generation-requests-test",
 	"checkon.ai.problem-generation.kafka.result-topic=problem-generation-results-test",
 	"checkon.ai.problem-generation.kafka.dead-letter-topic=problem-generation-results-dlt-test",
 	"checkon.ai.problem-generation.kafka.consumer-group=problem-generation-backend-test",
-	"checkon.ai.problem-generation.kafka.outbox-poll-delay=1h",
-	"spring.kafka.bootstrap-servers=${spring.embedded.kafka.brokers}"
+	"checkon.ai.problem-generation.kafka.outbox-poll-delay=1h"
 })
-@EmbeddedKafka(
-	partitions = 1,
-	topics = {
-		ProblemGenerationKafkaFlowIntegrationTest.REQUEST_TOPIC,
-		ProblemGenerationKafkaFlowIntegrationTest.RESULT_TOPIC,
-		ProblemGenerationKafkaFlowIntegrationTest.DLT_TOPIC
-	}
-)
 @Testcontainers
 @DisplayName("문제 출제 Kafka 왕복 흐름")
 class ProblemGenerationKafkaFlowIntegrationTest {
@@ -70,6 +68,10 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 	@ServiceConnection
 	static final PostgreSQLContainer POSTGRESQL = new PostgreSQLContainer("postgres:18.4");
 
+	@Container
+	@ServiceConnection
+	static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:4.2.1");
+
 	private static final UUID TEACHER =
 		UUID.fromString("0198fb00-0000-7000-8000-000000000001");
 	private static final UUID STUDENT =
@@ -80,7 +82,6 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 	@Autowired ProblemGenerationRequestService requestService;
 	@Autowired ProblemGenerationOutboxPublisher outboxPublisher;
 	@Autowired KafkaTemplate<String, String> kafkaTemplate;
-	@Autowired EmbeddedKafkaBroker embeddedKafka;
 
 	@BeforeEach
 	void setUp() {
@@ -125,7 +126,7 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 				ProblemDifficulty.MEDIUM,"studio-kafka-flow-0001")).requestId();
 			String tenantAlias = tenantAlias(requestId);
 			try (Consumer<String,String> consumer = consumer("studio-request-observer-"+UUID.randomUUID())) {
-				embeddedKafka.consumeFromAnEmbeddedTopic(consumer,REQUEST_TOPIC);
+				consumer.subscribe(List.of(REQUEST_TOPIC));
 				outboxPublisher.publishPending();
 				var records = KafkaTestUtils.getRecords(consumer,Duration.ofSeconds(10));
 				var childRecords = java.util.stream.StreamSupport.stream(records.records(REQUEST_TOPIC).spliterator(),false)
@@ -162,7 +163,7 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 			UUID requestId = createRequest("kafka-flow-key-0001");
 			String tenantAlias = tenantAlias(requestId);
 			try (Consumer<String, String> requestConsumer = consumer("request-observer-" + UUID.randomUUID())) {
-				embeddedKafka.consumeFromAnEmbeddedTopic(requestConsumer, REQUEST_TOPIC);
+				requestConsumer.subscribe(List.of(REQUEST_TOPIC));
 
 				outboxPublisher.publishPending();
 
@@ -218,7 +219,7 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 			UUID requestId = createRequest("kafka-flow-key-0002");
 			String invalidEvent = successEvent(requestId, TEACHER.toString());
 			try (Consumer<String, String> dltConsumer = consumer("dlt-observer-" + UUID.randomUUID())) {
-				embeddedKafka.consumeFromAnEmbeddedTopic(dltConsumer, DLT_TOPIC);
+				dltConsumer.subscribe(List.of(DLT_TOPIC));
 
 				kafkaTemplate.send(RESULT_TOPIC, TEACHER.toString(), invalidEvent).get();
 
@@ -256,7 +257,7 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 	}
 
 	private Consumer<String, String> consumer(String groupId) {
-		Map<String, Object> properties = KafkaTestUtils.consumerProps(embeddedKafka, groupId, false);
+		Map<String, Object> properties = KafkaTestUtils.consumerProps(KAFKA.getBootstrapServers(), groupId, false);
 		properties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
 		properties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
 		return new DefaultKafkaConsumerFactory<String, String>(properties).createConsumer();
