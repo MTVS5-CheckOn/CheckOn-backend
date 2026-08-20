@@ -23,6 +23,8 @@ tags:
   - name: Engagement
   - name: Todo
   - name: Problem Generation
+  - name: Counsel
+    description: apidog_counsel_3endpoints_20260819.md 기준 학부모 상담 초안 흐름. 백엔드가 AI 서버를 직접 동기 호출한다.
   - name: Roster Support
     description: 대시보드 학생 실명 표시를 지원하지만 대시보드 자체 API는 아니다.
 paths:
@@ -829,6 +831,112 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {description: 요청 없음, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
         '409': {description: 선택 문항 없음, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /counsel/drafts:
+    post:
+      tags: [Counsel]
+      operationId: createCounselDraft
+      summary: 학부모 상담 초안 생성 요청
+      description: |
+        문의 1건 = 초안 1개다. topic=schedule이거나 인용 가능한 학습 근거가 0건이면
+        워커를 타지 않고 즉시 종단(succeeded)으로 응답한다. text는 백엔드가 마스킹한
+        뒤 AI로 보내며, AI 응답이 최대 240초 넘게 걸릴 수 있다.
+      parameters:
+        - $ref: '#/components/parameters/CounselIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CounselCreateDraftRequest'}
+            example:
+              studentId: 0198f900-0000-7000-8000-000000000011
+              classId: 0198f900-0000-7000-8000-000000000021
+              inquiryRef: iq_884
+              topic: grade
+              urgency: immediate
+              receivedAt: '2026-08-20T14:20:00+09:00'
+              text: 요즘 아이가 힘들어하는 것 같은데 학원에서는 뭘 하고 있는 건가요?
+              labels: [narrative, anxious]
+              dismissedSuggestions: []
+              periodLabel: 2026년 8월
+              facts: [{recordId: le_2041, summary: 6월 지문 42개·312문항}]
+      responses:
+        '202':
+          description: 잡 생성 또는 동일 요청 재사용. status가 이미 종단이면 바로 GET 1회, 아니면 간격을 두고 반복한다.
+          headers:
+            Location: {description: 초안 조회 경로, schema: {type: string, format: uri-reference}}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CounselCreateDraftResponse'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404':
+          description: 없거나 다른 테넌트에 속한 학생 또는 반
+          content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: COUNSEL_TARGET_NOT_FOUND, message: 학생 또는 반을 찾을 수 없습니다.}}}
+        '409':
+          description: 같은 멱등 키가 다른 요청에 이미 사용됨
+          content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: IDEMPOTENCY_CONFLICT, message: 같은 멱등 키가 다른 요청에 이미 사용되었습니다.}}}
+        '502':
+          description: 상담 AI 서버 연결 실패
+          content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: COUNSEL_AI_UNAVAILABLE, message: 상담 AI 서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.}}}
+  /counsel/drafts/{jobId}:
+    get:
+      tags: [Counsel]
+      operationId: getCounselDraft
+      summary: 상담 초안 결과 조회
+      description: 잡이 성공(status=succeeded)해도 근거 부족 등으로 초안이 없을 수 있다 — result.draftStatus로 판정한다.
+      parameters:
+        - $ref: '#/components/parameters/CounselJobId'
+      responses:
+        '200': {description: 초안 조회 성공, content: {application/json: {schema: {$ref: '#/components/schemas/CounselGetDraftResponse'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 없는 job_id, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: COUNSEL_JOB_NOT_FOUND, message: 상담 초안 잡을 찾을 수 없습니다.}}}}
+        '502': {description: 상담 AI 서버 연결 실패, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /counsel/drafts/{jobId}/refine:
+    post:
+      tags: [Counsel]
+      operationId: refineCounselDraft
+      summary: 상담 초안 다듬기 1턴
+      description: |
+        게이트 차단도 200으로 온다(applied:false) — 4xx/5xx가 아니다. Idempotency-Key는
+        턴마다 새 값을 발급해 그 턴의 재시도에만 재사용해야 한다.
+      parameters:
+        - $ref: '#/components/parameters/CounselJobId'
+        - $ref: '#/components/parameters/CounselIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CounselRefineRequest'}
+            example: {instruction: 조금 더 부드러운 말투로 바꿔 주세요., turnNo: 1}
+      responses:
+        '200': {description: 반영 또는 차단 결과, content: {application/json: {schema: {$ref: '#/components/schemas/CounselRefineResponse'}}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 없는 job_id 또는 다듬기 대상이 아닌 초안(template_only), content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '409': {description: 같은 멱등 키가 다른 요청에 이미 사용됨, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '502': {description: 상담 AI 서버 연결 실패, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /counsel/drafts/{jobId}/sent:
+    post:
+      tags: [Counsel]
+      operationId: markCounselDraftSent
+      summary: 발송 완료 처리(발송본 보관)
+      description: 강사가 실제로 발송한 본문을 기록한다. AI 계약 변경은 없는 순수 로컬 저장이며 AI 학습에 쓰이지 않는다(계약 부록 §7).
+      parameters:
+        - $ref: '#/components/parameters/CounselJobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CounselMarkSentRequest'}
+      responses:
+        '204': {description: 발송본 기록 성공}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 없는 job_id, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
 components:
   securitySchemes:
     bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
@@ -855,6 +963,21 @@ components:
       required: true
       description: 동일 논리 요청의 재시도에서는 같은 값을 사용한다.
       schema: {type: string, minLength: 8, maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$'}
+    CounselIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        같은 키 + 같은 바디 = 기존 결과 재반환 · 같은 키 + 다른 바디 = 409.
+        상담 계약의 실제 예시 키(iq_884)가 6자라 다른 Idempotency-Key와 달리 최소
+        길이를 8로 두지 않는다.
+      schema: {type: string, minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$'}
+    CounselJobId:
+      name: jobId
+      in: path
+      required: true
+      description: ① POST 202 응답의 jobId. AI가 발급하는 opaque 값이라 형식을 가정하지 않는다.
+      schema: {type: string}
     Page: {name: page, in: query, required: false, description: 0부터 시작, schema: {type: integer, format: int32, minimum: 0, default: 0}}
     Size: {name: size, in: query, required: false, schema: {type: integer, format: int32, minimum: 1, maximum: 100, default: 20}}
   responses:
@@ -1550,6 +1673,87 @@ components:
         subject: {type: string, nullable: true}
         generatedAt: {type: string, format: date-time}
         items: {type: array, minItems: 1, items: {$ref: '#/components/schemas/ProblemStudioReviewItem'}}
+    CounselTopic: {type: string, enum: [grade, schedule, counsel_request, etc], description: complaint는 topic이 아니다 — 별도 classify 축으로 옮겨졌다.}
+    CounselUrgency: {type: string, enum: [immediate, normal], description: 인박스 정렬·SLA용. AI는 이 값으로 톤을 바꾸지 않는다.}
+    CounselJobPhase: {type: string, enum: [queued, leased, running, paused, succeeded, failed, cancelled], description: '잡 phase 7종. draftStatus와는 다른 축이다.'}
+    CounselDraftStatus: {type: string, enum: [generated, template_only, rejected_insufficient, llm_failed, gate_exhausted], description: 초안 판정 5종. template_only·rejected_insufficient는 정상 동작이며 에러가 아니다.}
+    CounselBlockedReason: {type: string, nullable: true, enum: [evidence_missing, comparison_exposure, tone_violation, pii_exposure, out_of_scope, answer_integrity, banned_topic, prompt_injection]}
+    CounselDismissedSuggestion:
+      type: object
+      required: [axis, value]
+      properties: {axis: {type: string}, value: {type: string}}
+    CounselFact:
+      type: object
+      required: [summary]
+      properties:
+        recordId: {type: string, nullable: true, description: 집계·기준선 파생 사실은 null이 정상이다. 가짜 id를 채우지 않는다.}
+        summary: {type: string}
+    CounselCreateDraftRequest:
+      type: object
+      required: [studentId, classId, inquiryRef, topic, urgency, receivedAt, text, periodLabel, facts]
+      properties:
+        studentId: {type: string, format: uuid}
+        classId: {type: string, format: uuid}
+        inquiryRef: {type: string, maxLength: 200}
+        topic: {$ref: '#/components/schemas/CounselTopic'}
+        urgency: {$ref: '#/components/schemas/CounselUrgency'}
+        receivedAt: {type: string, format: date-time}
+        text: {type: string, description: 문의 원문. 백엔드가 실명·연락처를 마스킹한 뒤 AI로 보낸다.}
+        labels: {type: array, items: {type: string}, description: '4축(comm·sensitivity·interest·frequency) 확정 라벨의 평탄한 배열. 선택.'}
+        dismissedSuggestions: {type: array, items: {$ref: '#/components/schemas/CounselDismissedSuggestion'}}
+        periodLabel: {type: string, maxLength: 120}
+        facts: {type: array, items: {$ref: '#/components/schemas/CounselFact'}, description: 인용 가능한 학습 사실 목록. 비어 있으면 초안이 정직하게 거부된다(rejected_insufficient).}
+    CounselCreateDraftResponse:
+      type: object
+      required: [jobId, status]
+      properties:
+        jobId: {type: string}
+        status: {$ref: '#/components/schemas/CounselJobPhase'}
+    CounselCitation:
+      type: object
+      required: [citeId, recordId, summary]
+      properties: {citeId: {type: string}, recordId: {type: string}, summary: {type: string}}
+    CounselDraftResult:
+      type: object
+      required: [draftStatus, generatedAt]
+      properties:
+        draftStatus: {$ref: '#/components/schemas/CounselDraftStatus'}
+        text: {type: string, nullable: true, description: generated일 때만 값이 있다.}
+        citations:
+          type: array
+          items: {$ref: '#/components/schemas/CounselCitation'}
+          description: 각주가 아니라 참고 목록이다 — 본문 문장과의 대응이 없다.
+        labelsApplied: {type: array, items: {type: string}}
+        statusReason: {type: string, nullable: true, description: '14종 + unmapped: 접두. enum이 아니라 문자열이라 앞으로 늘어날 수 있다 — 모르는 값은 draftStatus 기본 문구로 처리한다.'}
+        generatedAt: {type: string, format: date-time}
+    CounselGetDraftResponse:
+      type: object
+      required: [jobId, status]
+      properties:
+        jobId: {type: string}
+        status: {$ref: '#/components/schemas/CounselJobPhase'}
+        result:
+          nullable: true
+          allOf: [{$ref: '#/components/schemas/CounselDraftResult'}]
+          description: 잡이 아직 안 끝났으면 null. status=succeeded여도 draftStatus=rejected_insufficient인 정상 조합이 있다.
+    CounselRefineRequest:
+      type: object
+      required: [instruction]
+      properties:
+        instruction: {type: string, description: 강사의 자유 지시문 1턴. 게이트를 이기지 못하면 차단된다.}
+        turnNo: {type: integer, minimum: 1, default: 1}
+    CounselRefineResponse:
+      type: object
+      required: [applied]
+      properties:
+        applied: {type: boolean, description: '차단도 200으로 온다 — 이 값으로 분기한다.'}
+        text: {type: string, nullable: true, description: applied=true일 때만 값이 있다.}
+        citations: {type: array, items: {$ref: '#/components/schemas/CounselCitation'}}
+        blockedReason: {$ref: '#/components/schemas/CounselBlockedReason'}
+    CounselMarkSentRequest:
+      type: object
+      required: [text]
+      properties: {text: {type: string, description: 강사가 실제로 발송한 본문.}}
     ErrorResponse:
       type: object
       required: [code, message]
