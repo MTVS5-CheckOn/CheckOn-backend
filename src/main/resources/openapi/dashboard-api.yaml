@@ -837,10 +837,11 @@ paths:
       operationId: createCounselDraft
       summary: 학부모 상담 초안 생성 요청
       description: |
-        문의 1건 = 초안 1개다. topic=schedule이거나 인용 가능한 학습 근거가 0건이면
-        워커를 타지 않고 즉시 종단(succeeded)으로 응답한다. text는 백엔드가 마스킹한
-        뒤 AI로 보내며, AI 응답이 최대 480초 넘게 걸릴 수 있다(8/20 갱신 · LLM 콜당
-        상한 90초). 같은 테넌트에 앞선 잡이 하나라도 있으면 queued로 올 수 있다.
+        문의 1건 = 초안 1개다. 생성은 Kafka 비동기다(2026-08-20 Kafka-철회 재확정) —
+        백엔드가 job_id를 즉시 minting해 202로 돌려주고, text는 마스킹한 뒤 카프카
+        아웃박스로 발행한다. 실제 AI 처리는 어댑터가 비동기로 수행하며 완료/실패는
+        Kafka 이벤트로 통지된다. status는 항상 queued로 시작하고, 결과는
+        GET /counsel/drafts/{jobId}로 폴링해 확인한다.
       parameters:
         - $ref: '#/components/parameters/CounselIdempotencyKey'
       requestBody:
@@ -862,7 +863,7 @@ paths:
               facts: [{recordId: le_2041, summary: 6월 지문 42개·312문항}]
       responses:
         '202':
-          description: 잡 생성 또는 동일 요청 재사용. status가 이미 종단이면 바로 GET 1회, 아니면 간격을 두고 반복한다.
+          description: job_id 즉시 minting(신규 요청) 또는 동일 요청 재사용(같은 Idempotency-Key 재시도). status는 queued다.
           headers:
             Location: {description: 초안 조회 경로, schema: {type: string, format: uri-reference}}
           content:
@@ -875,11 +876,8 @@ paths:
           description: 없거나 다른 테넌트에 속한 학생 또는 반
           content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: COUNSEL_TARGET_NOT_FOUND, message: 학생 또는 반을 찾을 수 없습니다.}}}
         '409':
-          description: 같은 멱등 키가 다른 요청에 이미 사용됨
+          description: 같은 Idempotency-Key에 다른 본문이 이미 쓰임
           content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: IDEMPOTENCY_CONFLICT, message: 같은 멱등 키가 다른 요청에 이미 사용되었습니다.}}}
-        '502':
-          description: 상담 AI 서버 연결 실패
-          content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: COUNSEL_AI_UNAVAILABLE, message: 상담 AI 서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.}}}
   /counsel/drafts/{jobId}:
     get:
       tags: [Counsel]
@@ -901,7 +899,9 @@ paths:
       summary: 상담 초안 다듬기 1턴
       description: |
         게이트 차단도 200으로 온다(applied:false) — 4xx/5xx가 아니다. Idempotency-Key는
-        턴마다 새 값을 발급해 그 턴의 재시도에만 재사용해야 한다.
+        턴마다 새 값을 발급해 그 턴의 재시도에만 재사용해야 한다. 생성이 Kafka
+        비동기로 바뀌면서(2026-08-20) 완료 이벤트가 아직 도착하지 않아 AI의 실제
+        job_id를 모르면 409(COUNSEL_DRAFT_NOT_READY)로 거절한다 — 잠시 후 재시도한다.
       parameters:
         - $ref: '#/components/parameters/CounselJobId'
         - $ref: '#/components/parameters/CounselIdempotencyKey'
@@ -917,7 +917,7 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {description: 없는 job_id 또는 다듬기 대상이 아닌 초안(template_only), content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
-        '409': {description: 같은 멱등 키가 다른 요청에 이미 사용됨, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '409': {description: 같은 멱등 키가 다른 요청에 이미 사용됨(IDEMPOTENCY_CONFLICT), 또는 완료 이벤트를 아직 못 받아 다듬을 초안이 없음(COUNSEL_DRAFT_NOT_READY), content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
         '502': {description: 상담 AI 서버 연결 실패, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
   /counsel/drafts/{jobId}/sent:
     post:
