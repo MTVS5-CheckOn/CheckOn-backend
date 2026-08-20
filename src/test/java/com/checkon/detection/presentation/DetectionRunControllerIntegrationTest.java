@@ -171,7 +171,8 @@ class DetectionRunControllerIntegrationTest {
 		assertThat(snapshot)
 			.doesNotContain("le_" + futureRecord.toString().replace("-", ""))
 			.contains("\"week_start\":\"2026-08-03\"")
-			.contains("\"activity_count\":0");
+			.contains("\"activity_count\":0")
+			.contains("\"enrolled_seconds\":86400");
 	}
 
 	@Test
@@ -423,7 +424,8 @@ class DetectionRunControllerIntegrationTest {
 		assertThat(payload)
 			.contains("detection_evidence")
 			.contains("student_week_activity")
-			.contains("\"activity_count\":0");
+			.contains("\"activity_count\":0")
+			.contains("\"enrolled_seconds\":86400");
 		mockMvc.perform(post("/api/v1/detection-runs")
 				.with(roleAuthentication(AccountRole.PARENT))
 				.contentType(MediaType.APPLICATION_JSON)

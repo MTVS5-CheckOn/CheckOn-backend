@@ -133,6 +133,7 @@ public class AiDetectionSnapshotHasher {
 		@JsonProperty("expected_count") Integer expectedCount,
 		@JsonProperty("submitted_count") Integer submittedCount,
 		@JsonProperty("activity_count") Integer activityCount,
+		@JsonProperty("enrolled_seconds") Long enrolledSeconds,
 		@JsonProperty("from_status") String fromStatus,
 		@JsonProperty("to_status") String toStatus
 	) {
@@ -142,8 +143,8 @@ public class AiDetectionSnapshotHasher {
 			return new NormalizedEvidence(
 				evidence.kind(), evidence.sourceTable(), evidence.recordId(),
 				evidence.studentRef(), evidenceAt(evidence), evidence.expectedCount(),
-				evidence.submittedCount(), evidence.activityCount(), evidence.fromStatus(),
-				evidence.toStatus()
+				evidence.submittedCount(), evidence.activityCount(), evidence.enrolledSeconds(),
+				evidence.fromStatus(), evidence.toStatus()
 			);
 		}
 	}

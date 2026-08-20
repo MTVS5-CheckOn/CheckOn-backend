@@ -343,6 +343,10 @@ class LearningRecordSnapshotServiceTest {
 				LocalDate.parse("2026-07-20"),
 				LocalDate.parse("2026-07-27")
 			);
+		assertThat(snapshot.detectionEvidence())
+			.filteredOn(evidence -> evidence.kind().equals("weekly_activity"))
+			.allSatisfy(evidence -> assertThat(evidence.enrolledSeconds())
+				.isEqualTo(7L * 24 * 60 * 60));
 	}
 
 	@Test
@@ -375,7 +379,10 @@ class LearningRecordSnapshotServiceTest {
 			.filteredOn(evidence -> evidence.kind().equals("weekly_activity"))
 			.filteredOn(evidence -> evidence.weekStart().equals(LocalDate.parse("2026-07-06")))
 			.singleElement()
-			.satisfies(evidence -> assertThat(evidence.activityCount()).isZero());
+			.satisfies(evidence -> {
+				assertThat(evidence.activityCount()).isZero();
+				assertThat(evidence.enrolledSeconds()).isEqualTo(5L * 24 * 60 * 60);
+			});
 	}
 
 	@Test

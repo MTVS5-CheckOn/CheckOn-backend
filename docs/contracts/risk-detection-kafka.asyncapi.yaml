@@ -230,6 +230,11 @@ components:
             transition whose to_status is returned in the analysis week.
             Weeks before relationship start are omitted because no evidence exists; real
             zero-activity weeks on or after relationship start use activity_count=0.
+            Each weekly_activity row includes integer enrolled_seconds after clipping the KST
+            week to relationship/snapshot bounds and subtracting confirmed pause intervals.
+            A missing weekly_activity row means the week is not eligible for evaluation, not
+            zero activity, so week_start values need not be consecutive. enrolled_weeks and the
+            weekly_activity row count can differ because transition weeks are partial weeks.
             Missing assignment rows are omitted rather than synthesized as zero. Array omission
             and [] have the same snapshot_hash meaning.
           items:
@@ -254,7 +259,7 @@ components:
     WeeklyActivityEvidence:
       type: object
       additionalProperties: false
-      required: [kind, source_table, record_id, student_ref, week_start, activity_count]
+      required: [kind, source_table, record_id, student_ref, week_start, activity_count, enrolled_seconds]
       properties:
         kind: { const: weekly_activity }
         source_table: { const: student_week_activity }
@@ -262,6 +267,7 @@ components:
         student_ref: { type: string, pattern: '^st_[0-9a-f]{32}$' }
         week_start: { type: string, format: date, description: Monday in Asia/Seoul }
         activity_count: { type: integer, minimum: 0 }
+        enrolled_seconds: { type: integer, minimum: 1, maximum: 604800 }
     EnrollmentTransitionEvidence:
       type: object
       additionalProperties: false

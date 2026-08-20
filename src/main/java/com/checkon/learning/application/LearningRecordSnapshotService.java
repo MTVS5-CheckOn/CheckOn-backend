@@ -220,7 +220,8 @@ public class LearningRecordSnapshotService {
 			.sorted(Comparator.comparing(AiDetectionRequest.ClassReference::classRef)).toList();
 		List<AiDetectionRequest.DetectionEvidence> evidence = buildDetectionEvidence(
 			firstEvidenceWeek, weekStart, activityRecords, aliasByStudent,
-			currentRelationships, pausesByStudent, assignmentWindows, returnedTransitions
+			currentRelationships, pausesByStudent, toExclusive,
+			assignmentWindows, returnedTransitions
 		);
 		List<AiDetectionRequest.AlertContext> alertContext = alertContexts
 			.latestByStudentAndSignalType(teacherId).stream()
@@ -247,6 +248,7 @@ public class LearningRecordSnapshotService {
 		Map<UUID, String> aliasByStudent,
 		Map<UUID, TeacherStudentRelationship> currentRelationships,
 		Map<UUID, List<PauseInterval>> pausesByStudent,
+		Instant toExclusive,
 		List<AssignmentWeekSummary> assignmentWindows,
 		List<ReturnedTransition> returnedTransitions
 	) {
@@ -267,14 +269,17 @@ public class LearningRecordSnapshotService {
 			for (int index = 0; index < EVIDENCE_WEEK_COUNT; index++) {
 				LocalDate currentWeek = firstWeek.plusWeeks(index);
 				if (currentWeek.isBefore(firstEligibleWeek)) continue;
-				if (isFullyPausedWeek(
-					currentWeek, pausesByStudent.getOrDefault(studentId, List.of())
-				)) continue;
+				long enrolledSeconds = enrolledSeconds(
+					currentWeek, currentRelationships.get(studentId).startedAt(), toExclusive,
+					pausesByStudent.getOrDefault(studentId, List.of())
+				);
+				if (enrolledSeconds == 0) continue;
 				evidence.add(AiDetectionRequest.DetectionEvidence.weeklyActivity(
 					STUDENT_WEEK_ACTIVITY,
 					"activity-summary:" + studentRef + ":" + currentWeek,
 					studentRef, currentWeek,
-					activities.getOrDefault(new EvidenceWeek(studentId, currentWeek), 0)
+					activities.getOrDefault(new EvidenceWeek(studentId, currentWeek), 0),
+					enrolledSeconds
 				));
 			}
 		}
@@ -359,15 +364,28 @@ public class LearningRecordSnapshotService {
 		return Math.max(0, (int) (activeDuration.toDays() / 7));
 	}
 
-	private static boolean isFullyPausedWeek(
+	private static long enrolledSeconds(
 		LocalDate weekStart,
+		Instant relationshipStartedAt,
+		Instant toExclusive,
 		List<PauseInterval> pauses
 	) {
-		Instant from = weekStart.atStartOfDay(SERVICE_ZONE).toInstant();
-		Instant to = weekStart.plusWeeks(1).atStartOfDay(SERVICE_ZONE).toInstant();
-		return pauses.stream().anyMatch(pause ->
-			!pause.from().isAfter(from) && !pause.to().isBefore(to)
-		);
+		Instant weekFrom = weekStart.atStartOfDay(SERVICE_ZONE).toInstant();
+		Instant weekTo = weekStart.plusWeeks(1).atStartOfDay(SERVICE_ZONE).toInstant();
+		Instant activeFrom = relationshipStartedAt.isAfter(weekFrom)
+			? relationshipStartedAt : weekFrom;
+		Instant activeTo = toExclusive.isBefore(weekTo) ? toExclusive : weekTo;
+		if (!activeFrom.isBefore(activeTo)) return 0;
+
+		long seconds = Duration.between(activeFrom, activeTo).getSeconds();
+		for (PauseInterval pause : pauses) {
+			Instant overlapFrom = pause.from().isAfter(activeFrom) ? pause.from() : activeFrom;
+			Instant overlapTo = pause.to().isBefore(activeTo) ? pause.to() : activeTo;
+			if (overlapFrom.isBefore(overlapTo)) {
+				seconds -= Duration.between(overlapFrom, overlapTo).getSeconds();
+			}
+		}
+		return Math.max(0, seconds);
 	}
 
 	private static LocalDate mondayOf(Instant instant) {

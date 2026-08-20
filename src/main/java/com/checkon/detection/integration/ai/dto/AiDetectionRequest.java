@@ -83,6 +83,7 @@ public record AiDetectionRequest(
 		@JsonProperty("expected_count") Integer expectedCount,
 		@JsonProperty("submitted_count") Integer submittedCount,
 		@JsonProperty("activity_count") Integer activityCount,
+		@JsonProperty("enrolled_seconds") Long enrolledSeconds,
 		@JsonProperty("occurred_at") OffsetDateTime occurredAt,
 		@JsonProperty("from_status") String fromStatus,
 		@JsonProperty("to_status") String toStatus
@@ -97,7 +98,7 @@ public record AiDetectionRequest(
 		) {
 			return new DetectionEvidence(
 				"assignment_window", sourceTable, recordId, studentRef, weekStart,
-				expectedCount, submittedCount, null, null, null, null
+				expectedCount, submittedCount, null, null, null, null, null
 			);
 		}
 
@@ -106,11 +107,12 @@ public record AiDetectionRequest(
 			String recordId,
 			String studentRef,
 			LocalDate weekStart,
-			int activityCount
+			int activityCount,
+			long enrolledSeconds
 		) {
 			return new DetectionEvidence(
 				"weekly_activity", sourceTable, recordId, studentRef, weekStart,
-				null, null, activityCount, null, null, null
+				null, null, activityCount, enrolledSeconds, null, null, null
 			);
 		}
 
@@ -124,7 +126,7 @@ public record AiDetectionRequest(
 		) {
 			return new DetectionEvidence(
 				"enrollment_transition", sourceTable, recordId, studentRef, null,
-				null, null, null, occurredAt, fromStatus, toStatus
+				null, null, null, null, occurredAt, fromStatus, toStatus
 			);
 		}
 	}

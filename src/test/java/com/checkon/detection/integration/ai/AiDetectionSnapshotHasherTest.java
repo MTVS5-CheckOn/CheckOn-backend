@@ -3,6 +3,7 @@ package com.checkon.detection.integration.ai;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -96,6 +97,49 @@ class AiDetectionSnapshotHasherTest {
 		assertThat(hasher.hash(reordered)).isEqualTo(hasher.hash(request));
 	}
 
+	@Test
+	@DisplayName("Given nullable request fields, When canonicalizing, Then null keys remain in the hash input")
+	void givenNullableRequestFields_whenCanonicalizing_thenRetainsNullKeys() throws Exception {
+		// Given
+		AiDetectionRequest request = readRequest();
+
+		// When
+		String canonicalJson = new String(hasher.canonicalJson(request), StandardCharsets.UTF_8);
+
+		// Then
+		assertThat(canonicalJson)
+			.contains("\"correct\":null")
+			.contains("\"resolved_at\":null");
+	}
+
+	@Test
+	@DisplayName("Given different enrolled seconds, When hashing, Then the weekly activity hash changes")
+	void givenDifferentEnrolledSeconds_whenHashing_thenHashChanges() {
+		// Given
+		AiDetectionRequest fullWeek = requestWithWeeklyActivitySeconds(7L * 24 * 60 * 60);
+		AiDetectionRequest transitionWeek = requestWithWeeklyActivitySeconds(5L * 24 * 60 * 60);
+
+		// When
+		String fullWeekHash = hasher.hash(fullWeek);
+		String transitionWeekHash = hasher.hash(transitionWeek);
+
+		// Then
+		assertThat(transitionWeekHash).isNotEqualTo(fullWeekHash);
+	}
+
+	private AiDetectionRequest requestWithWeeklyActivitySeconds(long enrolledSeconds) {
+		AiDetectionRequest original = aiV02FixedVector();
+		AiDetectionRequest.DetectionEvidence weekly =
+			AiDetectionRequest.DetectionEvidence.weeklyActivity(
+				"student_week_activity", "activity-summary:student_alias_r3:2026-08-10",
+				"student_alias_r3", LocalDate.parse("2026-08-10"), 0, enrolledSeconds
+			);
+		return new AiDetectionRequest(
+			original.snapshotMeta(), original.students(), original.learningEvents(),
+			original.alertContext(), List.of(weekly)
+		);
+	}
+
 	private AiDetectionRequest withSnapshotHash(
 		AiDetectionRequest request,
 		String snapshotHash
@@ -151,7 +195,7 @@ class AiDetectionSnapshotHasherTest {
 					"assignment-summary:" + studentRef + ":" + weekStart,
 					studentRef, weekStart, 3, submittedCount
 				));
-				evidence.add(AiDetectionRequest.DetectionEvidence.weeklyActivity(
+				evidence.add(legacyWeeklyActivity(
 					"student_week_activity",
 					"activity-summary:" + studentRef + ":" + weekStart,
 					studentRef, weekStart, activityCount
@@ -181,6 +225,19 @@ class AiDetectionSnapshotHasherTest {
 				)
 			),
 			List.of(), List.of(), evidence
+		);
+	}
+
+	private AiDetectionRequest.DetectionEvidence legacyWeeklyActivity(
+		String sourceTable,
+		String recordId,
+		String studentRef,
+		LocalDate weekStart,
+		int activityCount
+	) {
+		return new AiDetectionRequest.DetectionEvidence(
+			"weekly_activity", sourceTable, recordId, studentRef, weekStart,
+			null, null, activityCount, null, null, null, null
 		);
 	}
 
