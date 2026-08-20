@@ -33,9 +33,21 @@ public class CounselException extends RuntimeException {
 		return new CounselException(Reason.UPSTREAM_UNAVAILABLE, "counsel AI server is unavailable", cause);
 	}
 
+	/** Retrying will not help — the AI side has a bug, not a transient fault. */
+	public static CounselException upstreamInternalError(Throwable cause) {
+		return new CounselException(Reason.UPSTREAM_INTERNAL_ERROR, "counsel AI server failed internally", cause);
+	}
+
+	public static CounselException classificationNotFound() {
+		return new CounselException(Reason.CLASSIFICATION_NOT_FOUND, "no stored classification for this inquiry_ref", null);
+	}
+
 	public Reason reason() {
 		return reason;
 	}
 
-	public enum Reason { INVALID_PRINCIPAL, INVALID_REQUEST, IDEMPOTENCY_CONFLICT, JOB_NOT_FOUND, TARGET_NOT_FOUND, UPSTREAM_UNAVAILABLE }
+	public enum Reason {
+		INVALID_PRINCIPAL, INVALID_REQUEST, IDEMPOTENCY_CONFLICT, JOB_NOT_FOUND, TARGET_NOT_FOUND,
+		UPSTREAM_UNAVAILABLE, UPSTREAM_INTERNAL_ERROR, CLASSIFICATION_NOT_FOUND
+	}
 }

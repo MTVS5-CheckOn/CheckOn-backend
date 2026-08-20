@@ -58,6 +58,27 @@ class CounselOpenApiContractTest {
 		);
 	}
 
+	@Test
+	@DisplayName("Given classify/confirmations 경로가 있을 때 When 계약을 읽으면 Then Idempotency-Key를 요구하지 않는다")
+	void classifyOperationsDoNotRequireAnIdempotencyKey() {
+		Map<String, Object> paths = asMap(loadDocument().get("paths"));
+		assertThat(paths).containsKeys("/counsel/inquiries/{inquiryRef}/classify", "/counsel/inquiries/{inquiryRef}/confirmation");
+
+		Map<String, Object> classify = asMap(asMap(paths.get("/counsel/inquiries/{inquiryRef}/classify")).get("post"));
+		List<Object> parameters = classify.get("parameters") == null ? List.of() : asList(classify.get("parameters"));
+		assertThat(parameters).noneMatch(parameter -> "#/components/parameters/CounselIdempotencyKey".equals(asMap(parameter).get("$ref")));
+	}
+
+	@Test
+	@DisplayName("Given classify가 동결한 enum이 있을 때 When 스키마를 읽으면 Then 표 그대로의 값만 담는다")
+	void classifyEnumsMatchTheContractExactly() {
+		Map<String, Object> schemas = asMap(asMap(loadDocument().get("components")).get("schemas"));
+
+		assertThat(asList(asMap(schemas.get("InquirySentiment")).get("enum"))).containsExactly("normal", "complaint");
+		assertThat(asList(asMap(schemas.get("ClassifyFallbackReason")).get("enum"))).containsExactly("parse_exhausted", "tripwire_blocked");
+		assertThat(asList(asMap(schemas.get("ConfirmationAction")).get("enum"))).containsExactly("confirmed", "corrected");
+	}
+
 	private Map<String, Object> loadDocument() {
 		var factory = new YamlMapFactoryBean();
 		factory.setResources(new ClassPathResource("openapi/dashboard-api.yaml"));

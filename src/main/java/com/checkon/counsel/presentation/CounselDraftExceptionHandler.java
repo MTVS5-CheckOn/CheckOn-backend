@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.checkon.counsel.application.CounselException;
 
-@RestControllerAdvice(assignableTypes = CounselDraftController.class)
+@RestControllerAdvice(assignableTypes = {CounselDraftController.class, InquiryClassificationController.class})
 public class CounselDraftExceptionHandler {
 
 	@ExceptionHandler({
@@ -42,6 +42,12 @@ public class CounselDraftExceptionHandler {
 			);
 			case UPSTREAM_UNAVAILABLE -> response(
 				HttpStatus.BAD_GATEWAY, "COUNSEL_AI_UNAVAILABLE", "상담 AI 서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요."
+			);
+			case UPSTREAM_INTERNAL_ERROR -> response(
+				HttpStatus.BAD_GATEWAY, "COUNSEL_AI_INTERNAL_ERROR", "상담 AI 서버 내부 오류입니다. 다시 시도해도 같은 결과일 수 있습니다."
+			);
+			case CLASSIFICATION_NOT_FOUND -> response(
+				HttpStatus.NOT_FOUND, "COUNSEL_CLASSIFICATION_NOT_FOUND", "분류 결과를 찾을 수 없습니다."
 			);
 		};
 	}
