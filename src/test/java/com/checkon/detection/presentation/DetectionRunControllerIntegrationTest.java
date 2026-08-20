@@ -146,6 +146,35 @@ class DetectionRunControllerIntegrationTest {
 	}
 
 	@Test
+	@DisplayName("Given 분석일 이후 같은 주의 학습 기록, When 탐지를 요청하면, Then 미래 기록을 weekly activity에 포함하지 않는다")
+	void givenFutureRecordInAnalysisWeek_whenRequestingDetection_thenExcludesItFromActivity()
+		throws Exception {
+		// Given
+		UUID futureRecord = UUID.fromString("0198b000-0000-7000-8000-000000000123");
+		insertLearningRecord(
+			TEACHER, STUDENT, futureRecord, Instant.parse("2026-08-05T01:00:00Z")
+		);
+
+		// When
+		mockMvc.perform(post("/api/v1/detection-runs")
+				.with(teacherAuthentication(TEACHER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"analysisDate\":\"2026-08-03\"}"))
+			.andExpect(status().isAccepted());
+
+		// Then
+		String snapshot = jdbc.queryForObject(
+			"SELECT snapshot_payload FROM detection_runs WHERE teacher_id = ?",
+			String.class,
+			TEACHER
+		);
+		assertThat(snapshot)
+			.doesNotContain("le_" + futureRecord.toString().replace("-", ""))
+			.contains("\"week_start\":\"2026-08-03\"")
+			.contains("\"activity_count\":0");
+	}
+
+	@Test
 	@DisplayName("Given 과제 집계 행, When 탐지를 요청하면, Then R2 assignment window를 Kafka snapshot에 포함한다")
 	void givenAssignmentSummary_whenRequestingDetection_thenIncludesR2Evidence()
 		throws Exception {
@@ -269,11 +298,15 @@ class DetectionRunControllerIntegrationTest {
 			.andExpect(status().isAccepted());
 		UUID runId = jdbc.queryForObject(
 			"SELECT id FROM detection_runs WHERE teacher_id = ?", UUID.class, TEACHER);
+		String snapshotHash = jdbc.queryForObject(
+			"SELECT snapshot_hash FROM detection_runs WHERE id = ?", String.class, runId);
 
 		mockMvc.perform(get("/api/v1/detection-runs/{runId}", runId)
 				.with(teacherAuthentication(TEACHER)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.status").value("REQUESTED"))
+			.andExpect(jsonPath("$.snapshotHash").value(snapshotHash))
+			.andExpect(jsonPath("$.aiExecutionId").isEmpty())
 			.andExpect(jsonPath("$.attemptCount").value(1))
 			.andExpect(jsonPath("$.stats").isEmpty());
 		mockMvc.perform(get("/api/v1/detection-runs/{runId}", runId)
@@ -331,6 +364,8 @@ class DetectionRunControllerIntegrationTest {
 		mockMvc.perform(get("/api/v1/detection-runs/{runId}", runId)
 				.with(teacherAuthentication(TEACHER)))
 			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.snapshotHash").value(org.hamcrest.Matchers.startsWith("sha256:")))
+			.andExpect(jsonPath("$.aiExecutionId").value("stats-test"))
 			.andExpect(jsonPath("$.stats.signalsRaised").value(0))
 			.andExpect(jsonPath("$.stats.cappedOut").value(1))
 			.andExpect(jsonPath("$.stats.r1ThresholdPp").value(30.0))

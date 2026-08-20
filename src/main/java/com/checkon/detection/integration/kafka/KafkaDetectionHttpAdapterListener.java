@@ -28,6 +28,7 @@ public class KafkaDetectionHttpAdapterListener {
 	@RetryableTopic(
 		attempts = "3",
 		backOff = @BackOff(delay = 1_000, multiplier = 2.0),
+		exclude = IllegalArgumentException.class,
 		dltTopicSuffix = ".dlt"
 	)
 	@KafkaListener(

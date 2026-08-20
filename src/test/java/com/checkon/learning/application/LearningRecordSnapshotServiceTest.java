@@ -306,6 +306,79 @@ class LearningRecordSnapshotServiceTest {
 	}
 
 	@Test
+	@org.junit.jupiter.api.DisplayName("Given 한 주 전체가 휴원인 학생, When 스냅샷을 만들면, Then 해당 주를 생략하고 재원 주수에서 제외한다")
+	void givenStudentPausedForWholeWeek_whenBuildingSnapshot_thenOmitsWeekAndExcludesPauseFromEnrollment() {
+		// Given
+		Instant relationshipStartedAt = Instant.parse("2026-06-28T15:00:00Z");
+		Instant snapshotTo = Instant.parse("2026-08-02T15:00:00Z");
+		Fixture fixture = fixture(
+			AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true, true,
+			relationshipStartedAt
+		);
+		when(fixture.statusHistory().findPauseTransitions(
+			eq(TEACHER), any(Instant.class), any(Instant.class)
+		)).thenReturn(List.of(
+			pauseTransition("0198a000-0000-7000-8000-000000000011",
+				"2026-07-05T15:00:00Z", "enrolled", "paused"),
+			pauseTransition("0198a000-0000-7000-8000-000000000012",
+				"2026-07-12T15:00:00Z", "paused", "returned")
+		));
+
+		// When
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal",
+			FROM, snapshotTo
+		);
+
+		// Then
+		assertThat(snapshot.students()).singleElement().satisfies(student ->
+			assertThat(student.enrolledWeeks()).isEqualTo(4)
+		);
+		assertThat(snapshot.detectionEvidence())
+			.filteredOn(evidence -> evidence.kind().equals("weekly_activity"))
+			.extracting(evidence -> evidence.weekStart())
+			.containsExactly(
+				LocalDate.parse("2026-06-29"),
+				LocalDate.parse("2026-07-13"),
+				LocalDate.parse("2026-07-20"),
+				LocalDate.parse("2026-07-27")
+			);
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 한 주 중 휴원과 복귀가 발생한 학생, When 스냅샷을 만들면, Then 전이 주의 실제 활동 행을 유지한다")
+	void givenStudentPausedAndReturnedWithinWeek_whenBuildingSnapshot_thenKeepsTransitionWeek() {
+		// Given
+		Instant relationshipStartedAt = Instant.parse("2026-06-28T15:00:00Z");
+		Instant snapshotTo = Instant.parse("2026-08-02T15:00:00Z");
+		Fixture fixture = fixture(
+			AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true, true,
+			relationshipStartedAt
+		);
+		when(fixture.statusHistory().findPauseTransitions(
+			eq(TEACHER), any(Instant.class), any(Instant.class)
+		)).thenReturn(List.of(
+			pauseTransition("0198a000-0000-7000-8000-000000000013",
+				"2026-07-08T00:00:00Z", "enrolled", "paused"),
+			pauseTransition("0198a000-0000-7000-8000-000000000014",
+				"2026-07-10T00:00:00Z", "paused", "returned")
+		));
+
+		// When
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal",
+			FROM, snapshotTo
+		);
+
+		// Then
+		assertThat(snapshot.detectionEvidence())
+			.filteredOn(evidence -> evidence.kind().equals("weekly_activity"))
+			.filteredOn(evidence -> evidence.weekStart().equals(LocalDate.parse("2026-07-06")))
+			.singleElement()
+			.satisfies(evidence -> assertThat(evidence.activityCount()).isZero());
+	}
+
+	@Test
 	void recordedGrantModeExcludesStudentsWithoutAConsentSource() {
 		Fixture fixture = fixture(AiDetectionConsentMode.REQUIRE_RECORDED_GRANT, true);
 
@@ -405,6 +478,9 @@ class LearningRecordSnapshotServiceTest {
 		when(statusHistory.findReturnedTransitions(
 			eq(TEACHER), any(Instant.class), any(Instant.class)
 		)).thenReturn(List.of());
+		when(statusHistory.findPauseTransitions(
+			eq(TEACHER), any(Instant.class), any(Instant.class)
+		)).thenReturn(List.of());
 		when(assignmentSummaries.findAll(
 			eq(TEACHER), any(LocalDate.class), any(LocalDate.class)
 		)).thenReturn(List.of());
@@ -439,6 +515,17 @@ class LearningRecordSnapshotServiceTest {
 		when(record.occurredAt()).thenReturn(FROM.plusSeconds(1));
 		when(record.sourceType()).thenReturn("MANUAL");
 		return record;
+	}
+
+	private DetectionStudentStatusHistoryService.PauseTransition pauseTransition(
+		String id,
+		String occurredAt,
+		String fromStatus,
+		String toStatus
+	) {
+		return new DetectionStudentStatusHistoryService.PauseTransition(
+			UUID.fromString(id), STUDENT, Instant.parse(occurredAt), fromStatus, toStatus
+		);
 	}
 
 	private record Fixture(
