@@ -2,10 +2,14 @@ package com.checkon.detection.integration.ai;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.temporal.ChronoField;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.TreeMap;
 
@@ -29,10 +33,18 @@ public class AiDetectionSnapshotHasher {
 
 	private static final String HASH_ALGORITHM = "SHA-256";
 	private static final String HASH_PREFIX = "sha256:";
+	private static final DateTimeFormatter CANONICAL_SECONDS =
+		DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm:ssXXX", Locale.ROOT);
+	private static final DateTimeFormatter CANONICAL_MICROSECONDS =
+		new DateTimeFormatterBuilder()
+			.appendPattern("uuuu-MM-dd'T'HH:mm:ss")
+			.appendLiteral('.')
+			.appendFraction(ChronoField.NANO_OF_SECOND, 6, 6, false)
+			.appendOffset("+HH:MM", "Z")
+			.toFormatter(Locale.ROOT);
 
 	private static final Comparator<AiDetectionRequest.StudentSnapshot> STUDENT_ORDER =
-		Comparator.comparing(AiDetectionRequest.StudentSnapshot::studentRef)
-			.thenComparing(AiDetectionRequest.StudentSnapshot::classRef);
+		Comparator.comparing(AiDetectionRequest.StudentSnapshot::studentRef);
 
 	private static final Comparator<AiDetectionRequest.LearningEventSnapshot> EVENT_ORDER =
 		Comparator.comparing(AiDetectionRequest.LearningEventSnapshot::recordId);
@@ -83,8 +95,8 @@ public class AiDetectionSnapshotHasher {
 		@JsonProperty("snapshot_meta") NormalizedSnapshotMeta snapshotMeta,
 		List<AiDetectionRequest.StudentSnapshot> students,
 		@JsonProperty("learning_events")
-		List<AiDetectionRequest.LearningEventSnapshot> learningEvents,
-		@JsonProperty("alert_context") List<AiDetectionRequest.AlertContext> alertContext,
+		List<NormalizedLearningEvent> learningEvents,
+		@JsonProperty("alert_context") List<NormalizedAlertContext> alertContext,
 		@JsonProperty("detection_evidence")
 		@JsonInclude(JsonInclude.Include.NON_EMPTY)
 		List<NormalizedEvidence> detectionEvidence
@@ -96,10 +108,57 @@ public class AiDetectionSnapshotHasher {
 			return new NormalizedRequest(
 				NormalizedSnapshotMeta.from(request.snapshotMeta()),
 				sorted(request.students(), STUDENT_ORDER, "students"),
-				sorted(request.learningEvents(), EVENT_ORDER, "learningEvents"),
-				sorted(request.alertContext(), ALERT_ORDER, "alertContext"),
+				sorted(request.learningEvents(), EVENT_ORDER, "learningEvents")
+					.stream().map(NormalizedLearningEvent::from).toList(),
+				sorted(request.alertContext(), ALERT_ORDER, "alertContext")
+					.stream().map(NormalizedAlertContext::from).toList(),
 				sorted(request.detectionEvidence(), EVIDENCE_ORDER, "detectionEvidence")
 					.stream().map(NormalizedEvidence::from).toList()
+			);
+		}
+	}
+
+	private record NormalizedLearningEvent(
+		@JsonProperty("record_id") String recordId,
+		@JsonProperty("student_ref") String studentRef,
+		String type,
+		@JsonProperty("occurred_at") String occurredAt,
+		Boolean correct,
+		@JsonProperty("duration_sec") Integer durationSec,
+		@JsonProperty("passage_word_count") Integer passageWordCount,
+		@JsonProperty("area_tag") String areaTag,
+		@JsonProperty("subject_track") String subjectTrack,
+		@JsonProperty("type_tag") String typeTag,
+		@JsonProperty("item_format") String itemFormat,
+		@JsonProperty("assignment_title_text") String assignmentTitleText,
+		String source
+	) {
+		private static NormalizedLearningEvent from(
+			AiDetectionRequest.LearningEventSnapshot event
+		) {
+			return new NormalizedLearningEvent(
+				event.recordId(), event.studentRef(), event.type(),
+				formatCanonicalTimestamp(event.occurredAt()), event.correct(),
+				event.durationSec(), event.passageWordCount(), event.areaTag(),
+				event.subjectTrack(), event.typeTag(), event.itemFormat(),
+				event.assignmentTitleText(), event.source()
+			);
+		}
+	}
+
+	private record NormalizedAlertContext(
+		@JsonProperty("student_ref") String studentRef,
+		@JsonProperty("signal_type") String signalType,
+		String status,
+		@JsonProperty("resolved_at") String resolvedAt,
+		@JsonProperty("followed_up") boolean followedUp
+	) {
+		private static NormalizedAlertContext from(AiDetectionRequest.AlertContext alert) {
+			return new NormalizedAlertContext(
+				alert.studentRef(), alert.signalType(), alert.status(),
+				alert.resolvedAt() == null
+					? null : formatCanonicalTimestamp(alert.resolvedAt()),
+				alert.followedUp()
 			);
 		}
 	}
@@ -107,6 +166,7 @@ public class AiDetectionSnapshotHasher {
 	/** Package-visible only so the fixed AI contract vector can verify exact bytes. */
 	byte[] canonicalJson(AiDetectionRequest request) throws JacksonException {
 		JsonNode normalized = objectMapper.valueToTree(NormalizedRequest.from(request));
+		validateUnicodeScalars(normalized);
 		return objectMapper.writeValueAsBytes(sortObjectKeys(normalized));
 	}
 
@@ -152,9 +212,20 @@ public class AiDetectionSnapshotHasher {
 	private static String evidenceAt(AiDetectionRequest.DetectionEvidence evidence) {
 		if (evidence.weekStart() != null) return evidence.weekStart().toString();
 		if (evidence.occurredAt() != null) {
-			return DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(evidence.occurredAt());
+			return formatCanonicalTimestamp(evidence.occurredAt());
 		}
 		throw new IllegalArgumentException("detection evidence must have weekStart or occurredAt");
+	}
+
+	private static String formatCanonicalTimestamp(OffsetDateTime value) {
+		Objects.requireNonNull(value, "canonical timestamp must not be null");
+		int nanos = value.getNano();
+		if (nanos % 1_000 != 0) {
+			throw new IllegalArgumentException(
+				"canonical timestamps must not exceed microsecond precision"
+			);
+		}
+		return (nanos == 0 ? CANONICAL_SECONDS : CANONICAL_MICROSECONDS).format(value);
 	}
 
 	private JsonNode sortObjectKeys(JsonNode node) {
@@ -171,6 +242,31 @@ public class AiDetectionSnapshotHasher {
 			return sorted;
 		}
 		return node;
+	}
+
+	private static void validateUnicodeScalars(JsonNode node) {
+		if (node.isTextual()) {
+			String value = node.asText();
+			for (int index = 0; index < value.length(); index++) {
+				char current = value.charAt(index);
+				if (Character.isHighSurrogate(current)) {
+					if (index + 1 >= value.length()
+						|| !Character.isLowSurrogate(value.charAt(index + 1))) {
+						throw new IllegalArgumentException(
+							"canonical strings must contain valid Unicode scalar values"
+						);
+					}
+					index++;
+				}
+				else if (Character.isLowSurrogate(current)) {
+					throw new IllegalArgumentException(
+						"canonical strings must contain valid Unicode scalar values"
+					);
+				}
+			}
+			return;
+		}
+		node.forEach(AiDetectionSnapshotHasher::validateUnicodeScalars);
 	}
 
 	private static <T> List<T> sorted(

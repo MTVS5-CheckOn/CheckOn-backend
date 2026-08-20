@@ -1,6 +1,7 @@
 package com.checkon.detection.integration.ai;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -113,6 +114,109 @@ class AiDetectionSnapshotHasherTest {
 	}
 
 	@Test
+	@DisplayName("Given canonical timestamps, When serializing, Then UTC and microseconds are deterministic")
+	void givenCanonicalTimestamps_whenSerializing_thenUsesDeterministicFormat() throws Exception {
+		// Given
+		AiDetectionRequest original = readRequest();
+		AiDetectionRequest.LearningEventSnapshot first = original.learningEvents().getFirst();
+		AiDetectionRequest.LearningEventSnapshot utcEvent = learningEvent(
+			first, OffsetDateTime.parse("2026-08-20T09:00:00.100000Z"),
+			first.assignmentTitleText()
+		);
+		AiDetectionRequest request = new AiDetectionRequest(
+			original.snapshotMeta(), original.students(),
+			List.of(utcEvent, original.learningEvents().get(1)),
+			List.of(new AiDetectionRequest.AlertContext(
+				"st_10", "R1", "resolved",
+				OffsetDateTime.parse("2026-08-20T18:00:00+09:00"), true
+			)),
+			List.of(AiDetectionRequest.DetectionEvidence.enrollmentTransition(
+				"student_status_history", "transition-1", "st_10",
+				OffsetDateTime.parse("2026-08-20T09:00:00.123456Z"),
+				"paused", "returned"
+			))
+		);
+
+		// When
+		String canonicalJson = new String(
+			hasher.canonicalJson(request), StandardCharsets.UTF_8
+		);
+
+		// Then
+		assertThat(canonicalJson)
+			.contains("\"occurred_at\":\"2026-08-20T09:00:00.100000Z\"")
+			.contains("\"resolved_at\":\"2026-08-20T18:00:00+09:00\"")
+			.contains("\"at\":\"2026-08-20T09:00:00.123456Z\"")
+			.doesNotContain(".000000+09:00");
+	}
+
+	@Test
+	@DisplayName("Given sub-microsecond timestamp, When hashing, Then it fails instead of truncating")
+	void givenSubMicrosecondTimestamp_whenHashing_thenRejectsIt() throws Exception {
+		// Given
+		AiDetectionRequest original = readRequest();
+		AiDetectionRequest.LearningEventSnapshot first = original.learningEvents().getFirst();
+		AiDetectionRequest invalid = new AiDetectionRequest(
+			original.snapshotMeta(), original.students(),
+			List.of(learningEvent(
+				first, OffsetDateTime.parse("2026-08-20T09:00:00.123456789Z"),
+				first.assignmentTitleText()
+			), original.learningEvents().get(1)),
+			original.alertContext(), original.detectionEvidence()
+		);
+
+		// When / Then
+		assertThatThrownBy(() -> hasher.hash(invalid))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("canonical timestamps must not exceed microsecond precision");
+	}
+
+	@Test
+	@DisplayName("Given Korean and escaped text, When canonicalizing, Then UTF-8 and JSON escapes are stable")
+	void givenKoreanAndEscapedText_whenCanonicalizing_thenUsesStableEscapes() throws Exception {
+		// Given
+		AiDetectionRequest original = readRequest();
+		AiDetectionRequest.LearningEventSnapshot first = original.learningEvents().getFirst();
+		AiDetectionRequest request = new AiDetectionRequest(
+			original.snapshotMeta(), original.students(),
+			List.of(learningEvent(
+				first, first.occurredAt(), "한글/\"인용\"\n다음 줄"
+			), original.learningEvents().get(1)),
+			original.alertContext(), original.detectionEvidence()
+		);
+
+		// When
+		String canonicalJson = new String(
+			hasher.canonicalJson(request), StandardCharsets.UTF_8
+		);
+
+		// Then
+		assertThat(canonicalJson)
+			.contains("\"assignment_title_text\":\"한글/\\\"인용\\\"\\n다음 줄\"")
+			.doesNotContain("\\uD55C", "\\/");
+	}
+
+	@Test
+	@DisplayName("Given unpaired surrogate, When hashing, Then unsupported Unicode is rejected")
+	void givenUnpairedSurrogate_whenHashing_thenRejectsUnsupportedUnicode() throws Exception {
+		// Given
+		AiDetectionRequest original = readRequest();
+		AiDetectionRequest.LearningEventSnapshot first = original.learningEvents().getFirst();
+		AiDetectionRequest invalid = new AiDetectionRequest(
+			original.snapshotMeta(), original.students(),
+			List.of(learningEvent(
+				first, first.occurredAt(), "invalid-\uD800-text"
+			), original.learningEvents().get(1)),
+			original.alertContext(), original.detectionEvidence()
+		);
+
+		// When / Then
+		assertThatThrownBy(() -> hasher.hash(invalid))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("canonical strings must contain valid Unicode scalar values");
+	}
+
+	@Test
 	@DisplayName("Given different enrolled seconds, When hashing, Then the weekly activity hash changes")
 	void givenDifferentEnrolledSeconds_whenHashing_thenHashChanges() {
 		// Given
@@ -137,6 +241,19 @@ class AiDetectionSnapshotHasherTest {
 		return new AiDetectionRequest(
 			original.snapshotMeta(), original.students(), original.learningEvents(),
 			original.alertContext(), List.of(weekly)
+		);
+	}
+
+	private AiDetectionRequest.LearningEventSnapshot learningEvent(
+		AiDetectionRequest.LearningEventSnapshot original,
+		OffsetDateTime occurredAt,
+		String assignmentTitleText
+	) {
+		return new AiDetectionRequest.LearningEventSnapshot(
+			original.recordId(), original.studentRef(), original.type(), occurredAt,
+			original.correct(), original.durationSec(), original.passageWordCount(),
+			original.areaTag(), original.subjectTrack(), original.typeTag(),
+			original.itemFormat(), assignmentTitleText, original.source()
 		);
 	}
 

@@ -1,7 +1,7 @@
 asyncapi: 2.6.0
 info:
   title: CheckOn Risk Detection Kafka Contract
-  version: 1.5.0
+  version: 1.6.0
   description: |
     Internal asynchronous contract between CheckOn control/outbox, its HTTP adapter,
     and its result consumer. The AI service itself exposes POST /v1/detect and does
@@ -9,6 +9,15 @@ info:
     The v1 request emits assignment_window evidence for R2, weekly_activity evidence
     for R1/R3/R4/R6, and enrollment_transition evidence for R5.
     All timestamps are RFC 3339 instants. All identifiers are UUIDv7 except opaque aliases.
+    snapshot_hash canonical JSON sorts every object key lexicographically and each array
+    by its schema-specific key, emits UTF-8 non-ASCII text without escaping, and uses no
+    separator whitespace. students, learning_events, and alert_context keep empty arrays;
+    only an empty detection_evidence key is omitted. Nullable learning-event fields and
+    alert_context.resolved_at remain explicit nulls. Dates use YYYY-MM-DD. Timestamps keep
+    their non-UTC offset, render UTC as Z, always include seconds, omit a zero fraction,
+    and otherwise use exactly six fractional digits. Sub-microsecond precision is invalid.
+    Unpaired UTF-16 surrogate code units are invalid canonical input.
+    Floats, snapshot_hash itself, classes, and passage_ref are outside the hash surface.
 servers:
   local:
     url: localhost:9094
