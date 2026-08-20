@@ -17,12 +17,11 @@ public class CounselClientConfiguration {
 		@Value("${checkon.ai.counsel.adapter-base-url:http://localhost:8081}") String baseUrl,
 		@Value("${checkon.ai.counsel.drafts-path:/v1/counsel/drafts}") String draftsPath,
 		@Value("${checkon.ai.counsel.connect-timeout:2s}") Duration connectTimeout,
-		// POST /v1/counsel/drafts runs its own job to completion synchronously
-		// (contract §0-3, K=1 as of 8/20 -- a pending job ahead of yours still
-		// returns queued instead of being drained). Worst case per job: 5 LLM
-		// calls x 90s = 450s (8/20: LLM call cap raised from 15s to 90s), so
-		// the read timeout must stay at 480s or more (§0-4) or normal requests
-		// get cut client-side while the job keeps running server-side.
+		// Draft creation moved to Kafka (2026-08-20 Kafka-철회 reversal) -- this
+		// timeout now only covers GET /v1/counsel/drafts/{jobId} and the refine
+		// turn endpoint, neither of which runs a job inline anymore. The AI team
+		// is re-reviewing what a tighter value should be; keep the old
+		// conservative default until they confirm a number rather than guessing.
 		@Value("${checkon.ai.counsel.read-timeout:500s}") Duration readTimeout
 	) {
 		HttpClient httpClient = HttpClient.newBuilder().connectTimeout(connectTimeout).build();

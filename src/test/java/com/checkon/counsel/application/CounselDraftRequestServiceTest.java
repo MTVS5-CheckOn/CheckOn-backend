@@ -1,11 +1,7 @@
 package com.checkon.counsel.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -18,7 +14,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -32,9 +27,6 @@ import com.checkon.counsel.domain.CounselJobPhase;
 import com.checkon.counsel.domain.CounselTopic;
 import com.checkon.counsel.domain.CounselUrgency;
 import com.checkon.counsel.integration.ai.CounselClient;
-import com.checkon.counsel.integration.ai.dto.CounselDraftCreateRequest;
-import com.checkon.counsel.integration.ai.dto.CounselDraftCreateResponse;
-import com.checkon.counsel.integration.ai.dto.CounselMeta;
 import com.checkon.support.RosterTestFixture;
 
 @SpringBootTest
@@ -62,6 +54,7 @@ class CounselDraftRequestServiceTest {
 
 	@BeforeEach
 	void setUp() {
+		jdbcTemplate.update("DELETE FROM counsel_draft_kafka_outbox_events");
 		jdbcTemplate.update("DELETE FROM counsel_draft_jobs");
 		jdbcTemplate.update("DELETE FROM counsel_inquiries");
 		jdbcTemplate.update("DELETE FROM ai_guardian_aliases");
@@ -84,12 +77,11 @@ class CounselDraftRequestServiceTest {
 	class GivenCreatingADraft {
 
 		@Test
-		@DisplayName("When 생성에 성공하면 Then 원본 문의 컨텍스트를 로컬에 보관한다")
-		void persistsTheOriginalInquiryContext() {
-			when(client.createDraft(any(), any())).thenReturn(succeededResponse("cj_2001"));
+		@DisplayName("When 생성을 요청하면 Then 원본 문의 컨텍스트를 로컬에 보관하고 카프카 아웃박스에 발행한다")
+		void persistsTheOriginalInquiryContextAndPublishesToTheOutbox() {
+			var result = service.createDraft(TEACHER_ID, sampleCommand("iq_501", CounselTopic.GRADE));
 
-			service.createDraft(TEACHER_ID, sampleCommand("iq_501", CounselTopic.GRADE));
-
+			assertThat(result.status()).isEqualTo(CounselJobPhase.QUEUED);
 			String rawText = jdbcTemplate.queryForObject(
 				"SELECT raw_text FROM counsel_inquiries WHERE teacher_id = ? AND inquiry_ref = ?",
 				String.class, TEACHER_ID, "iq_501"
@@ -100,6 +92,16 @@ class CounselDraftRequestServiceTest {
 				String.class, TEACHER_ID, "iq_501"
 			);
 			assertThat(topic).isEqualTo("grade");
+			Integer outboxCount = jdbcTemplate.queryForObject(
+				"""
+				SELECT count(*) FROM counsel_draft_kafka_outbox_events o
+				JOIN counsel_draft_jobs j ON j.id = o.counsel_draft_job_id
+				WHERE j.teacher_id = ? AND j.job_id = ?
+				""",
+				Integer.class, TEACHER_ID, result.jobId()
+			);
+			assertThat(outboxCount).isEqualTo(1);
+			verifyNoInteractions(client);
 		}
 	}
 
@@ -110,27 +112,26 @@ class CounselDraftRequestServiceTest {
 		@Test
 		@DisplayName("When 이전에 만든 초안이 있으면 Then 같은 학생·반·근거로 새 Idempotency-Key를 써서 다시 요청한다")
 		void redraftsWithTheSameContextAndAFreshIdempotencyKey() {
-			when(client.createDraft(any(), any())).thenReturn(succeededResponse("cj_2002"));
-			service.createDraft(TEACHER_ID, sampleCommand("iq_502", CounselTopic.ETC));
+			var firstResult = service.createDraft(TEACHER_ID, sampleCommand("iq_502", CounselTopic.ETC));
 
-			when(client.createDraft(any(), any())).thenReturn(succeededResponse("cj_2003"));
 			var redrafted = service.redraftWithCorrectedTopic(TEACHER_ID, "iq_502", CounselTopic.COUNSEL_REQUEST);
 
-			ArgumentCaptor<CounselDraftCreateRequest> requests = ArgumentCaptor.forClass(CounselDraftCreateRequest.class);
-			ArgumentCaptor<CounselClient.RequestHeaders> headers = ArgumentCaptor.forClass(CounselClient.RequestHeaders.class);
-			verify(client, times(2)).createDraft(requests.capture(), headers.capture());
-			CounselDraftCreateRequest firstRequest = requests.getAllValues().get(0);
-			CounselDraftCreateRequest secondRequest = requests.getAllValues().get(1);
-			String firstIdempotencyKey = headers.getAllValues().get(0).idempotencyKey();
-			String secondIdempotencyKey = headers.getAllValues().get(1).idempotencyKey();
-
 			assertThat(redrafted).isPresent();
-			assertThat(redrafted.get().jobId()).isEqualTo("cj_2003");
-			assertThat(secondRequest.inquiry().topic()).isEqualTo(CounselTopic.COUNSEL_REQUEST);
-			assertThat(secondRequest.studentRef()).isEqualTo(firstRequest.studentRef());
-			assertThat(secondRequest.classRef()).isEqualTo(firstRequest.classRef());
-			assertThat(secondRequest.context().facts()).isEqualTo(firstRequest.context().facts());
-			assertThat(secondIdempotencyKey).isNotEqualTo(firstIdempotencyKey);
+			assertThat(redrafted.get().status()).isEqualTo(CounselJobPhase.QUEUED);
+			assertThat(redrafted.get().jobId()).isNotEqualTo(firstResult.jobId());
+
+			assertThat(topicOf(firstResult.jobId())).isEqualTo("etc");
+			assertThat(topicOf(redrafted.get().jobId())).isEqualTo("counsel_request");
+			assertThat(studentRefOf(redrafted.get().jobId())).isEqualTo(studentRefOf(firstResult.jobId()));
+			assertThat(classRefOf(redrafted.get().jobId())).isEqualTo(classRefOf(firstResult.jobId()));
+			assertThat(idempotencyKeyOf(redrafted.get().jobId())).isNotEqualTo(idempotencyKeyOf(firstResult.jobId()));
+
+			Integer outboxCount = jdbcTemplate.queryForObject(
+				"SELECT count(*) FROM counsel_draft_kafka_outbox_events WHERE teacher_id = ?",
+				Integer.class, TEACHER_ID
+			);
+			assertThat(outboxCount).isEqualTo(2);
+			verifyNoInteractions(client);
 		}
 
 		@Test
@@ -143,6 +144,26 @@ class CounselDraftRequestServiceTest {
 		}
 	}
 
+	private String topicOf(String jobId) {
+		return jdbcTemplate.queryForObject(
+			"SELECT topic FROM counsel_draft_jobs WHERE teacher_id = ? AND job_id = ?", String.class, TEACHER_ID, jobId);
+	}
+
+	private String studentRefOf(String jobId) {
+		return jdbcTemplate.queryForObject(
+			"SELECT student_ref FROM counsel_draft_jobs WHERE teacher_id = ? AND job_id = ?", String.class, TEACHER_ID, jobId);
+	}
+
+	private String classRefOf(String jobId) {
+		return jdbcTemplate.queryForObject(
+			"SELECT class_ref FROM counsel_draft_jobs WHERE teacher_id = ? AND job_id = ?", String.class, TEACHER_ID, jobId);
+	}
+
+	private String idempotencyKeyOf(String jobId) {
+		return jdbcTemplate.queryForObject(
+			"SELECT idempotency_key FROM counsel_draft_jobs WHERE teacher_id = ? AND job_id = ?", String.class, TEACHER_ID, jobId);
+	}
+
 	private CreateCounselInquiryCommand sampleCommand(String inquiryRef, CounselTopic topic) {
 		return new CreateCounselInquiryCommand(
 			STUDENT_ID, CLASS_ID, inquiryRef, inquiryRef, topic, CounselUrgency.IMMEDIATE,
@@ -150,18 +171,6 @@ class CounselDraftRequestServiceTest {
 			List.of("narrative", "anxious"), List.of(), "2026년 8월",
 			List.of(new CreateCounselDraftCommand.Fact("le_2041", "6월 지문 42개·312문항"))
 		);
-	}
-
-	private static CounselDraftCreateResponse succeededResponse(String jobId) {
-		return new CounselDraftCreateResponse(
-			new CounselDraftCreateResponse.Data(jobId, CounselJobPhase.SUCCEEDED),
-			null,
-			new CounselMeta("019846dc-7c00-7000-8000-0000000006b2", versions())
-		);
-	}
-
-	private static CounselMeta.Versions versions() {
-		return new CounselMeta.Versions("0.1.0", "counsel-pack-0.1", null, "0.3", "0.1", "0.1", null, null, null, null);
 	}
 
 	private void insertStudentAndRelationship(UUID studentId, UUID teacherId) {

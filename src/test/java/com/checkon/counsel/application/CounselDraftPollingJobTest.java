@@ -110,10 +110,10 @@ class CounselDraftPollingJobTest {
 
 	private void insertJob(UUID teacherId, String inquiryRef, String jobId, String jobPhase) {
 		Instant now = Instant.now();
-		jobRepository.upsert(new NewJob(
+		jobRepository.insertIfAbsent(new NewJob(
 			UUID.randomUUID(), teacherId, "tn_demo_teacher", inquiryRef,
 			"st_" + inquiryRef, "pa_" + inquiryRef, "cl_" + inquiryRef, "grade",
-			inquiryRef, jobId, jobPhase, null, now, now
+			inquiryRef, jobId, jobId, jobPhase, null, "sha256:" + inquiryRef, now, now
 		));
 	}
 

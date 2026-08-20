@@ -42,12 +42,17 @@ public class CounselException extends RuntimeException {
 		return new CounselException(Reason.CLASSIFICATION_NOT_FOUND, "no stored classification for this inquiry_ref", null);
 	}
 
+	/** The job exists but ai_job_id is not known yet — the completion Kafka event has not arrived, so there is nothing to refine. */
+	public static CounselException draftNotReady() {
+		return new CounselException(Reason.DRAFT_NOT_READY, "counsel draft is not ready yet", null);
+	}
+
 	public Reason reason() {
 		return reason;
 	}
 
 	public enum Reason {
 		INVALID_PRINCIPAL, INVALID_REQUEST, IDEMPOTENCY_CONFLICT, JOB_NOT_FOUND, TARGET_NOT_FOUND,
-		UPSTREAM_UNAVAILABLE, UPSTREAM_INTERNAL_ERROR, CLASSIFICATION_NOT_FOUND
+		UPSTREAM_UNAVAILABLE, UPSTREAM_INTERNAL_ERROR, CLASSIFICATION_NOT_FOUND, DRAFT_NOT_READY
 	}
 }

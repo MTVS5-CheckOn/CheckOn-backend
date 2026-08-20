@@ -5,8 +5,6 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
-import com.checkon.counsel.integration.ai.dto.CounselDraftCreateRequest;
-import com.checkon.counsel.integration.ai.dto.CounselDraftCreateResponse;
 import com.checkon.counsel.integration.ai.dto.CounselDraftGetResponse;
 import com.checkon.counsel.integration.ai.dto.CounselDraftRefineRequest;
 import com.checkon.counsel.integration.ai.dto.CounselDraftRefineResponse;
@@ -31,26 +29,6 @@ final class HttpCounselClient implements CounselClient {
 	}
 
 	@Override
-	public CounselDraftCreateResponse createDraft(CounselDraftCreateRequest request, RequestHeaders headers) {
-		try {
-			CounselDraftCreateResponse response = restClient.post()
-				.uri(draftsPath)
-				.header(TENANT_ID_HEADER, headers.tenantAlias())
-				.header(REQUEST_ID_HEADER, headers.requestId())
-				.header(IDEMPOTENCY_KEY_HEADER, headers.idempotencyKey())
-				.header(HttpHeaders.CONTENT_TYPE, "application/json")
-				.body(request)
-				.retrieve()
-				.body(CounselDraftCreateResponse.class);
-			if (response == null) throw CounselClientException.emptyResponse();
-			return response;
-		}
-		catch (RestClientResponseException exception) { throw mapError(exception, false); }
-		catch (CounselClientException exception) { throw exception; }
-		catch (RestClientException exception) { throw CounselClientException.networkError(exception); }
-	}
-
-	@Override
 	public CounselDraftGetResponse getDraft(String jobId, String tenantAlias, String requestId) {
 		try {
 			RestClient.RequestHeadersSpec<?> spec = restClient.get()
@@ -61,7 +39,7 @@ final class HttpCounselClient implements CounselClient {
 			if (response == null) throw CounselClientException.emptyResponse();
 			return response;
 		}
-		catch (RestClientResponseException exception) { throw mapError(exception, true); }
+		catch (RestClientResponseException exception) { throw mapError(exception); }
 		catch (CounselClientException exception) { throw exception; }
 		catch (RestClientException exception) { throw CounselClientException.networkError(exception); }
 	}
@@ -81,16 +59,16 @@ final class HttpCounselClient implements CounselClient {
 			if (response == null) throw CounselClientException.emptyResponse();
 			return response;
 		}
-		catch (RestClientResponseException exception) { throw mapError(exception, true); }
+		catch (RestClientResponseException exception) { throw mapError(exception); }
 		catch (CounselClientException exception) { throw exception; }
 		catch (RestClientException exception) { throw CounselClientException.networkError(exception); }
 	}
 
-	private static CounselClientException mapError(RestClientResponseException exception, boolean notFoundEligible) {
+	private static CounselClientException mapError(RestClientResponseException exception) {
 		int status = exception.getStatusCode().value();
 		String body = exception.getResponseBodyAsString();
 		if (status == 409) return CounselClientException.idempotencyConflict(body, exception);
-		if (notFoundEligible && status == 404) return CounselClientException.notFound(body, exception);
+		if (status == 404) return CounselClientException.notFound(body, exception);
 		return CounselClientException.httpError(status, body, exception);
 	}
 }

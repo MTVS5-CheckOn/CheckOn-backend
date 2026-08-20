@@ -49,6 +49,9 @@ public class CounselDraftExceptionHandler {
 			case CLASSIFICATION_NOT_FOUND -> response(
 				HttpStatus.NOT_FOUND, "COUNSEL_CLASSIFICATION_NOT_FOUND", "분류 결과를 찾을 수 없습니다."
 			);
+			case DRAFT_NOT_READY -> response(
+				HttpStatus.CONFLICT, "COUNSEL_DRAFT_NOT_READY", "초안이 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요."
+			);
 		};
 	}
 
