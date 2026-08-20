@@ -839,7 +839,8 @@ paths:
       description: |
         문의 1건 = 초안 1개다. topic=schedule이거나 인용 가능한 학습 근거가 0건이면
         워커를 타지 않고 즉시 종단(succeeded)으로 응답한다. text는 백엔드가 마스킹한
-        뒤 AI로 보내며, AI 응답이 최대 240초 넘게 걸릴 수 있다.
+        뒤 AI로 보내며, AI 응답이 최대 480초 넘게 걸릴 수 있다(8/20 갱신 · LLM 콜당
+        상한 90초). 같은 테넌트에 앞선 잡이 하나라도 있으면 queued로 올 수 있다.
       parameters:
         - $ref: '#/components/parameters/CounselIdempotencyKey'
       requestBody:

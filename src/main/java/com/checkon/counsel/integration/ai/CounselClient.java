@@ -7,17 +7,17 @@ import com.checkon.counsel.integration.ai.dto.CounselDraftRefineRequest;
 import com.checkon.counsel.integration.ai.dto.CounselDraftRefineResponse;
 
 /**
- * Backend-to-AI client for the counsel draft flow (§0 of the 2026-08-19
+ * Backend-to-AI client for the counsel draft flow (§0 of the 2026-08-20
  * counsel contract). No Kafka is involved — the backend calls these three
  * REST endpoints directly and synchronously (appendix B-①).
  */
 public interface CounselClient {
 
 	/**
-	 * {@code POST /v1/counsel/drafts}. In v1 this call runs the worker inline
-	 * and drains up to 3 queue turns before returning, so most calls come back
-	 * with a terminal {@code status} already (§0-2, §0-3). Callers must set a
-	 * read timeout of 240s or more (§0-4).
+	 * {@code POST /v1/counsel/drafts}. Runs its own job to completion inline
+	 * (K=1 as of 8/20 — a pending job ahead of yours still returns
+	 * {@code queued} instead of being drained, §0-3). Callers must set a read
+	 * timeout of 480s or more (§0-4, LLM call cap raised to 90s).
 	 */
 	CounselDraftCreateResponse createDraft(CounselDraftCreateRequest request, RequestHeaders headers);
 

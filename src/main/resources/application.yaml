@@ -95,10 +95,10 @@ checkon:
       adapter-base-url: ${AI_COUNSEL_ADAPTER_BASE_URL:http://localhost:8081}
       drafts-path: ${AI_COUNSEL_DRAFTS_PATH:/v1/counsel/drafts}
       connect-timeout: ${AI_COUNSEL_CONNECT_TIMEOUT:2s}
-      # POST /v1/counsel/drafts drains up to 3 queued jobs before returning
-      # (worst case 3 x 5 LLM calls x 15s = 225s) — Kafka는 쓰지 않으므로
-      # 240초 미만으로 두면 정상 요청이 클라이언트에서 끊긴다.
-      read-timeout: ${AI_COUNSEL_READ_TIMEOUT:245s}
+      # POST /v1/counsel/drafts는 자기 잡 하나를 끝까지 돌린다(K=1) — 잡당 최악
+      # 5 LLM 콜 x 90초 = 450초다(8/20 갱신 · 종전 15초/225초). Kafka는 쓰지 않으므로
+      # 480초 미만으로 두면 정상 요청이 클라이언트에서 끊긴다.
+      read-timeout: ${AI_COUNSEL_READ_TIMEOUT:500s}
     classify:
       adapter-base-url: ${AI_CLASSIFY_ADAPTER_BASE_URL:http://localhost:8081}
       classify-path: ${AI_CLASSIFY_PATH:/v1/classify}
