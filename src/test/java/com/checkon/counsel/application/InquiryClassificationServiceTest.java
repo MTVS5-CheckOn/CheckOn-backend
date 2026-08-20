@@ -159,6 +159,20 @@ class InquiryClassificationServiceTest {
 				.satisfies(exception -> assertThat(((CounselException) exception).reason())
 					.isEqualTo(CounselException.Reason.CLASSIFICATION_NOT_FOUND));
 		}
+
+		@Test
+		@DisplayName("When 정정이 topic이 아니면 Then 초안을 다시 만들지 않는다")
+		void doesNotRedraftForANonTopicCorrection() {
+			when(client.classify(any(), any(), any())).thenReturn(classifiedResponse("iq_307", CounselTopic.GRADE));
+			service.classify(TEACHER_ID, "iq_307", "문의합니다");
+			when(client.confirm(any(), any(), any())).thenReturn(acceptedResponse());
+
+			var redraft = service.confirm(
+				TEACHER_ID, "iq_307", ConfirmationAction.CORRECTED, null, InquirySentiment.COMPLAINT, null
+			);
+
+			assertThat(redraft).isEmpty();
+		}
 	}
 
 	private static ClassifyResponse classifiedResponse(String inquiryRef, CounselTopic topic) {

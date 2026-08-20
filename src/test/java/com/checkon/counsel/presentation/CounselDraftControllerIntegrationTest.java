@@ -76,6 +76,7 @@ class CounselDraftControllerIntegrationTest {
 	@BeforeEach
 	void setUp() {
 		jdbc.update("DELETE FROM counsel_draft_jobs");
+		jdbc.update("DELETE FROM counsel_inquiries");
 		jdbc.update("DELETE FROM ai_guardian_aliases");
 		jdbc.update("DELETE FROM ai_class_aliases");
 		jdbc.update("DELETE FROM ai_tenant_aliases");

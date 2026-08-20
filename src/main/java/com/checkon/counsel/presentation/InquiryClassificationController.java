@@ -4,18 +4,19 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.checkon.account.infrastructure.security.AuthenticatedAccount;
 import com.checkon.counsel.application.InquiryClassificationService;
 import com.checkon.counsel.domain.ClassifyFallbackReason;
 import com.checkon.counsel.domain.ConfirmationAction;
+import com.checkon.counsel.domain.CounselJobPhase;
 import com.checkon.counsel.domain.CounselTopic;
 import com.checkon.counsel.domain.CounselUrgency;
 import com.checkon.counsel.domain.InquirySentiment;
@@ -31,12 +32,11 @@ import jakarta.validation.constraints.NotNull;
  * to resolve — only the raw text and a caller-supplied {@code inquiryRef} —
  * so this controller is thinner than {@link CounselDraftController}.
  *
- * <p>A topic correction does not auto-regenerate a counsel draft here. Per
- * the contract's own wording, the backend just needs to call both AI
- * endpoints, not necessarily in one HTTP round trip — so after a successful
- * {@code corrected} confirmation, the caller is expected to also call
- * {@link CounselDraftController#create} with the corrected topic and a new
- * {@code Idempotency-Key}, the same way it created the original draft.
+ * <p>A topic correction redrafts the counsel draft automatically, reusing the
+ * original inquiry's stored student/class/facts/labels
+ * ({@link InquiryClassificationService#confirm}) — the classify/confirmations
+ * contract §4-2 requires the backend to call both AI endpoints on a topic
+ * correction, not just record it.
  */
 @RestController
 @RequestMapping("/api/v1/counsel/inquiries")
@@ -62,17 +62,25 @@ public class InquiryClassificationController {
 		);
 	}
 
+	/**
+	 * 200 with {@code redraftedJobId} set when a topic correction triggered a
+	 * redraft; 204 when the confirmation was recorded but nothing needed
+	 * redrafting (a plain confirm, a sentiment/urgency-only correction, or a
+	 * topic correction for an inquiry that never had a draft).
+	 */
 	@PostMapping("/{inquiryRef}/confirmation")
-	@ResponseStatus(HttpStatus.NO_CONTENT)
-	public void confirm(
+	public ResponseEntity<ConfirmationResultResponse> confirm(
 		@AuthenticationPrincipal AuthenticatedAccount principal,
 		@PathVariable String inquiryRef,
 		@Valid @RequestBody ConfirmClassificationRequest request
 	) {
-		service.confirm(
+		var redraft = service.confirm(
 			teacherProfileId(principal), inquiryRef, request.action(),
 			request.correctedTopic(), request.correctedSentiment(), request.correctedUrgency()
 		);
+		return redraft
+			.map(result -> ResponseEntity.ok(new ConfirmationResultResponse(result.jobId(), result.status())))
+			.orElseGet(() -> ResponseEntity.status(HttpStatus.NO_CONTENT).build());
 	}
 
 	private static UUID teacherProfileId(AuthenticatedAccount principal) {
@@ -100,5 +108,8 @@ public class InquiryClassificationController {
 		InquirySentiment correctedSentiment,
 		CounselUrgency correctedUrgency
 	) {
+	}
+
+	public record ConfirmationResultResponse(String redraftedJobId, CounselJobPhase redraftedStatus) {
 	}
 }

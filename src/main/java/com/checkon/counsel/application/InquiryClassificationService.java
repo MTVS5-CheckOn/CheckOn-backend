@@ -2,6 +2,7 @@ package com.checkon.counsel.application;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -33,17 +34,20 @@ public class InquiryClassificationService {
 	private final ClassifyClient client;
 	private final InquiryClassificationRepository classifications;
 	private final AiProblemAliasService tenantAliases;
+	private final CounselDraftRequestService drafts;
 	private final Clock clock;
 
 	public InquiryClassificationService(
 		ClassifyClient client,
 		InquiryClassificationRepository classifications,
 		AiProblemAliasService tenantAliases,
+		CounselDraftRequestService drafts,
 		Clock clock
 	) {
 		this.client = client;
 		this.classifications = classifications;
 		this.tenantAliases = tenantAliases;
+		this.drafts = drafts;
 		this.clock = clock;
 	}
 
@@ -71,12 +75,21 @@ public class InquiryClassificationService {
 	}
 
 	/**
+	 * Confirms or corrects a classification. When {@code correctedTopic} is
+	 * given, this also redrafts the counsel draft with the corrected topic and
+	 * a fresh {@code Idempotency-Key} using the original inquiry's stored
+	 * student/class/facts/labels — the classify/confirmations contract §4-2
+	 * requires the backend to call both AI endpoints on a topic correction, not
+	 * just record the correction. The returned {@link Optional} is empty when
+	 * no redraft happened, either because the correction was not about the
+	 * topic or because this inquiry never had a draft created for it.
+	 *
 	 * @param correctedTopic non-null only when the teacher changed the topic
 	 * @param correctedSentiment non-null only when the teacher changed the sentiment
 	 * @param correctedUrgency non-null only when the teacher changed the urgency
 	 */
 	@Transactional
-	public void confirm(
+	public Optional<CounselDraftService.CreateCounselDraftResult> confirm(
 		UUID teacherId,
 		String inquiryRef,
 		ConfirmationAction action,
@@ -108,6 +121,9 @@ public class InquiryClassificationService {
 			correctedUrgency == null ? null : correctedUrgency.wireValue(),
 			Instant.now(clock)
 		);
+
+		if (correctedTopic == null) return Optional.empty();
+		return drafts.redraftWithCorrectedTopic(resolvedTeacherId, inquiryRef, correctedTopic);
 	}
 
 	private <T> T call(Supplier<T> aiCall) {
