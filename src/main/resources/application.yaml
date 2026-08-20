@@ -99,6 +99,14 @@ checkon:
       # (worst case 3 x 5 LLM calls x 15s = 225s) — Kafka는 쓰지 않으므로
       # 240초 미만으로 두면 정상 요청이 클라이언트에서 끊긴다.
       read-timeout: ${AI_COUNSEL_READ_TIMEOUT:245s}
+    classify:
+      adapter-base-url: ${AI_CLASSIFY_ADAPTER_BASE_URL:http://localhost:8081}
+      classify-path: ${AI_CLASSIFY_PATH:/v1/classify}
+      confirmations-path: ${AI_CONFIRMATIONS_PATH:/v1/confirmations}
+      connect-timeout: ${AI_CLASSIFY_CONNECT_TIMEOUT:2s}
+      # classify/confirmations는 counsel과 달리 잡 폴링이 없는 단발 동기 호출이라
+      # 짧은 타임아웃으로 충분하다.
+      read-timeout: ${AI_CLASSIFY_READ_TIMEOUT:30s}
   kafka:
     risk-detection:
       enabled: ${CHECKON_KAFKA_ENABLED:true}

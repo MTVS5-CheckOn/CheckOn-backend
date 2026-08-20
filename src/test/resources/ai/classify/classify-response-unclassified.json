@@ -1,0 +1,27 @@
+{
+  "data": {
+    "inquiry_ref": "iq_205",
+    "topic": "etc",
+    "sentiment": "normal",
+    "urgency": "normal",
+    "confidence": { "topic": 0.0, "sentiment": 0.0, "urgency": 0.0 },
+    "classified": false,
+    "fallback_reason": "tripwire_blocked"
+  },
+  "error": null,
+  "meta": {
+    "execution_id": "019846dc-7c00-7000-8000-0000000007a2",
+    "versions": {
+      "pipeline": "0.1.0",
+      "engine": "classify-0.1",
+      "schema": "0.1",
+      "contract": "0.1",
+      "threshold": null,
+      "prompt": "v1",
+      "graph": null,
+      "taxonomy": null,
+      "verify_config": null,
+      "difficulty_calib": null
+    }
+  }
+}
