@@ -25,6 +25,10 @@ public class CounselException extends RuntimeException {
 		return new CounselException(Reason.JOB_NOT_FOUND, "counsel draft job is missing or inaccessible", null);
 	}
 
+	public static CounselException targetNotFound() {
+		return new CounselException(Reason.TARGET_NOT_FOUND, "student or class is missing or inaccessible", null);
+	}
+
 	public static CounselException upstreamUnavailable(Throwable cause) {
 		return new CounselException(Reason.UPSTREAM_UNAVAILABLE, "counsel AI server is unavailable", cause);
 	}
@@ -33,5 +37,5 @@ public class CounselException extends RuntimeException {
 		return reason;
 	}
 
-	public enum Reason { INVALID_PRINCIPAL, INVALID_REQUEST, IDEMPOTENCY_CONFLICT, JOB_NOT_FOUND, UPSTREAM_UNAVAILABLE }
+	public enum Reason { INVALID_PRINCIPAL, INVALID_REQUEST, IDEMPOTENCY_CONFLICT, JOB_NOT_FOUND, TARGET_NOT_FOUND, UPSTREAM_UNAVAILABLE }
 }
