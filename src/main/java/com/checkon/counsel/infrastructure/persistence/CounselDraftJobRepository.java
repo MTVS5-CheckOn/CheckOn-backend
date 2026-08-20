@@ -6,6 +6,7 @@ import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -74,6 +75,22 @@ public class CounselDraftJobRepository {
 			""").param("sentText", sentText).param("sentAt", time(sentAt))
 			.param("teacherId", teacherId).param("jobId", jobId).update();
 		return updated > 0;
+	}
+
+	/**
+	 * Jobs whose last known phase is not terminal ({@code succeeded|failed|cancelled}).
+	 * Used by the polling job to refresh local bookkeeping — a GET never advances
+	 * the job itself (§0-3 of the counsel contract), so this only keeps the
+	 * locally stored phase from going stale, it does not unstick a queued job.
+	 */
+	public List<Job> findNonTerminalByTeacher(UUID teacherId) {
+		return jdbc.sql("""
+			SELECT id, teacher_id, tenant_alias, inquiry_ref, student_ref, parent_ref, class_ref,
+			 topic, idempotency_key, job_id, job_phase, ai_execution_id, requested_at, updated_at
+			FROM counsel_draft_jobs
+			WHERE teacher_id = :teacherId AND job_phase NOT IN ('succeeded', 'failed', 'cancelled')
+			""").param("teacherId", teacherId)
+			.query(CounselDraftJobRepository::map).list();
 	}
 
 	public Optional<Job> findByTeacherAndIdempotencyKey(UUID teacherId, String idempotencyKey) {

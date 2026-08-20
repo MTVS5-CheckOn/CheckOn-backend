@@ -7,6 +7,8 @@ import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +23,7 @@ import com.checkon.counsel.integration.ai.dto.CounselDraftGetResponse;
 import com.checkon.counsel.integration.ai.dto.CounselDraftRefineRequest;
 import com.checkon.counsel.integration.ai.dto.CounselDraftRefineResponse;
 import com.checkon.counsel.integration.ai.dto.CounselMeta;
+import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 
 /**
  * Orchestrates the three counsel AI endpoints (§0 of the 2026-08-19 counsel
@@ -32,17 +35,26 @@ import com.checkon.counsel.integration.ai.dto.CounselMeta;
 @Service
 public class CounselDraftService {
 
+	private static final Logger log = LoggerFactory.getLogger(CounselDraftService.class);
+
 	// The contract's own example key ("iq_884") is 6 characters, so no minimum
 	// length is enforced here beyond "non-blank, safe ASCII" (§5, §③-5).
 	private static final Pattern IDEMPOTENCY_KEY_PATTERN = Pattern.compile("[A-Za-z0-9._:-]{1,200}");
 
 	private final CounselClient client;
 	private final CounselDraftJobRepository jobs;
+	private final TeacherTenantDatabaseContext tenantContext;
 	private final Clock clock;
 
-	public CounselDraftService(CounselClient client, CounselDraftJobRepository jobs, Clock clock) {
+	public CounselDraftService(
+		CounselClient client,
+		CounselDraftJobRepository jobs,
+		TeacherTenantDatabaseContext tenantContext,
+		Clock clock
+	) {
 		this.client = client;
 		this.jobs = jobs;
+		this.tenantContext = tenantContext;
 		this.clock = clock;
 	}
 
@@ -106,6 +118,31 @@ public class CounselDraftService {
 		if (!jobs.markSent(resolvedTeacherId, jobId, sentText, Instant.now(clock))) {
 			throw CounselException.jobNotFound();
 		}
+	}
+
+	/**
+	 * Re-fetches every locally non-terminal job for this teacher so the stored
+	 * phase does not go stale (§0-3: GET never advances a job, only a POST
+	 * can unstick {@code queued} — this does not do that, it only keeps
+	 * bookkeeping current). Called by {@link CounselDraftPollingJob} — kept on
+	 * this proxied bean rather than a self-invoked method on the caller so
+	 * {@code @Transactional} and the per-teacher RLS context actually apply.
+	 */
+	@Transactional
+	public int refreshNonTerminalJobs(UUID teacherId) {
+		tenantContext.setCurrentTeacher(teacherId);
+		int refreshed = 0;
+		for (var job : jobs.findNonTerminalByTeacher(teacherId)) {
+			try {
+				getDraft(teacherId, job.tenantAlias(), job.jobId(), null);
+				refreshed++;
+			}
+			catch (RuntimeException exception) {
+				log.warn("Counsel draft polling could not refresh job: teacherId={}, jobId={}, errorType={}",
+					teacherId, job.jobId(), exception.getClass().getSimpleName());
+			}
+		}
+		return refreshed;
 	}
 
 	private <T> T call(Supplier<T> aiCall) {
