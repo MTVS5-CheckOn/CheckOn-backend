@@ -126,11 +126,10 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 				ProblemDifficulty.MEDIUM,"studio-kafka-flow-0001")).requestId();
 			String tenantAlias = tenantAlias(requestId);
 			try (Consumer<String,String> consumer = consumer("studio-request-observer-"+UUID.randomUUID())) {
-				consumer.subscribe(List.of(REQUEST_TOPIC));
+				subscribeAndAwaitAssignment(consumer, REQUEST_TOPIC);
 				outboxPublisher.publishPending();
-				var records = KafkaTestUtils.getRecords(consumer,Duration.ofSeconds(10));
-				var childRecords = java.util.stream.StreamSupport.stream(records.records(REQUEST_TOPIC).spliterator(),false)
-					.filter(record -> record.value().contains(requestId.toString())).toList();
+				var childRecords = awaitRecords(consumer, REQUEST_TOPIC,
+					record -> record.value().contains(requestId.toString()), 2, Duration.ofSeconds(10));
 				assertThat(childRecords).hasSize(2);
 				assertThat(childRecords).allSatisfy(record -> {
 					assertThat(record.key()).isEqualTo(tenantAlias);
@@ -163,7 +162,7 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 			UUID requestId = createRequest("kafka-flow-key-0001");
 			String tenantAlias = tenantAlias(requestId);
 			try (Consumer<String, String> requestConsumer = consumer("request-observer-" + UUID.randomUUID())) {
-				requestConsumer.subscribe(List.of(REQUEST_TOPIC));
+				subscribeAndAwaitAssignment(requestConsumer, REQUEST_TOPIC);
 
 				outboxPublisher.publishPending();
 
@@ -219,7 +218,7 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 			UUID requestId = createRequest("kafka-flow-key-0002");
 			String invalidEvent = successEvent(requestId, TEACHER.toString());
 			try (Consumer<String, String> dltConsumer = consumer("dlt-observer-" + UUID.randomUUID())) {
-				dltConsumer.subscribe(List.of(DLT_TOPIC));
+				subscribeAndAwaitAssignment(dltConsumer, DLT_TOPIC);
 
 				kafkaTemplate.send(RESULT_TOPIC, TEACHER.toString(), invalidEvent).get();
 
@@ -261,6 +260,47 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 		properties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
 		properties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
 		return new DefaultKafkaConsumerFactory<String, String>(properties).createConsumer();
+	}
+
+	/**
+	 * A real broker's group-join/rebalance is not instant like the old
+	 * {@code EmbeddedKafkaBroker#consumeFromAnEmbeddedTopic} helper made it
+	 * look. Forcing the initial assignment here -- before the producer sends
+	 * anything -- keeps that latency out of each test's fixed record-wait
+	 * window instead of eating into it.
+	 */
+	private static void subscribeAndAwaitAssignment(Consumer<String, String> consumer, String topic) {
+		consumer.subscribe(List.of(topic));
+		Instant deadline = Instant.now().plusSeconds(10);
+		while (consumer.assignment().isEmpty() && Instant.now().isBefore(deadline)) {
+			consumer.poll(Duration.ofMillis(100));
+		}
+		assertThat(consumer.assignment()).isNotEmpty();
+	}
+
+	/**
+	 * A real broker may deliver a producer's several sends across more than
+	 * one poll batch (unlike the old in-process embedded broker), so a single
+	 * {@code KafkaTestUtils.getRecords} call can race and see only part of
+	 * them. Polling in a loop until enough of *this test's own* records
+	 * (matched by {@code matcher}) have arrived avoids that race without
+	 * caring how many unrelated records other tests left on the shared topic.
+	 */
+	private static List<ConsumerRecord<String, String>> awaitRecords(
+		Consumer<String, String> consumer,
+		String topic,
+		java.util.function.Predicate<ConsumerRecord<String, String>> matcher,
+		int expectedCount,
+		Duration timeout
+	) {
+		List<ConsumerRecord<String, String>> matched = new java.util.ArrayList<>();
+		Instant deadline = Instant.now().plus(timeout);
+		while (matched.size() < expectedCount && Instant.now().isBefore(deadline)) {
+			for (ConsumerRecord<String, String> record : consumer.poll(Duration.ofMillis(200)).records(topic)) {
+				if (matcher.test(record)) matched.add(record);
+			}
+		}
+		return matched;
 	}
 
 	private String tenantAlias(UUID requestId) {
