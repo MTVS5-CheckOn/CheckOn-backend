@@ -5,6 +5,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.checkon.account.infrastructure.security.AuthenticatedAccount;
@@ -79,6 +81,20 @@ public class CounselDraftController {
 	) {
 		var response = service.refine(teacherProfileId(principal), jobId, idempotencyKey, request.instruction(), request.turnNo());
 		return toResponse(response);
+	}
+
+	/**
+	 * Records the text the teacher actually sent through their own channel
+	 * (contract appendix §7) — purely local bookkeeping, no AI call.
+	 */
+	@PostMapping("/{jobId}/sent")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void markSent(
+		@AuthenticationPrincipal AuthenticatedAccount principal,
+		@PathVariable String jobId,
+		@Valid @RequestBody MarkSentRequest request
+	) {
+		service.markSent(teacherProfileId(principal), jobId, request.text());
 	}
 
 	private static GetDraftResponse toResponse(CounselDraftGetResponse response) {
@@ -162,6 +178,9 @@ public class CounselDraftController {
 	}
 
 	public record RefineDraftRequest(@NotBlank String instruction, Integer turnNo) {
+	}
+
+	public record MarkSentRequest(@NotBlank String text) {
 	}
 
 	public record RefineDraftResponse(

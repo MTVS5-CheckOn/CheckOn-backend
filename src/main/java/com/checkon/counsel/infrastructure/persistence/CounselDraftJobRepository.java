@@ -62,6 +62,20 @@ public class CounselDraftJobRepository {
 			.param("teacherId", teacherId).param("jobId", jobId).update();
 	}
 
+	/**
+	 * Records the text the teacher actually sent through their own channel
+	 * (contract appendix §7). Returns {@code false} if no local job row exists
+	 * for this (teacher, jobId).
+	 */
+	public boolean markSent(UUID teacherId, String jobId, String sentText, Instant sentAt) {
+		int updated = jdbc.sql("""
+			UPDATE counsel_draft_jobs SET sent_text = :sentText, sent_at = :sentAt
+			WHERE teacher_id = :teacherId AND job_id = :jobId
+			""").param("sentText", sentText).param("sentAt", time(sentAt))
+			.param("teacherId", teacherId).param("jobId", jobId).update();
+		return updated > 0;
+	}
+
 	public Optional<Job> findByTeacherAndIdempotencyKey(UUID teacherId, String idempotencyKey) {
 		return jdbc.sql("""
 			SELECT id, teacher_id, tenant_alias, inquiry_ref, student_ref, parent_ref, class_ref,

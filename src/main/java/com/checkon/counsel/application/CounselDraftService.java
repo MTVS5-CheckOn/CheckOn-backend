@@ -92,6 +92,22 @@ public class CounselDraftService {
 		));
 	}
 
+	/**
+	 * Records the text the teacher actually sent through their own channel
+	 * (contract appendix §7 — "발송본을 보관해 주세요"). No AI call is involved;
+	 * this is purely local bookkeeping so a human can later compare it against
+	 * the AI's last draft to see what teachers tend to edit.
+	 */
+	@Transactional
+	public void markSent(UUID teacherId, String jobId, String sentText) {
+		UUID resolvedTeacherId = requireTeacher(teacherId);
+		requireText(jobId, "jobId");
+		requireText(sentText, "sentText");
+		if (!jobs.markSent(resolvedTeacherId, jobId, sentText, Instant.now(clock))) {
+			throw CounselException.jobNotFound();
+		}
+	}
+
 	private <T> T call(Supplier<T> aiCall) {
 		try {
 			return aiCall.get();

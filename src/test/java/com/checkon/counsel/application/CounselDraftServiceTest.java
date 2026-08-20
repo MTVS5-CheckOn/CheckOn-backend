@@ -197,6 +197,37 @@ class CounselDraftServiceTest {
 		}
 	}
 
+	@Nested
+	@DisplayName("Given 강사가 발송을 완료했을 때")
+	class GivenMarkingADraftAsSent {
+
+		@Test
+		@DisplayName("When 발송본을 기록하면 Then AI를 호출하지 않고 로컬 잡에 발송 본문을 남긴다")
+		void recordsTheSentTextLocallyWithoutCallingTheAiServer() {
+			when(client.createDraft(any(), any())).thenReturn(succeededResponse());
+			service.createDraft(TEACHER_ID, sampleCommand("iq_888"));
+			org.mockito.Mockito.clearInvocations(client);
+
+			service.markSent(TEACHER_ID, JOB_ID, "어머님, 발송한 실제 문구입니다.");
+
+			verifyNoInteractions(client);
+			Integer sentCount = jdbcTemplate.queryForObject(
+				"SELECT count(*) FROM counsel_draft_jobs WHERE job_id = ? AND sent_text IS NOT NULL",
+				Integer.class, JOB_ID
+			);
+			assertThat(sentCount).isEqualTo(1);
+		}
+
+		@Test
+		@DisplayName("When 존재하지 않는 job을 기록하려 하면 Then JOB_NOT_FOUND로 거절한다")
+		void rejectsMarkingAnUnknownJobAsSent() {
+			assertThatThrownBy(() -> service.markSent(TEACHER_ID, "missing-job", "발송 본문"))
+				.isInstanceOf(CounselException.class)
+				.satisfies(exception -> assertThat(((CounselException) exception).reason())
+					.isEqualTo(CounselException.Reason.JOB_NOT_FOUND));
+		}
+	}
+
 	private CreateCounselDraftCommand sampleCommand(String idempotencyKey) {
 		return new CreateCounselDraftCommand(
 			"tn_demo_teacher", "req-" + idempotencyKey, idempotencyKey, idempotencyKey,

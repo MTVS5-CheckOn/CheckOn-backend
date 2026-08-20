@@ -120,6 +120,11 @@ public class CounselDraftRequestService {
 		return drafts.refine(resolvedTeacherId, command);
 	}
 
+	@Transactional
+	public void markSent(UUID teacherId, String jobId, String sentText) {
+		drafts.markSent(requireTeacher(teacherId), jobId, sentText);
+	}
+
 	private static String newRequestId() {
 		return UUID.randomUUID().toString();
 	}

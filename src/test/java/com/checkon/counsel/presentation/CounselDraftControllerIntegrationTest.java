@@ -196,6 +196,48 @@ class CounselDraftControllerIntegrationTest {
 		}
 	}
 
+	@Nested
+	@DisplayName("Given 강사가 발송을 완료했을 때")
+	class GivenMarkingADraftAsSent {
+
+		@Test
+		@DisplayName("When 발송본을 기록하면 Then 204를 반환하고 로컬 잡에 남긴다")
+		void recordsTheSentText() throws Exception {
+			when(client.createDraft(any(), any())).thenReturn(succeededResponse());
+			mvc.perform(post("/api/v1/counsel/drafts")
+				.with(teacherAuthentication(TEACHER))
+				.header("Idempotency-Key", "iq_890")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(requestBody(STUDENT, CLASS_GROUP, "문의합니다")));
+
+			mvc.perform(post("/api/v1/counsel/drafts/{jobId}/sent", "019846dc-7c00-7000-8000-0000000006a1")
+					.with(teacherAuthentication(TEACHER))
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+						{ "text": "어머님, 실제로 발송한 문구입니다." }
+						"""))
+				.andExpect(status().isNoContent());
+
+			assertThat(jdbc.queryForObject(
+				"SELECT sent_text FROM counsel_draft_jobs WHERE job_id = ?",
+				String.class, "019846dc-7c00-7000-8000-0000000006a1"
+			)).isEqualTo("어머님, 실제로 발송한 문구입니다.");
+		}
+
+		@Test
+		@DisplayName("When 존재하지 않는 job이면 Then 404를 반환한다")
+		void rejectsAnUnknownJob() throws Exception {
+			mvc.perform(post("/api/v1/counsel/drafts/{jobId}/sent", "missing-job")
+					.with(teacherAuthentication(TEACHER))
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+						{ "text": "발송 본문" }
+						"""))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("COUNSEL_JOB_NOT_FOUND"));
+		}
+	}
+
 	private String requestBody(UUID studentId, UUID classId, String text) {
 		return """
 			{
