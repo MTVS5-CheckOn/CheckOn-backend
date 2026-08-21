@@ -232,8 +232,10 @@ public class CounselDraftService {
 	private static CounselException mapHttpError(CounselClientException exception) {
 		Integer status = exception.httpStatus();
 		if (status != null && status >= 400 && status < 500) {
+			log.warn("Counsel AI rejected the request: httpStatus={}, body={}", status, exception.responseBody());
 			return CounselException.invalidRequest("counsel AI rejected the request (HTTP " + status + ")");
 		}
+		log.warn("Counsel AI failed with a server-side error: httpStatus={}, body={}", status, exception.responseBody());
 		return CounselException.upstreamInternalError(exception);
 	}
 

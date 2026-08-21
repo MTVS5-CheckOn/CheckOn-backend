@@ -104,9 +104,20 @@ public class CounselDraftController {
 			response.data().status(),
 			result == null ? null : new GetDraftResponse.DraftResult(
 				result.draftStatus(), result.text(), toCitationViews(result.citations()),
-				result.labelsApplied(), result.statusReason(), result.generatedAt()
+				result.labelsApplied(), result.statusReason(), truncateToSeconds(result.generatedAt())
 			)
 		);
+	}
+
+	/**
+	 * AI-A 2026-08-21: sub-second precision has no meaning here, and Jackson's
+	 * default OffsetDateTime serialization trims trailing fractional zeros
+	 * inconsistently (byte-unstable re-serialization). Truncating to whole
+	 * seconds removes the fractional part entirely instead of trying to pin
+	 * a digit count.
+	 */
+	private static OffsetDateTime truncateToSeconds(OffsetDateTime value) {
+		return value == null ? null : value.truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
 	}
 
 	private static RefineDraftResponse toResponse(CounselDraftRefineResponse response) {
