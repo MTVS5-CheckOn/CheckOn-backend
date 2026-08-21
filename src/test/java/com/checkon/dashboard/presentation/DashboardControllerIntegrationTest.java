@@ -120,6 +120,8 @@ class DashboardControllerIntegrationTest {
 			.andExpect(jsonPath("$.date").value(TODAY.toString()))
 			.andExpect(jsonPath("$.alerts.length()").value(3))
 			.andExpect(jsonPath("$.alerts[0].rank").value(1))
+			.andExpect(jsonPath("$.alerts[0].runId").value(
+				UUID.nameUUIDFromBytes("run:today".getBytes()).toString()))
 			.andExpect(jsonPath("$.alerts[1].rank").value(2))
 			.andExpect(jsonPath("$.alerts[2].rank").value(3))
 			.andExpect(jsonPath("$.alerts[0].ruleId").value("R1"))
@@ -131,6 +133,12 @@ class DashboardControllerIntegrationTest {
 			.andExpect(jsonPath("$.alerts[0].briefFallback").value(false))
 			.andExpect(jsonPath("$.alerts[0].evidence[0].recordId").value("record-today-1"))
 			.andExpect(jsonPath("$.alerts[0].evidence[0].summary").value("근거 today 1"))
+			.andExpect(jsonPath("$.alerts[0].evidence[0].id").isNotEmpty())
+			.andExpect(jsonPath("$.alerts[0].evidence[0].sourceHint").value("learning_records"))
+			.andExpect(jsonPath("$.alerts[0].evidence[0].role").value("trigger"))
+			.andExpect(jsonPath("$.alerts[0].evidence[0].observed").value(0.61))
+			.andExpect(jsonPath("$.alerts[0].evidence[0].sampleSize").value(20))
+			.andExpect(jsonPath("$.alerts[0].evidence[0].occurredOn").value(TODAY.toString()))
 			.andExpect(jsonPath("$.alerts[0].status").value("PENDING_REVIEW"))
 			.andExpect(jsonPath("$.alerts[1].status").value("APPROVED"))
 			.andExpect(jsonPath("$.alerts[2].status").value("REJECTED"))
@@ -393,8 +401,9 @@ class DashboardControllerIntegrationTest {
 			""", signalId, runId, "signal-" + key + ruleId, alias, classRef, ruleId,
 			"hidden_risk", "위험", rank, "브리핑 " + key + " " + suffix, fallback,
 			NOW.atOffset(ZoneOffset.UTC));
-		jdbc.update("INSERT INTO detection_result_evidence(detection_signal_result_id,source_hint,record_id,summary,role) VALUES (?,'learning_records',?,?,'trigger')",
-			signalId, "record-" + key + "-" + suffix, "근거 " + key + " " + suffix);
+		jdbc.update("INSERT INTO detection_result_evidence(detection_signal_result_id,source_hint,record_id,summary,role,observed,sample_size,occurred_on) VALUES (?,'learning_records',?,?,'trigger',0.61,20,?)",
+			signalId, "record-" + key + "-" + suffix, "근거 " + key + " " + suffix,
+			TODAY);
 		String note = status.equals("REJECTED") ? "오경보" : null;
 		Object decidedAt = status.equals("PENDING_REVIEW") ? null : NOW.atOffset(ZoneOffset.UTC);
 		jdbc.update("INSERT INTO engagement_alerts(id,teacher_id,student_id,detection_signal_result_id,status,decision_note,decided_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",

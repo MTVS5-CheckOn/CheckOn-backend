@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -156,6 +157,17 @@ class KafkaDetectionHttpAdapterTest {
 		assertThatThrownBy(() -> adapter.handleRequested(TENANT, requestedEvent()))
 			.isInstanceOf(RiskDetectionClientException.class);
 
+		verify(kafkaTemplate, never()).send(any(), any(), any());
+	}
+
+	@Test
+	@DisplayName("Given Kafka key가 envelope와 다를 때, When requested 이벤트를 처리하면, Then AI를 호출하지 않고 영구 오류를 던진다")
+	void givenMismatchedKafkaKey_whenHandlingRequestedEvent_thenRejectsBeforeAiCall() {
+		assertThatThrownBy(() -> adapter.handleRequested("tn_wrong", requestedEvent()))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessageContaining("Kafka key must equal tenant_alias");
+
+		verifyNoInteractions(client);
 		verify(kafkaTemplate, never()).send(any(), any(), any());
 	}
 

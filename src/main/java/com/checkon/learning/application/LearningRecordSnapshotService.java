@@ -24,6 +24,7 @@ import com.checkon.detection.application.AiDetectionConsentPolicy.Decision;
 import com.checkon.detection.application.DetectionAssignmentWeekSummaryService;
 import com.checkon.detection.application.DetectionAssignmentWeekSummaryService.AssignmentWeekSummary;
 import com.checkon.detection.application.DetectionStudentStatusHistoryService;
+import com.checkon.detection.application.DetectionStudentStatusHistoryService.PauseTransition;
 import com.checkon.detection.application.DetectionStudentStatusHistoryService.ReturnedTransition;
 import com.checkon.detection.application.PrepareDetectionRunService;
 import com.checkon.detection.application.PrepareDetectionRunService.PreparedDetectionRun;
@@ -114,7 +115,9 @@ public class LearningRecordSnapshotService {
 			.stream().sorted(RECORD_ORDER).toList();
 		LocalDate firstEvidenceWeek = weekStart.minusWeeks(EVIDENCE_WEEK_COUNT - 1L);
 		Instant evidenceFrom = firstEvidenceWeek.atStartOfDay(SERVICE_ZONE).toInstant();
-		Instant evidenceTo = weekStart.plusWeeks(1).atStartOfDay(SERVICE_ZONE).toInstant();
+		Instant analysisWeekTo = weekStart.plusWeeks(1).atStartOfDay(SERVICE_ZONE).toInstant();
+		Instant evidenceTo = toExclusive.isBefore(analysisWeekTo)
+			? toExclusive : analysisWeekTo;
 		List<LearningRecord> activityRecords = records
 			.findAllByTeacherIdAndOccurredAtGreaterThanEqualAndOccurredAtLessThan(
 				teacherId, evidenceFrom, evidenceTo)
@@ -149,6 +152,19 @@ public class LearningRecordSnapshotService {
 				aliasByStudent.put(studentId, aliases.getOrCreate(teacherId, studentId));
 			}
 		}
+		List<PauseTransition> pauseTransitions = currentRelationships.isEmpty()
+			? List.of()
+			: statusHistory.findPauseTransitions(
+				teacherId,
+				currentRelationships.values().stream()
+					.map(TeacherStudentRelationship::startedAt)
+					.min(Instant::compareTo)
+					.orElseThrow(),
+				toExclusive
+			);
+		Map<UUID, List<PauseInterval>> pausesByStudent = pauseIntervals(
+			currentRelationships, pauseTransitions, toExclusive
+		);
 		Instant returnWeekFrom = weekStart.atStartOfDay(SERVICE_ZONE).toInstant();
 		Instant returnWeekTo = weekStart.plusWeeks(1).atStartOfDay(SERVICE_ZONE).toInstant();
 		List<ReturnedTransition> returnedTransitions = statusHistory
@@ -175,8 +191,10 @@ public class LearningRecordSnapshotService {
 			LearningRecord latestRecord = latestByStudent.get(studentId);
 			UUID classId = enrollment != null ? enrollment.classGroupId()
 				: latestRecord == null ? null : latestRecord.classGroupId();
-			int weeks = Math.max(0,
-				(int) (Duration.between(relationship.startedAt(), toExclusive).toDays() / 7));
+			int weeks = enrolledWeeks(
+				relationship.startedAt(), toExclusive,
+				pausesByStudent.getOrDefault(studentId, List.of())
+			);
 			String status = relationship.status() == RelationshipStatus.PAUSED
 				? "paused"
 				: returnedStudentIds.contains(studentId) ? "returned" : "enrolled";
@@ -202,7 +220,8 @@ public class LearningRecordSnapshotService {
 			.sorted(Comparator.comparing(AiDetectionRequest.ClassReference::classRef)).toList();
 		List<AiDetectionRequest.DetectionEvidence> evidence = buildDetectionEvidence(
 			firstEvidenceWeek, weekStart, activityRecords, aliasByStudent,
-			currentRelationships, assignmentWindows, returnedTransitions
+			currentRelationships, pausesByStudent, toExclusive,
+			assignmentWindows, returnedTransitions
 		);
 		List<AiDetectionRequest.AlertContext> alertContext = alertContexts
 			.latestByStudentAndSignalType(teacherId).stream()
@@ -228,6 +247,8 @@ public class LearningRecordSnapshotService {
 		List<LearningRecord> activityRecords,
 		Map<UUID, String> aliasByStudent,
 		Map<UUID, TeacherStudentRelationship> currentRelationships,
+		Map<UUID, List<PauseInterval>> pausesByStudent,
+		Instant toExclusive,
 		List<AssignmentWeekSummary> assignmentWindows,
 		List<ReturnedTransition> returnedTransitions
 	) {
@@ -248,11 +269,17 @@ public class LearningRecordSnapshotService {
 			for (int index = 0; index < EVIDENCE_WEEK_COUNT; index++) {
 				LocalDate currentWeek = firstWeek.plusWeeks(index);
 				if (currentWeek.isBefore(firstEligibleWeek)) continue;
+				long enrolledSeconds = enrolledSeconds(
+					currentWeek, currentRelationships.get(studentId).startedAt(), toExclusive,
+					pausesByStudent.getOrDefault(studentId, List.of())
+				);
+				if (enrolledSeconds == 0) continue;
 				evidence.add(AiDetectionRequest.DetectionEvidence.weeklyActivity(
 					STUDENT_WEEK_ACTIVITY,
 					"activity-summary:" + studentRef + ":" + currentWeek,
 					studentRef, currentWeek,
-					activities.getOrDefault(new EvidenceWeek(studentId, currentWeek), 0)
+					activities.getOrDefault(new EvidenceWeek(studentId, currentWeek), 0),
+					enrolledSeconds
 				));
 			}
 		}
@@ -282,6 +309,85 @@ public class LearningRecordSnapshotService {
 		return List.copyOf(evidence);
 	}
 
+	private static Map<UUID, List<PauseInterval>> pauseIntervals(
+		Map<UUID, TeacherStudentRelationship> currentRelationships,
+		List<PauseTransition> transitions,
+		Instant toExclusive
+	) {
+		Map<UUID, List<PauseTransition>> transitionsByStudent = new LinkedHashMap<>();
+		for (PauseTransition transition : transitions) {
+			if (!currentRelationships.containsKey(transition.studentId())) continue;
+			transitionsByStudent.computeIfAbsent(
+				transition.studentId(), ignored -> new ArrayList<>()
+			).add(transition);
+		}
+
+		Map<UUID, List<PauseInterval>> result = new LinkedHashMap<>();
+		for (var entry : currentRelationships.entrySet()) {
+			Instant relationshipStartedAt = entry.getValue().startedAt();
+			Instant pausedAt = null;
+			List<PauseInterval> intervals = new ArrayList<>();
+			for (PauseTransition transition : transitionsByStudent.getOrDefault(
+				entry.getKey(), List.of()
+			)) {
+				if (transition.occurredAt().isBefore(relationshipStartedAt)) continue;
+				if ("paused".equals(transition.toStatus())) {
+					if (pausedAt == null) pausedAt = transition.occurredAt();
+				}
+				else if ("returned".equals(transition.toStatus()) && pausedAt != null) {
+					Instant returnedAt = transition.occurredAt().isAfter(toExclusive)
+						? toExclusive : transition.occurredAt();
+					if (pausedAt.isBefore(returnedAt)) {
+						intervals.add(new PauseInterval(pausedAt, returnedAt));
+					}
+					pausedAt = null;
+				}
+			}
+			if (pausedAt != null && pausedAt.isBefore(toExclusive)) {
+				intervals.add(new PauseInterval(pausedAt, toExclusive));
+			}
+			result.put(entry.getKey(), List.copyOf(intervals));
+		}
+		return Map.copyOf(result);
+	}
+
+	private static int enrolledWeeks(
+		Instant relationshipStartedAt,
+		Instant toExclusive,
+		List<PauseInterval> pauses
+	) {
+		if (!relationshipStartedAt.isBefore(toExclusive)) return 0;
+		Duration activeDuration = Duration.between(relationshipStartedAt, toExclusive);
+		for (PauseInterval pause : pauses) {
+			activeDuration = activeDuration.minus(Duration.between(pause.from(), pause.to()));
+		}
+		return Math.max(0, (int) (activeDuration.toDays() / 7));
+	}
+
+	private static long enrolledSeconds(
+		LocalDate weekStart,
+		Instant relationshipStartedAt,
+		Instant toExclusive,
+		List<PauseInterval> pauses
+	) {
+		Instant weekFrom = weekStart.atStartOfDay(SERVICE_ZONE).toInstant();
+		Instant weekTo = weekStart.plusWeeks(1).atStartOfDay(SERVICE_ZONE).toInstant();
+		Instant activeFrom = relationshipStartedAt.isAfter(weekFrom)
+			? relationshipStartedAt : weekFrom;
+		Instant activeTo = toExclusive.isBefore(weekTo) ? toExclusive : weekTo;
+		if (!activeFrom.isBefore(activeTo)) return 0;
+
+		long seconds = Duration.between(activeFrom, activeTo).getSeconds();
+		for (PauseInterval pause : pauses) {
+			Instant overlapFrom = pause.from().isAfter(activeFrom) ? pause.from() : activeFrom;
+			Instant overlapTo = pause.to().isBefore(activeTo) ? pause.to() : activeTo;
+			if (overlapFrom.isBefore(overlapTo)) {
+				seconds -= Duration.between(overlapFrom, overlapTo).getSeconds();
+			}
+		}
+		return Math.max(0, seconds);
+	}
+
 	private static LocalDate mondayOf(Instant instant) {
 		return instant.atZone(SERVICE_ZONE).toLocalDate()
 			.with(java.time.temporal.TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
@@ -293,6 +399,9 @@ public class LearningRecordSnapshotService {
 	}
 
 	private record EvidenceWeek(UUID studentId, LocalDate weekStart) {
+	}
+
+	private record PauseInterval(Instant from, Instant to) {
 	}
 
 	private static String classRef(UUID id) {

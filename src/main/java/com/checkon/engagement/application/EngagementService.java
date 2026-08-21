@@ -51,9 +51,31 @@ public class EngagementService {
 	@Transactional(readOnly = true)
 	public List<AlertView> list(UUID teacherId, AlertStatus status) {
 		setTenantScope(teacherId);
-		return alerts.findAllByTeacherIdAndStatusOrderByCreatedAtAscIdAsc(
-			teacherId, status
-		).stream().map(this::alertView).toList();
+		return jdbcTemplate.query("""
+			SELECT engagement.id,
+			       engagement.student_id,
+			       engagement.detection_signal_result_id,
+			       signal.detection_run_id,
+			       engagement.status,
+			       engagement.decision_note,
+			       engagement.decided_at,
+			       engagement.created_at
+			FROM engagement_alerts engagement
+			JOIN detection_signal_results signal
+			  ON signal.id = engagement.detection_signal_result_id
+			WHERE engagement.teacher_id = ? AND engagement.status = ?
+			ORDER BY engagement.created_at ASC, engagement.id ASC
+			""", (resultSet, rowNumber) -> new AlertView(
+			resultSet.getObject("id", UUID.class),
+			resultSet.getObject("student_id", UUID.class),
+			resultSet.getObject("detection_signal_result_id", UUID.class),
+			resultSet.getObject("detection_run_id", UUID.class),
+			AlertStatus.valueOf(resultSet.getString("status")),
+			resultSet.getString("decision_note"),
+			resultSet.getTimestamp("decided_at") == null
+				? null : resultSet.getTimestamp("decided_at").toInstant(),
+			resultSet.getTimestamp("created_at").toInstant()
+		), teacherId, status.name());
 	}
 
 	@Transactional(readOnly = true)
@@ -267,9 +289,14 @@ public class EngagementService {
 	}
 
 	private AlertView alertView(EngagementAlert alert) {
+		UUID runId = jdbcTemplate.queryForObject("""
+			SELECT detection_run_id
+			FROM detection_signal_results
+			WHERE id = ?
+			""", UUID.class, alert.detectionSignalResultId());
 		return new AlertView(
 			alert.id(), alert.studentId(), alert.detectionSignalResultId(),
-			alert.status(), alert.decisionNote(), alert.decidedAt(), alert.createdAt()
+			runId, alert.status(), alert.decisionNote(), alert.decidedAt(), alert.createdAt()
 		);
 	}
 
@@ -306,6 +333,7 @@ public class EngagementService {
 		UUID id,
 		UUID studentId,
 		UUID detectionSignalResultId,
+		UUID runId,
 		AlertStatus status,
 		String decisionNote,
 		Instant decidedAt,
