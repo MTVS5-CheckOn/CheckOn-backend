@@ -20,6 +20,7 @@ import com.checkon.counsel.integration.ai.ClassifyClientException;
 import com.checkon.counsel.integration.ai.dto.ClassifyRequest;
 import com.checkon.counsel.integration.ai.dto.ClassifyResponse;
 import com.checkon.counsel.integration.ai.dto.ConfirmationRequest;
+import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 import com.checkon.problem.application.AiProblemAliasService;
 
 /**
@@ -35,6 +36,7 @@ public class InquiryClassificationService {
 	private final InquiryClassificationRepository classifications;
 	private final AiProblemAliasService tenantAliases;
 	private final CounselDraftRequestService drafts;
+	private final TeacherTenantDatabaseContext tenantContext;
 	private final Clock clock;
 
 	public InquiryClassificationService(
@@ -42,18 +44,21 @@ public class InquiryClassificationService {
 		InquiryClassificationRepository classifications,
 		AiProblemAliasService tenantAliases,
 		CounselDraftRequestService drafts,
+		TeacherTenantDatabaseContext tenantContext,
 		Clock clock
 	) {
 		this.client = client;
 		this.classifications = classifications;
 		this.tenantAliases = tenantAliases;
 		this.drafts = drafts;
+		this.tenantContext = tenantContext;
 		this.clock = clock;
 	}
 
 	@Transactional
 	public ClassifyResponse.Data classify(UUID teacherId, String inquiryRef, String rawBodyText) {
 		UUID resolvedTeacherId = requireTeacher(teacherId);
+		tenantContext.setCurrentTeacher(resolvedTeacherId);
 		requireText(inquiryRef, "inquiryRef");
 		requireText(rawBodyText, "text");
 		String tenantAlias = tenantAliases.getOrCreateTenantAlias(resolvedTeacherId);
@@ -98,6 +103,7 @@ public class InquiryClassificationService {
 		CounselUrgency correctedUrgency
 	) {
 		UUID resolvedTeacherId = requireTeacher(teacherId);
+		tenantContext.setCurrentTeacher(resolvedTeacherId);
 		requireText(inquiryRef, "inquiryRef");
 		if (action == null) throw CounselException.invalidRequest("action is required");
 		boolean hasCorrection = correctedTopic != null || correctedSentiment != null || correctedUrgency != null;

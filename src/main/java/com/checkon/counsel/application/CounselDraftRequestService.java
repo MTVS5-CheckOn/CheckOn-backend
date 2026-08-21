@@ -16,6 +16,7 @@ import com.checkon.counsel.infrastructure.persistence.CounselInquiryRepository;
 import com.checkon.counsel.infrastructure.persistence.CounselInquiryRepository.NewInquiry;
 import com.checkon.counsel.integration.ai.dto.CounselDraftGetResponse;
 import com.checkon.counsel.integration.ai.dto.CounselDraftRefineResponse;
+import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 import com.checkon.learning.application.AiStudentAliasService;
 import com.checkon.problem.application.AiProblemAliasService;
 import com.checkon.problem.application.ProblemGenerationPayloadHasher;
@@ -52,6 +53,7 @@ public class CounselDraftRequestService {
 	private final StudentPersonalInformationRepository personalInformation;
 	private final InquiryTextMaskingService masking;
 	private final ProblemGenerationPayloadHasher hasher;
+	private final TeacherTenantDatabaseContext tenantContext;
 	private final ObjectMapper objectMapper;
 	private final Clock clock;
 
@@ -66,6 +68,7 @@ public class CounselDraftRequestService {
 		StudentPersonalInformationRepository personalInformation,
 		InquiryTextMaskingService masking,
 		ProblemGenerationPayloadHasher hasher,
+		TeacherTenantDatabaseContext tenantContext,
 		ObjectMapper objectMapper,
 		Clock clock
 	) {
@@ -79,6 +82,7 @@ public class CounselDraftRequestService {
 		this.personalInformation = personalInformation;
 		this.masking = masking;
 		this.hasher = hasher;
+		this.tenantContext = tenantContext;
 		this.objectMapper = objectMapper;
 		this.clock = clock;
 	}
@@ -86,6 +90,7 @@ public class CounselDraftRequestService {
 	@Transactional
 	public CounselDraftService.CreateCounselDraftResult createDraft(UUID teacherId, CreateCounselInquiryCommand command) {
 		UUID resolvedTeacherId = requireTeacher(teacherId);
+		tenantContext.setCurrentTeacher(resolvedTeacherId);
 		if (command == null) throw CounselException.invalidRequest("request body is required");
 		if (command.studentId() == null || command.classId() == null)
 			throw CounselException.invalidRequest("studentId and classId are required");
@@ -142,6 +147,7 @@ public class CounselDraftRequestService {
 		CounselTopic correctedTopic
 	) {
 		UUID resolvedTeacherId = requireTeacher(teacherId);
+		tenantContext.setCurrentTeacher(resolvedTeacherId);
 		var stored = inquiries.findByTeacherAndInquiryRef(resolvedTeacherId, inquiryRef);
 		if (stored.isEmpty()) return Optional.empty();
 		var inquiry = stored.get();
@@ -158,6 +164,7 @@ public class CounselDraftRequestService {
 	@Transactional
 	public CounselDraftGetResponse getDraft(UUID teacherId, String jobId) {
 		UUID resolvedTeacherId = requireTeacher(teacherId);
+		tenantContext.setCurrentTeacher(resolvedTeacherId);
 		String tenantAlias = tenantAndClassAliases.getOrCreateTenantAlias(resolvedTeacherId);
 		return drafts.getDraft(resolvedTeacherId, tenantAlias, jobId, newRequestId());
 	}
@@ -171,6 +178,7 @@ public class CounselDraftRequestService {
 		Integer turnNo
 	) {
 		UUID resolvedTeacherId = requireTeacher(teacherId);
+		tenantContext.setCurrentTeacher(resolvedTeacherId);
 		String tenantAlias = tenantAndClassAliases.getOrCreateTenantAlias(resolvedTeacherId);
 		var command = new RefineCounselDraftCommand(tenantAlias, newRequestId(), idempotencyKey, jobId, instruction, turnNo);
 		return drafts.refine(resolvedTeacherId, command);
@@ -178,7 +186,9 @@ public class CounselDraftRequestService {
 
 	@Transactional
 	public void markSent(UUID teacherId, String jobId, String sentText) {
-		drafts.markSent(requireTeacher(teacherId), jobId, sentText);
+		UUID resolvedTeacherId = requireTeacher(teacherId);
+		tenantContext.setCurrentTeacher(resolvedTeacherId);
+		drafts.markSent(resolvedTeacherId, jobId, sentText);
 	}
 
 	private static String newRequestId() {

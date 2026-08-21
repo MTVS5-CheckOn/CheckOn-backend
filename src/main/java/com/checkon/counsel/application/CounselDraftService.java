@@ -217,9 +217,24 @@ public class CounselDraftService {
 			throw switch (exception.reason()) {
 				case IDEMPOTENCY_CONFLICT -> CounselException.idempotencyConflict();
 				case NOT_FOUND -> CounselException.jobNotFound();
-				case HTTP_ERROR, EMPTY_RESPONSE, NETWORK_ERROR -> CounselException.upstreamUnavailable(exception);
+				case HTTP_ERROR -> mapHttpError(exception);
+				case EMPTY_RESPONSE, NETWORK_ERROR -> CounselException.upstreamUnavailable(exception);
 			};
 		}
+	}
+
+	/**
+	 * A response from the AI is not the same failure as no response at all.
+	 * A 4xx means our own request was malformed (e.g. a wrong field name) --
+	 * that is on us, not "the AI is unreachable", so it must not collapse into
+	 * the same 502 as a real connectivity failure.
+	 */
+	private static CounselException mapHttpError(CounselClientException exception) {
+		Integer status = exception.httpStatus();
+		if (status != null && status >= 400 && status < 500) {
+			return CounselException.invalidRequest("counsel AI rejected the request (HTTP " + status + ")");
+		}
+		return CounselException.upstreamInternalError(exception);
 	}
 
 	private static CounselDraftCreateRequest toRequest(CreateCounselDraftCommand command) {
