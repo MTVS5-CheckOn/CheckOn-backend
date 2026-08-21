@@ -42,7 +42,7 @@ sequenceDiagram
 | 구분 | 상태 |
 | --- | --- |
 | Backend 부모 요청·child fan-out·Transactional Outbox·결과 consumer | 구현됨 |
-| Backend node provenance·dropped slot projection·3 MiB 초과 정책 | 구현 예정 |
+| Backend node provenance·count 기반 target 선택·dropped slot projection·3 MiB 초과 정책 | 구현됨 |
 | Adapter 기존 problem-generation worker | 이전 AI 계약 기준 구현, 본 문서에 맞춘 변경 필요 |
 | AI generation·job·summary·detail·revision HTTP | AI 팀 기준 커밋에서 구현·테스트됨 |
 | revision BE·Adapter·Frontend 연동 | 영상 MVP 제외 |
@@ -53,16 +53,17 @@ Backend 팀이 같은 commit에서 독립 재실행한 결과로 표현하지 �
 
 ## 3. Step 1 diagnosis와 node 선택
 
-AI diagnosis 응답의 `weakness_map.nodes`가 출제 node 후보의 정본이다. Adapter는 taxonomy catalog,
+AI diagnosis 응답의 `weakness_map.nodes`와 `propagated`가 출제 근거와 역전파 점수의 정본이다. Adapter는 taxonomy catalog,
 `area_tag`, `type_affinity` 또는 정렬 순서로 node를 새로 선택하거나 치환하지 않는다.
 
 Backend의 cell별 선택 규칙은 다음과 같다.
 
-1. 사용자가 선택한 cell과 연결된 node만 후보로 둔다.
-2. 후보 중 `weak_confirmed`가 하나 이상이면 그 tier의 node를 모두 선택한다.
-3. `weak_confirmed`가 없으면 `suspect` tier의 node를 모두 선택한다.
-4. 같은 tier의 node ID는 멱등 payload 직렬화를 위해 사전순으로 정렬한다. 이 정렬은 추천·심각도·교육과정 순위를 뜻하지 않는다.
-5. 두 tier 모두 후보가 없으면 AI를 호출하지 않고 child를 `NO_EVIDENCE_READY_TARGET`로 종결한다.
+1. 사용자가 선택한 cell과 연결된 `weak_confirmed` 직접 근거를 우선한다.
+2. 부족분은 해당 cell의 `weak_confirmed`·`suspect` node를 `from_nodes`로 참조하는 `propagated` root에서 고른다.
+3. `propagated.score` 내림차순, node ID 사전순으로 결정론 정렬한다. AI가 `level`을 노출하면 score 동률의 2순위로 level 오름차순을 추가한다.
+4. 요청한 `count`개만 선택하여 `manual_targets.size() == count`를 보장한다.
+5. AI가 `generation_supported`를 노출하기 전에는 생성 불가로 확인된 `language.grammar.fortition`을 제외한다. 이후에는 `generation_supported=false`인 node를 제외한다.
+6. 출제 가능한 후보가 `count`보다 적으면 AI를 호출하지 않고 child를 `NO_EVIDENCE_READY_TARGET`로 종결한다.
 
 Backend는 child snapshot에 다음 provenance를 저장한다.
 

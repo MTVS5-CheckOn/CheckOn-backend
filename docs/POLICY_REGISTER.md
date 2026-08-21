@@ -562,7 +562,7 @@
 - 구현 상태: `PARTIAL`
 - 근거 수준: `CONVERSATION_CONFIRMED`, `EXTERNAL_CONTRACT`, `FRONTEND_DESIGN`
 - fan-out: backend 부모 요청의 `targets[]`에서 영역×유형 셀 하나당 child execution 하나를 만들고, 별도 adapter가 child별 `POST /v1/problems`를 호출한다. 부모 합계는 최대 20문항이다.
-- v1 target 해석: AI diagnosis의 `weakness_map.nodes`가 node 후보의 정본이다. Backend는 사용자가 선택한 cell과 연결된 후보 중 `weak_confirmed`가 하나 이상이면 해당 tier의 node를 모두 선택하고, 없으면 `suspect` tier의 node를 모두 선택한다. 같은 tier 안에서는 멱등 payload 직렬화를 위해 node ID를 사전순으로 정렬할 뿐 우선순위 의미를 부여하지 않는다. 선택된 `skill_node_id`는 문자열을 바꾸지 않고 child snapshot과 AI `manual_targets`에 보존하며 Adapter가 catalog·`area_tag`·`type_affinity`로 재선택하거나 치환하지 않는다. 두 tier 모두 후보가 없으면 AI를 호출하지 않고 `NO_EVIDENCE_READY_TARGET`로 종결한다.
+- v1 target 해석: AI diagnosis의 `weakness_map.nodes`와 `propagated`가 node 후보·역전파 점수의 정본이다. `weakness_auto`가 배선되기 전 Backend 임시 선택은 사용자가 선택한 cell의 `weak_confirmed` 직접 근거를 우선하고, 부족분은 그 cell의 `weak_confirmed`·`suspect` node를 `from_nodes`로 참조하는 `propagated` root 후보에서 채운다. 후보는 `propagated.score` 내림차순, node ID 사전순으로 결정론 정렬하고 요청한 cell의 `count`개만 선택해 `manual_targets.size() == count`를 보장한다. AI `level`이 배포되면 score 동률의 2순위로 level 오름차순을 추가하며, `generation_supported`가 배포되면 false node를 제외한다. 배포 전에는 AI팀이 생성 불가로 확인한 `language.grammar.fortition`을 임시 제외한다. 선택 수가 count보다 적으면 AI를 호출하지 않고 `NO_EVIDENCE_READY_TARGET`로 종결한다. 선택된 node ID는 문자열을 바꾸지 않고 child snapshot과 AI `manual_targets`에 보존하며 Adapter가 재선택하거나 치환하지 않는다.
 - 진단 provenance: Backend는 선택 node와 함께 diagnosis의 `weakness_map.snapshot_hash`·`taxonomy_version`을 문제 생성 요청까지 그대로 보존한다. `graph_version`·`config_version`은 provenance로 저장하되 `POST /v1/problems` body에는 보내지 않는다. 저장 버전과 현재 배포 버전이 달라도 node를 임의 migration하지 않고 재진단 또는 별도 승인된 migration을 사용한다.
 - child 식별: `problem_request_id`, `problem_execution_id`, `target_index`, `adapter_execution_id`, AI `execution_id`·`job_id`·`set_id`를 분리한다. AI ID는 부모 단일 컬럼이 아니라 child별로 보존한다. `X-Request-Id` echo는 추적 보조값일 뿐 소유권·상관관계의 정본이 아니다.
 - 상태 집계: child가 하나라도 실행 중이면 부모 `RUNNING`, 전부 종단이고 성공 문항이 있으면서 실패 child가 없으면 `SUCCEEDED`, 성공 문항과 실패 child가 함께 있으면 `PARTIAL_SUCCESS`, 성공 문항이 없고 실패가 있으면 `FAILED`로 집계한다. 전부 `rejected_insufficient`인 0건 결과는 업무상 완료로 취급한다.
@@ -578,7 +578,7 @@
 - alias 검증: Adapter는 AI HTTP 호출 전에 tenant `tn_`, student target `st_`, class target `cl_` 형식을 검증한다. 내부 UUID·실명·연락처는 Kafka와 AI HTTP에 전달하지 않는다.
 - 기능별 예외: 21분 polling, 셀별 child fan-out, 3 MiB 이하 normalized child 결과, 부모 `PARTIAL_SUCCESS`, 교사 선택·저장·발행은 문제 출제 전용이며 위험탐지 공통 계약으로 확장하지 않는다.
 - 남은 운영 차단: AI 요청·결과 저장소의 인메모리 구조와 신규 HTTP endpoint 배포 파이프라인은 운영 전 해소해야 한다. HTTP 인증은 v1 내부망 전제이며 망 경계가 바뀌면 별도 계약을 추가한다.
-- 마지막 검증일: 2026-08-14
+- 마지막 검증일: 2026-08-19
 
 ### Frontend·UX
 
@@ -731,6 +731,7 @@
 | 2026-08-20 | requested envelope 영구 오류를 Backend fallback Adapter 재시도에서 제외하고, `weekly_activity` 조회 상한을 스냅숏 종료 시각으로 제한 | Adapter·listener·스냅숏 단위 테스트와 Detection PostgreSQL HTTP 통합 테스트 32건 통과 |
 | 2026-08-20 | Alert 목록·판단·브리핑에 `runId`, Detection run 조회에 `snapshotHash`·`aiExecutionId`, 브리핑에 구조화 Evidence를 노출 | Engagement·Dashboard·Detection PostgreSQL HTTP 테스트 29건과 OpenAPI 계약 테스트 4건 통과, 통합 JSON 번들 파싱·필수 필드 확인 |
 | 2026-08-20 | 완전 휴원 주의 `weekly_activity` 생략, 전이 주의 실제 관측 유지, 휴원 기간을 제외한 `enrolled_weeks` 계산 정책을 확정·구현 | 스냅숏 BDD 단위 테스트와 Detection HTTP PostgreSQL 통합 테스트 통과 |
+| 2026-08-19 | PG-005의 Backend 임시 node 선택을 `count` 일치·`propagated.score` 우선순위·생성 불가 node 제외 정책으로 변경하고 근거 부족 시 AI 호출 전 종결을 구현 | node 선택 BDD 단위 테스트와 Problem Studio PostgreSQL HTTP 통합 테스트 통과 |
 | 2026-08-14 | AI commit `7bc3d6592c6ccd48432ba941053a0673a922dca6` 회신을 반영해 diagnosis node 선택·provenance, `Retry-After`, 3 MiB 초과 fail-closed, dropped slot projection, revision MVP 제외, opaque alias 검증 정책을 PG-003~005에 확정 | AI 회신·현재 Backend 정책·Adapter 경계를 정적 대조. 코드·Flyway·테스트는 변경하지 않음 |
 | 2026-08-13 | AI 팀 17명 시연 시드를 수동 데모 스크립트로 등록하고 R1~R6 근거, 정확한 10주 창, 수동 term context, 최근 실행 조회, Kafka 6 MiB·zstd 정책을 구현 | 시드 정적 계약, KST 10주 경계, R2·R5 근거, paused 상태, term context, 최근 run, Kafka 런타임 설정 집중 검증 및 전체 258건 Gradle build 통과 |
 | 2026-08-13 | ROS-004 휴원·복귀 상태 전이와 R5 복귀 근거 생성 정책을 확정·구현 | 휴원·복귀·테넌트 격리 PostgreSQL 통합 테스트, R5 snapshot 단위 테스트, OpenAPI·Flyway 계약 및 전체 251건 테스트 통과 |

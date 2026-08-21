@@ -181,6 +181,10 @@ class ProblemStudioControllerIntegrationTest {
 			assertThat(childPayloads).allSatisfy(payload -> assertThat(payload)
 				.contains("problem_execution_id", "target_index", "teacher_manual")
 				.doesNotContain("teacher_weakness_selection", "\"area_tag\": \"mixed\""));
+			assertThat(childPayloads).satisfiesExactly(
+				payload -> assertThat(objectMapper.readTree(payload).at("/payload/request/manual_targets").size()).isEqualTo(3),
+				payload -> assertThat(objectMapper.readTree(payload).at("/payload/request/manual_targets").size()).isEqualTo(2)
+			);
 			String requestPayload = jdbc.queryForObject(
 				"SELECT request_payload::text FROM problem_generation_requests WHERE id = ?",
 				String.class, requestId);
@@ -287,6 +291,35 @@ class ProblemStudioControllerIntegrationTest {
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM problem_generation_requests", Integer.class)).isZero();
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM problem_generation_outbox", Integer.class)).isZero();
 		}
+
+		@Test
+		@DisplayName("When 요청 개수만큼 출제 node를 확보하지 못하면 Then AI 호출 없이 근거 부족으로 종결한다")
+		void rejectsTargetWhenEvidenceIsFewerThanCount() throws Exception {
+			UUID diagnosisId = diagnose();
+
+			MvcResult result = mvc.perform(post("/api/v1/problem-studio/requests")
+					.with(teacherAuthentication(TEACHER))
+					.header("Idempotency-Key", "studio-request-key-insufficient")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+						{"studentId":"%s","diagnosisId":"%s","targets":[
+						 {"areaTag":"language","typeTag":"INFER","count":3}
+						],"difficulty":"MEDIUM"}
+						""".formatted(STUDENT, diagnosisId)))
+				.andExpect(status().isAccepted())
+				.andExpect(jsonPath("$.status").value("FAILED"))
+				.andReturn();
+			UUID requestId = UUID.fromString(objectMapper.readTree(
+				result.getResponse().getContentAsString()).get("requestId").asText());
+
+			assertThat(jdbc.queryForObject("""
+				SELECT count(*) FROM problem_generation_executions
+				WHERE problem_request_id = ? AND status = 'REJECTED_INSUFFICIENT'
+				""", Integer.class, requestId)).isEqualTo(1);
+			assertThat(jdbc.queryForObject("""
+				SELECT count(*) FROM problem_generation_outbox WHERE problem_request_id = ?
+				""", Integer.class, requestId)).isZero();
+		}
 	}
 
 	@Test
@@ -382,7 +415,10 @@ class ProblemStudioControllerIntegrationTest {
 	private String diagnosisResponse(String request) throws Exception { String hash=objectMapper.readTree(request).get("snapshot_hash").asText(); return """
 		{"data":{"status":"generated","status_reason":null,"weakness_map":{"graph_version":"graph-v1","taxonomy_version":"v1",
 		"config_version":"config-v1","snapshot_hash":"%s",
-		"nodes":{"node.concept":{"verdict":"suspect","basis":["cell:language×concept"]},"node.infer":{"verdict":"suspect","basis":["cell:language×infer"]}}},
+		"nodes":{"node.concept":{"verdict":"suspect","basis":["cell:language×concept"]},"node.infer":{"verdict":"suspect","basis":["cell:language×infer"]}},
+		"propagated":{"concept.root.1":{"score":3.0,"from_nodes":["node.concept"]},
+		"concept.root.2":{"score":2.0,"from_nodes":["node.concept"]},"concept.root.3":{"score":1.0,"from_nodes":["node.concept"]},
+		"infer.root.1":{"score":3.0,"from_nodes":["node.infer"]},"infer.root.2":{"score":2.0,"from_nodes":["node.infer"]}}},
 		"grid":{"cell_min_items":10,"cells":[{"area_tag":"language","type_tag":"concept","acc":0.8,"n":10,"verdict":"ok"},
 		{"area_tag":"language","type_tag":"infer","acc":0.2,"n":10,"verdict":"weak"}]}}}
 		""".formatted(hash); }

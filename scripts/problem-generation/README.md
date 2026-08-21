@@ -77,3 +77,5 @@ PostgreSQL과 Kafka는 빠른 재실행을 위해 유지한다.
 dev 프로필의 테스트 인증을 사용하므로 로컬 API 요청에는 Authorization 헤더를 넣지 않는다.
 씨드 과정은 공통 위험탐지 데모 principal·학생·반도 멱등하게 준비하고,
 `source_type=problem-studio-e2e`인 기존 학습 기록만 교체한다.
+문제 출제 진단에서는 `language/concept`를 12건 중 10건 정답,
+`language/infer`를 12건 중 2건 정답으로 구성해 INFER 약점이 드러나게 한다.

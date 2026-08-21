@@ -127,21 +127,22 @@ public class ProblemGenerationRequestService {
 		if (!studioTargets.isEmpty()) {
 			List<UUID> targetIds = studioWorkflow.insertTargets(teacherId, requestId, studioTargets);
 			List<UUID> childIds = ids.nextIds(studioTargets.size() * 2);
-			List<ProblemDiagnosisNodeSelector.NodeCandidate> candidates=diagnosisCandidates(diagnosis);
+			DiagnosisCandidates candidates=diagnosisCandidates(diagnosis);
 			int rejected=0;
 			for (int index = 0; index < studioTargets.size(); index++) {
 				UUID executionId = childIds.get(index * 2);
 				UUID childEventId = childIds.get(index * 2 + 1);
 				String childKey = "pgc_" + compact(executionId);
 				var target=studioTargets.get(index);
-				List<String> nodes=nodeSelector.select(target.areaTag(),target.typeTag().name(),candidates);
+				List<String> nodes=nodeSelector.select(target.areaTag(),target.typeTag().name(),target.count(),
+					candidates.nodes(),candidates.propagated());
 				LinkedHashMap<String,Object> childRequest = buildStudioChildPayload(command, targetRef, target, diagnosis, nodes);
 				String childHash = hasher.sha256(writeJson(childRequest));
 				childRequest.put("snapshot_hash", childHash);
 				String childSnapshot = writeJson(childRequest);
 				NewExecution execution=new NewExecution(executionId, teacherId, requestId, targetIds.get(index), index,
 					childKey, childHash, childSnapshot, now);
-				if(nodes.isEmpty()) { executions.insertRejected(execution,"NO_EVIDENCE_READY_TARGET"); rejected++; }
+				if(nodes.size()!=target.count()) { executions.insertRejected(execution,"NO_EVIDENCE_READY_TARGET"); rejected++; }
 				else {
 					executions.insert(execution);
 					String childEvent = writeJson(buildChildEnvelope(childEventId, requestId, executionId, index,
@@ -316,15 +317,23 @@ public class ProblemGenerationRequestService {
 		);
 		return new StudioCommand(normalized, List.copyOf(targets));
 	}
-	private List<ProblemDiagnosisNodeSelector.NodeCandidate> diagnosisCandidates(Snapshot diagnosis) {
+	private DiagnosisCandidates diagnosisCandidates(Snapshot diagnosis) {
 		try {
 			var root=objectMapper.readTree(diagnosis.responsePayload());
-			var nodes=root.get("data").get("weakness_map").get("nodes");
+			var map=root.get("data").get("weakness_map");
+			var nodes=map.get("nodes");
 			List<ProblemDiagnosisNodeSelector.NodeCandidate> result=new ArrayList<>();
 			nodes.properties().forEach(entry->{ var node=entry.getValue(); List<String> basis=new ArrayList<>();
 				var basisNode=node.get("basis"); if(basisNode!=null&&basisNode.isArray()) for(var value:basisNode) if(value.isTextual()) basis.add(value.asText());
 				result.add(new ProblemDiagnosisNodeSelector.NodeCandidate(entry.getKey(),node.get("verdict").asText(),List.copyOf(basis))); });
-			return List.copyOf(result);
+			List<ProblemDiagnosisNodeSelector.PropagatedCandidate> propagated=new ArrayList<>();
+			var propagatedNode=map.get("propagated");
+			if(propagatedNode!=null&&propagatedNode.isObject()) propagatedNode.properties().forEach(entry->{
+				var value=entry.getValue(); List<String> fromNodes=new ArrayList<>(); var from=value.get("from_nodes");
+				if(from!=null&&from.isArray()) for(var node:from) if(node.isTextual()) fromNodes.add(node.asText());
+				var score=value.get("score"); propagated.add(new ProblemDiagnosisNodeSelector.PropagatedCandidate(
+					entry.getKey(),score!=null&&score.isNumber()?score.decimalValue():null,List.copyOf(fromNodes))); });
+			return new DiagnosisCandidates(List.copyOf(result),List.copyOf(propagated));
 		}
 		catch(RuntimeException exception) { throw ProblemGenerationException.invalidState("stored diagnosis contract is invalid"); }
 	}
@@ -377,4 +386,6 @@ public class ProblemGenerationRequestService {
 	private record NormalizedCommand(ProblemTargetKind targetKind, UUID targetId, List<String> manualTargets,
 		String taxonomyVersion, List<String> typeTags, int count, String requestedDifficulty, String clientIdempotencyKey) { }
 	private record StudioCommand(NormalizedCommand command, List<CreateProblemStudioCommand.Target> targets) { }
+	private record DiagnosisCandidates(List<ProblemDiagnosisNodeSelector.NodeCandidate> nodes,
+		List<ProblemDiagnosisNodeSelector.PropagatedCandidate> propagated) { }
 }

@@ -146,7 +146,10 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 			String response="""
 				{"data":{"status":"generated","weakness_map":{"graph_version":"graph-v1","taxonomy_version":"v1","config_version":"config-v1",
 				"snapshot_hash":"%s","nodes":{"node.concept":{"verdict":"suspect","basis":["cell:language×concept"]},
-				"node.infer":{"verdict":"suspect","basis":["cell:language×infer"]}}}}}
+				"node.infer":{"verdict":"suspect","basis":["cell:language×infer"]}},
+				"propagated":{"concept.root.1":{"score":3.0,"from_nodes":["node.concept"]},
+				"concept.root.2":{"score":2.0,"from_nodes":["node.concept"]},"concept.root.3":{"score":1.0,"from_nodes":["node.concept"]},
+				"infer.root.1":{"score":3.0,"from_nodes":["node.infer"]},"infer.root.2":{"score":2.0,"from_nodes":["node.infer"]}}}}}
 				""".formatted(hash);
 			jdbc.update("""
 				INSERT INTO problem_diagnosis_snapshots(id,teacher_id,student_id,student_ref,status,snapshot_hash,taxonomy_version,
