@@ -206,37 +206,138 @@
                                                                                    }
                                                                 },
                                        "DetectionRunStatusResponse":  {
-                                                                          "type":  "object",
-                                                                          "required":  [
-                                                                                           "runId",
-                                                                                           "status",
-                                                                                           "analysisDate",
-                                                                                           "attemptCount",
-                                                                                           "errorCode"
-                                                                                       ],
-                                                                          "properties":  {
-                                                                                             "runId":  {
-                                                                                                           "type":  "string",
-                                                                                                           "format":  "uuid"
-                                                                                                       },
-                                                                                             "status":  {
-                                                                                                            "$ref":  "#/components/schemas/DetectionRunStatus"
-                                                                                                        },
-                                                                                             "analysisDate":  {
-                                                                                                                  "type":  "string",
-                                                                                                                  "format":  "date"
-                                                                                                              },
-                                                                                             "attemptCount":  {
-                                                                                                                  "type":  "integer",
-                                                                                                                  "format":  "int32",
-                                                                                                                  "minimum":  0
-                                                                                                              },
-                                                                                             "errorCode":  {
-                                                                                                               "type":  "string",
-                                                                                                               "nullable":  true
-                                                                                                           }
-                                                                                         }
-                                                                      },
+        "type": "object",
+        "required": [
+          "runId",
+          "status",
+          "analysisDate",
+          "snapshotHash",
+          "aiExecutionId",
+          "attemptCount",
+          "errorCode",
+          "stats"
+        ],
+        "properties": {
+          "runId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DetectionRunStatus"
+          },
+          "analysisDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "snapshotHash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "description": "Backend가 저장한 canonical AI 요청 스냅숏 해시"
+          },
+          "aiExecutionId": {
+            "type": "string",
+            "nullable": true,
+            "description": "성공한 AI 실행 원장 식별자. 실행 전 또는 실패 시 null"
+          },
+          "attemptCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "stats": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DetectionRunStats"
+              }
+            ],
+            "nullable": true,
+            "description": "성공 결과가 저장되기 전에는 null. rulesSkipped로 신호 0건과 규칙 실행 불가를 구분한다."
+          }
+        }
+      },
+                                       "DetectionRunStats":  {
+        "type": "object",
+        "required": [
+          "studentsEvaluated",
+          "signalsRaised",
+          "excludedUnderTwoWeeks",
+          "cappedOut",
+          "rulesSkipped",
+          "r1ThresholdPp",
+          "r1ThresholdSource",
+          "r1PoolN"
+        ],
+        "properties": {
+          "studentsEvaluated": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "signalsRaised": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "excludedUnderTwoWeeks": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "cappedOut": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "rulesSkipped": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkippedDetectionRule"
+            }
+          },
+          "r1ThresholdPp": {
+            "type": "number",
+            "nullable": true,
+            "description": "R1 판정에 사용된 정확도 하락 임계값(퍼센트포인트). 기존 응답에는 없을 수 있다."
+          },
+          "r1ThresholdSource": {
+            "type": "string",
+            "nullable": true,
+            "description": "R1 임계값 산출 방식. AI 진단 메타데이터를 그대로 반환한다."
+          },
+          "r1PoolN": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0,
+            "nullable": true,
+            "description": "R1 임계값 산출에 사용된 테넌트 풀 표본 수."
+          }
+        }
+      },
+                                       "SkippedDetectionRule":  {
+        "type": "object",
+        "required": [
+          "ruleId",
+          "reason",
+          "students"
+        ],
+        "properties": {
+          "ruleId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "students": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
                                        "DetectionRunStatus":  {
                                                                   "type":  "string",
                                                                   "enum":  [

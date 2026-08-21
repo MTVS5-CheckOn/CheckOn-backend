@@ -60,6 +60,8 @@ public class DetectionRunQueryService {
 			run.id(),
 			run.status(),
 			run.analysisDate(),
+			run.snapshotHash(),
+			run.aiExecutionId(),
 			run.attempts().size(),
 			run.errorCode(),
 			readStats(run.responseStatsPayload())
@@ -113,6 +115,8 @@ public class DetectionRunQueryService {
 		UUID runId,
 		DetectionRunStatus status,
 		LocalDate analysisDate,
+		String snapshotHash,
+		String aiExecutionId,
 		int attemptCount,
 		String errorCode,
 		DetectionRunStatsView stats

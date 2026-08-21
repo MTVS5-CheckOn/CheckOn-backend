@@ -75,6 +75,7 @@ public class DetectionRunController {
 		var result = queryService.find(authenticatedAccount.teacherProfileId(), runId);
 		return new DetectionRunStatusResponse(
 			result.runId(), result.status(), result.analysisDate(),
+			result.snapshotHash(), result.aiExecutionId(),
 			result.attemptCount(), result.errorCode(), result.stats()
 		);
 	}
@@ -86,6 +87,7 @@ public class DetectionRunController {
 		var result = queryService.findLatest(authenticatedAccount.teacherProfileId());
 		return new DetectionRunStatusResponse(
 			result.runId(), result.status(), result.analysisDate(),
+			result.snapshotHash(), result.aiExecutionId(),
 			result.attemptCount(), result.errorCode(), result.stats()
 		);
 	}
@@ -109,6 +111,8 @@ public class DetectionRunController {
 		UUID runId,
 		DetectionRunStatus status,
 		LocalDate analysisDate,
+		String snapshotHash,
+		String aiExecutionId,
 		int attemptCount,
 		String errorCode,
 		DetectionRunStatsView stats

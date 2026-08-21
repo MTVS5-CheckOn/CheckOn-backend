@@ -51,6 +51,7 @@ public class DashboardBriefingService {
 		List<Alert> alerts = jdbcTemplate.query(
 			"""
 				SELECT alert.id AS alert_id,
+				       run.id AS run_id,
 				       alert.student_id,
 				       personal.real_name AS student_name,
 				       class_group.name AS class_name,
@@ -62,8 +63,14 @@ public class DashboardBriefingService {
 				       signal.fallback_used,
 				       alert.status,
 				       alert.created_at,
+				       evidence.id AS evidence_id,
+				       evidence.source_hint,
 				       evidence.record_id,
-				       evidence.summary
+				       evidence.summary,
+				       evidence.role,
+				       evidence.observed AS evidence_observed,
+				       evidence.sample_size AS evidence_sample_size,
+				       evidence.occurred_on
 				FROM engagement_alerts alert
 				JOIN detection_signal_results signal
 				  ON signal.id = alert.detection_signal_result_id
@@ -162,6 +169,7 @@ public class DashboardBriefingService {
 			UUID alertId = resultSet.getObject("alert_id", UUID.class);
 			AlertAccumulator alert = rows.computeIfAbsent(alertId, ignored -> new AlertAccumulator(
 				alertId,
+				resultSetUuid(resultSet, "run_id"),
 				resultSetUuid(resultSet, "student_id"),
 				resultSetString(resultSet, "student_name"),
 				resultSetString(resultSet, "class_name"),
@@ -175,7 +183,14 @@ public class DashboardBriefingService {
 				resultSetInstant(resultSet, "created_at")
 			));
 			alert.evidence().add(new Evidence(
-				resultSet.getString("record_id"), resultSet.getString("summary")
+				resultSet.getObject("evidence_id", UUID.class),
+				resultSet.getString("source_hint"),
+				resultSet.getString("record_id"),
+				resultSet.getString("summary"),
+				resultSet.getString("role"),
+				resultSet.getBigDecimal("evidence_observed"),
+				resultSet.getObject("evidence_sample_size", Integer.class),
+				resultSet.getObject("occurred_on", LocalDate.class)
 			));
 		}
 		return rows.values().stream().map(AlertAccumulator::toAlert).toList();
@@ -207,21 +222,21 @@ public class DashboardBriefingService {
 	}
 
 	private record AlertAccumulator(
-		UUID alertId, UUID studentId, String studentName, String className, String ruleId,
+		UUID alertId, UUID runId, UUID studentId, String studentName, String className, String ruleId,
 		String signalType, String displayLabel, int rank, String brief, boolean briefFallback,
 		String status, Instant createdAt, List<Evidence> evidence
 	) {
 		AlertAccumulator(
-			UUID alertId, UUID studentId, String studentName, String className, String ruleId,
+			UUID alertId, UUID runId, UUID studentId, String studentName, String className, String ruleId,
 			String signalType, String displayLabel, int rank, String brief, boolean briefFallback,
 			String status, Instant createdAt
 		) {
-			this(alertId, studentId, studentName, className, ruleId, signalType, displayLabel,
+			this(alertId, runId, studentId, studentName, className, ruleId, signalType, displayLabel,
 				rank, brief, briefFallback, status, createdAt, new ArrayList<>());
 		}
 
 		Alert toAlert() {
-			return new Alert(alertId, studentId, studentName, className, ruleId, signalType,
+			return new Alert(alertId, runId, studentId, studentName, className, ruleId, signalType,
 				displayLabel, rank, brief, briefFallback, status, createdAt, List.copyOf(evidence));
 		}
 	}

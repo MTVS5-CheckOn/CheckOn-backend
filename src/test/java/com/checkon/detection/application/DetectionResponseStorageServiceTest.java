@@ -423,7 +423,7 @@ class DetectionResponseStorageServiceTest {
 			LocalDate occurredOn = LocalDate.of(2026, 7, 13).plusWeeks(index);
 			String recordId = "activity:st_10:" + occurredOn;
 			requestEvidence.add(AiDetectionRequest.DetectionEvidence.weeklyActivity(
-				"student_week_activity", recordId, "st_10", occurredOn, index
+				"student_week_activity", recordId, "st_10", occurredOn, index, 604800
 			));
 			responseEvidence.add(new AiDetectionResponse.Evidence(
 				"student_week_activity", recordId, "정답률 근거", "trigger",
@@ -459,7 +459,7 @@ class DetectionResponseStorageServiceTest {
 			LocalDate occurredOn = LocalDate.of(2026, 7, 20).plusWeeks(index);
 			String recordId = "activity:st_10:" + occurredOn;
 			requestEvidence.add(AiDetectionRequest.DetectionEvidence.weeklyActivity(
-				"student_week_activity", recordId, "st_10", occurredOn, index
+				"student_week_activity", recordId, "st_10", occurredOn, index, 604800
 			));
 			responseEvidence.add(new AiDetectionResponse.Evidence(
 				"student_week_activity", recordId, "학습 활동 근거", "trigger",
@@ -495,7 +495,7 @@ class DetectionResponseStorageServiceTest {
 			LocalDate occurredOn = LocalDate.of(2026, 6, 29).plusWeeks(index);
 			String recordId = "activity:st_10:" + occurredOn;
 			requestEvidence.add(AiDetectionRequest.DetectionEvidence.weeklyActivity(
-				"student_week_activity", recordId, "st_10", occurredOn, index
+				"student_week_activity", recordId, "st_10", occurredOn, index, 604800
 			));
 			responseEvidence.add(new AiDetectionResponse.Evidence(
 				"student_week_activity", recordId, "학습 활동 근거",

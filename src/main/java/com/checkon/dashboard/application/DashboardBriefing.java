@@ -1,7 +1,8 @@
 package com.checkon.dashboard.application;
 
-import java.time.LocalDate;
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -10,6 +11,7 @@ public record DashboardBriefing(
 ) {
 	public record Alert(
 		UUID alertId,
+		UUID runId,
 		UUID studentId,
 		String studentName,
 		String className,
@@ -25,7 +27,16 @@ public record DashboardBriefing(
 	) {
 	}
 
-	public record Evidence(String recordId, String summary) {
+	public record Evidence(
+		UUID id,
+		String sourceHint,
+		String recordId,
+		String summary,
+		String role,
+		BigDecimal observed,
+		Integer sampleSize,
+		LocalDate occurredOn
+	) {
 	}
 
 	public record Todo(

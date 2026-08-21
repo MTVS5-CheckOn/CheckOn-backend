@@ -91,6 +91,33 @@ checkon:
         outbox-publish-timeout: ${AI_PROBLEM_OUTBOX_PUBLISH_TIMEOUT:10s}
         stale-claim-after: ${AI_PROBLEM_STALE_CLAIM_AFTER:1m}
         outbox-poll-delay: ${AI_PROBLEM_OUTBOX_POLL_DELAY:1s}
+    counsel:
+      adapter-base-url: ${AI_COUNSEL_ADAPTER_BASE_URL:http://localhost:8081}
+      drafts-path: ${AI_COUNSEL_DRAFTS_PATH:/v1/counsel/drafts}
+      connect-timeout: ${AI_COUNSEL_CONNECT_TIMEOUT:2s}
+      # AI-A 2026-08-20 타임아웃권고 실측(배포 반영됨): GET은 잡을 돌리지
+      # 않고 현재 phase만 읽으므로 짧게 둔다 — 콜드 터널 왕복 최악 0.93초에
+      # 약 10배 여유.
+      get-read-timeout: ${AI_COUNSEL_GET_READ_TIMEOUT:10s}
+      # refine은 여전히 동기 LLM 호출이다(배경 워커로 옮긴 건 생성뿐) — 실측
+      # 8.17초, 최악 콜당 90초 재생성까지 감안해 04 §1-1의 480초를 그대로
+      # 유지한다. 절대 낮추지 말 것("일괄로 내리시면 refine이 터집니다").
+      refine-read-timeout: ${AI_COUNSEL_REFINE_READ_TIMEOUT:480s}
+    classify:
+      adapter-base-url: ${AI_CLASSIFY_ADAPTER_BASE_URL:http://localhost:8081}
+      classify-path: ${AI_CLASSIFY_PATH:/v1/classify}
+      confirmations-path: ${AI_CONFIRMATIONS_PATH:/v1/confirmations}
+      connect-timeout: ${AI_CLASSIFY_CONNECT_TIMEOUT:2s}
+      # classify/confirmations는 counsel과 달리 잡 폴링이 없는 단발 동기 호출이라
+      # 짧은 타임아웃으로 충분하다.
+      read-timeout: ${AI_CLASSIFY_READ_TIMEOUT:30s}
+  counsel:
+    polling:
+      # GET은 잡을 돌리지 않으므로(§0-3) 이 폴링은 queued를 풀지 않는다 — 로컬
+      # job_phase가 오래된 상태로 남지 않게 갱신만 한다. 테스트마다 AI 클라이언트를
+      # 호출하지 않도록 기본은 꺼둔다.
+      enabled: ${COUNSEL_POLLING_ENABLED:false}
+      interval: ${COUNSEL_POLLING_INTERVAL:30s}
   kafka:
     risk-detection:
       enabled: ${CHECKON_KAFKA_ENABLED:true}
@@ -107,3 +134,15 @@ checkon:
       producer-send-timeout: ${RISK_DETECTION_PRODUCER_SEND_TIMEOUT:10s}
       outbox-batch-size: ${RISK_DETECTION_OUTBOX_BATCH_SIZE:20}
       outbox-max-attempts: ${RISK_DETECTION_OUTBOX_MAX_ATTEMPTS:8}
+    counsel-draft:
+      enabled: ${COUNSEL_DRAFT_KAFKA_ENABLED:true}
+      requested-topic: ${COUNSEL_DRAFT_REQUESTED_TOPIC:checkon.counsel-draft.requested.v1}
+      completed-topic: ${COUNSEL_DRAFT_COMPLETED_TOPIC:checkon.counsel-draft.completed.v1}
+      failed-topic: ${COUNSEL_DRAFT_FAILED_TOPIC:checkon.counsel-draft.failed.v1}
+      consumer-group-id: ${COUNSEL_DRAFT_CONSUMER_GROUP:checkon-backend-counsel-draft-v1}
+      outbox-poll-delay: ${COUNSEL_DRAFT_OUTBOX_POLL_DELAY:1s}
+      outbox-lock-timeout: ${COUNSEL_DRAFT_OUTBOX_LOCK_TIMEOUT:30s}
+      outbox-retry-delay: ${COUNSEL_DRAFT_OUTBOX_RETRY_DELAY:5s}
+      producer-send-timeout: ${COUNSEL_DRAFT_PRODUCER_SEND_TIMEOUT:10s}
+      outbox-batch-size: ${COUNSEL_DRAFT_OUTBOX_BATCH_SIZE:20}
+      outbox-max-attempts: ${COUNSEL_DRAFT_OUTBOX_MAX_ATTEMPTS:8}

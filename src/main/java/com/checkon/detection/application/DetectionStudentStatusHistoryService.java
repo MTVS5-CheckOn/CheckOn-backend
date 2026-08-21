@@ -54,7 +54,41 @@ public class DetectionStudentStatusHistoryService {
 		), teacherId, Timestamp.from(fromInclusive), Timestamp.from(toExclusive));
 	}
 
+	public List<PauseTransition> findPauseTransitions(
+		UUID teacherId,
+		Instant fromInclusive,
+		Instant toExclusive
+	) {
+		return jdbcTemplate.query("""
+			SELECT id, student_id, occurred_at, from_status, to_status
+			FROM detection_student_status_history
+			WHERE teacher_id = ?
+			  AND occurred_at >= ?
+			  AND occurred_at < ?
+			  AND (
+			      (from_status = 'enrolled' AND to_status = 'paused')
+			      OR (from_status = 'paused' AND to_status = 'returned')
+			  )
+			ORDER BY student_id, occurred_at, id
+			""", (resultSet, rowNumber) -> new PauseTransition(
+			resultSet.getObject("id", UUID.class),
+			resultSet.getObject("student_id", UUID.class),
+			resultSet.getTimestamp("occurred_at").toInstant(),
+			resultSet.getString("from_status"),
+			resultSet.getString("to_status")
+		), teacherId, Timestamp.from(fromInclusive), Timestamp.from(toExclusive));
+	}
+
 	public record ReturnedTransition(
+		UUID id,
+		UUID studentId,
+		Instant occurredAt,
+		String fromStatus,
+		String toStatus
+	) {
+	}
+
+	public record PauseTransition(
 		UUID id,
 		UUID studentId,
 		Instant occurredAt,

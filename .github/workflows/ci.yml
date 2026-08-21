@@ -13,6 +13,9 @@ jobs:
   build-and-test:
     name: 코드 빌드&테스트
     runs-on: ubuntu-latest
+    # 기본값(GitHub Actions 최대 360분)까지 걸리면 훅이 멈춘 걸 아무도 못 알아챈다.
+    # 정상 실행은 2~3분이므로 15분이면 재시도 여유를 두고도 충분히 빠르게 실패한다.
+    timeout-minutes: 15
     steps:
       - name: 브랜치의 소스코드 가져오기
         uses: actions/checkout@v7
