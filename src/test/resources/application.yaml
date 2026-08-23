@@ -12,7 +12,15 @@ spring:
       ddl-auto: validate
     open-in-view: false
 
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
 checkon:
+  openapi:
+    enabled: true
   kafka:
     risk-detection:
       enabled: false

@@ -2,7 +2,15 @@ spring:
   config:
     import: "optional:file:.env[.properties]"
 
+springdoc:
+  api-docs:
+    enabled: ${OPENAPI_ENABLED:true}
+  swagger-ui:
+    enabled: ${OPENAPI_ENABLED:true}
+
 checkon:
+  openapi:
+    enabled: ${OPENAPI_ENABLED:true}
   security:
     test-authentication:
       enabled: ${TEST_AUTH_ENABLED:true}
