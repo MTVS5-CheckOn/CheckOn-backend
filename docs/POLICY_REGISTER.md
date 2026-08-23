@@ -504,11 +504,11 @@
 - 구현 상태: `PARTIAL`
 - 근거 수준: `CONVERSATION_CONFIRMED`, `EXTERNAL_CONTRACT`
 - 레거시 v1 입력: 기존 `/problem-requests` 계약은 강사가 AI taxonomy 목표를 직접 선택하는 `teacher_manual`, 문법 `language`, 객관식 `mcq`, 지문 없음과 문항 수 1~10을 유지한다.
-- 프론트 출제 스튜디오 입력: Step 1에서 학생과 영역×유형별 문항 수를 선택하고 Step 2에서 공통 난이도를 정한다. AI v1 evidence가 준비된 셀은 `language × CONCEPT`, `language × INFER`뿐이며 Backend는 이 두 셀만 허용한다. 같은 skill node에서 여러 문항을 생성하는 것은 허용하고 한 요청의 합계는 1~20문항으로 유지하되 시연 권장 수량은 1~3문항이다.
+- 프론트 출제 스튜디오 입력: Step 1에서 학생과 영역×유형별 문항 수, AI 진단이 반환한 `skill_node_id`, 영역별 자료 요청을 선택하고 Step 2에서 공통 난이도를 정한다. 영역은 `language`, `reading`, `literature`, `speech_writing`, `media`, 유형은 AI v1이 지원하는 `fact`, `infer`, `critic`, `concept`를 허용하고 예약 유형 `apply`는 출제 요청에서 거절한다. 같은 skill node에서 여러 문항을 생성하는 것은 허용하고 한 요청의 합계는 1~20문항으로 유지한다.
 - 책임 경계: 백엔드는 인증·테넌트 소유권·alias 변환·요청 저장·결과 미러링·강사 검토·발행을 소유한다. AI는 생성·검증 결과만 소유하며 AI 검증 상태는 강사 승인 상태가 아니다.
 - 개인정보: Kafka와 AI payload에는 학생·강사 실명, 연락처, 내부 학생·반 UUID를 넣지 않는다. `tn_`, `st_`, `cl_` opaque alias만 사용한다.
-- 현재 제한: 약점 분석 화면은 백엔드 학습 기록을 읽어 강사 선택을 돕지만 출제 대상을 자동 확정하지 않는다. 문항 직접 수정·교체·삭제와 학생용 과제 조회·제출은 후속 범위다.
-- 마지막 검증일: 2026-08-13
+- 현재 제한: `ai_refine` 수정만 지원한다. `teacher_direct`, `rollback`, 교체·삭제와 학생용 과제 조회·제출 공개 API는 후속 범위다. 학생 오답 환류를 위한 저장·application 경계는 PG-006으로 분리한다.
+- 마지막 검증일: 2026-08-23
 
 #### PG-002 Kafka 어댑터와 AI HTTP 전용 통신 경계
 
@@ -516,8 +516,8 @@
 - 구현 상태: `PARTIAL`
 - 근거 수준: `CONVERSATION_CONFIRMED`, `EXTERNAL_CONTRACT`, `CODE_CONFIRMED`
 - 목표 통신 경계: CheckOn 백엔드는 요청과 Outbox를 원자 저장해 Kafka로 전달하고, 별도 Kafka 어댑터 서버가 이를 소비해 AI 서버의 HTTP API를 호출한다. AI 서버는 Kafka consumer·producer를 소유하지 않고 HTTP만 제공한다.
-- 현재 구현: CheckOn 백엔드 내부에는 Kafka 요청 publisher와 결과 listener·멱등 소비·DLT가 구현돼 있다. 별도 어댑터 서버는 아직 없으며 CheckOn 백엔드 내부에는 AI HTTP client를 추가하지 않는다.
-- 결과 경로: 별도 어댑터가 AI job 상태와 items를 HTTP로 조회하고 정규화한 `worker_job.*` 결과 이벤트를 Kafka에 발행하며, CheckOn 백엔드는 기존 결과 listener로 소비한다.
+- 현재 구현: CheckOn 백엔드 내부에는 Kafka 요청 publisher와 결과 listener·멱등 소비·DLT가 구현돼 있다. 별도 어댑터의 현재 배포 상태는 이 저장소에서 확정하지 않으며 CheckOn 백엔드 내부에는 AI HTTP client를 추가하지 않는다.
+- 결과 경로: 별도 어댑터가 AI job 상태를 HTTP로 조회하고 terminal 참조 이벤트를 먼저 발행한 뒤, terminal의 `set_id`로 items 목록과 각 `slot_index` 상세를 조회해 slot 단위 상세 이벤트를 발행한다. CheckOn 백엔드는 terminal과 slot 이벤트를 각각 멱등 소비하고 child별 모든 slot 수신 여부로 projection 완료를 결정한다. 문항·지문 전량을 하나의 terminal 이벤트에 싣지 않는다.
 - 실패 처리 배분: CheckOn 백엔드는 Kafka 발행·소비 retry와 DLT를, 어댑터는 AI HTTP timeout·retry·polling·멱등성을 소유한다.
 - 공통 신뢰성 정본: Kafka envelope·opaque `tenant_alias` partition key·Transactional Outbox·Inbox `event_id` 멱등·불변 요청 snapshot/hash·요청 snapshot 대비 결과 검증·attempt 이력·늦거나 대체된 결과 무시 규칙은 `DET-004` 위험탐지 계약을 우선 적용한다.
 - Kafka 결과 소비 재시도: 위험탐지와 동일하게 최초 처리 포함 총 3회, 실패 간격 1초·2초 후 DLT로 보낸다. AI HTTP 호출의 `Retry-After`, timeout과 재호출 간격은 어댑터의 기능별 계약이며 Kafka 공통 backoff와 섞지 않는다.
@@ -527,7 +527,7 @@
   - `src/main/java/com/checkon/problem/integration/kafka`
   - `src/main/java/com/checkon/problem/infrastructure/outbox`
   - `src/main/resources/db/migration/V16__create_problem_generation_kafka_boundary.sql`
-- 마지막 검증일: 2026-08-12
+- 마지막 검증일: 2026-08-23
 
 #### PG-003 불완전한 AI 결과 계약의 보존 정책
 
@@ -538,9 +538,10 @@
 - 최신 AI 계약: `POST /v1/problems`는 `job_id`와 상태를 반환하고, 상태 조회는 `GET /v1/problems/{job_id}`다. terminal 결과의 `set_id`로 `GET /v1/problems/{set_id}/items` 요약 목록을 조회한 뒤 각 `slot_index`에 대해 `GET /v1/problems/{set_id}/items/{slot_index}`를 호출해야 전체 문항 본문을 얻는다.
 - 금지 사항: 원문에 없는 문항 상세를 추론해 만들거나 AI `verified`를 강사 승인·학생 발행으로 간주하지 않는다.
 - 연계 조건: 별도 어댑터가 HTTP items 조회 시 tenant alias와 job 소유권을 검증하고 AI 응답을 backend용 result event로 정규화한다. CheckOn 백엔드는 AI HTTP 응답을 직접 처리하지 않는다.
-- 확정된 어댑터 관찰 계약: `POST /v1/problems` read timeout은 300초다. `POST`의 `job_id`·`execution_id`를 즉시 영속하고 `GET /v1/problems/{job_id}`의 `data.status`만 종료 판정 정본으로 사용한다. `queued`·`running`일 때만 `Retry-After`를 다음 polling 간격의 advisory로 반영하며, 헤더 부재를 종료 신호로 해석하지 않는다. child 관찰 상한 21분은 Adapter 운영 정책이며 초과 시 `timed_out`으로 종결한다. 늦게 확인된 AI 성공은 감사 대상으로만 남기며 이미 terminal인 child·부모 상태를 되돌리지 않는다.
-- 계약 정본: AI HTTP v1은 AI 저장소 commit `7bc3d6592c6ccd48432ba941053a0673a922dca6`의 응답 fixture와 Pydantic 계약을 정본으로 사용하고, adapter의 HTTP→Kafka normalized fixture는 adapter 저장소가 소유한다. 기재된 AI 검증 결과는 AI 팀 제공 근거이며 Backend에서 독립 재실행한 결과가 아니다.
-- 마지막 검증일: 2026-08-14
+- 확정된 어댑터 관찰 계약: `POST /v1/problems`의 202 `job_id`·`execution_id`를 즉시 영속하고 `GET /v1/problems/{job_id}`의 `data.status`만 종료 판정 정본으로 사용한다. `queued`, `leased`, `running`, `paused`는 비종단이며 `Retry-After`를 다음 polling 간격의 advisory로 반영한다. 고정 21분 같은 관찰 SLO 초과를 `TIMED_OUT` 또는 Worker 실패로 바꾸지 않고 Backend에는 `PROCESSING`으로 유지한 채 reconciliation이 같은 `job_id`를 계속 조회한다. AI 재시작·timeout을 이유로 새 멱등키나 새 잡을 만들지 않는다.
+- 결과 보존: terminal 참조 이벤트는 worker phase, domain status, `job_id`, `execution_id`, `set_id`, 요청·처리·미처리 수량과 `status_counts`를 보존한다. slot 상세 이벤트는 `slot_index`, AI item status, nullable `item_id`, 1-based `answer.correct_no`, `choices[].why_wrong`·`misconception_tag`, evidence·verification·revision·`available_actions`와 내부 `failure_detail` 원문을 보존한다. 비공개 `failure_detail`은 강사·학생 API에 노출하지 않는다.
+- 계약 정본: AI HTTP problem v1은 AI 저장소 commit `e4a1a4b256362e40f3a8ed01a27ad50b45b10d93`의 응답 fixture와 Pydantic 계약을 정본으로 사용하고, Adapter의 HTTP→Kafka terminal·slot fixture는 Adapter 저장소가 소유한다. 기재된 AI 검증 결과는 AI 팀 제공 근거이며 Backend에서 독립 재실행한 결과가 아니다.
+- 마지막 검증일: 2026-08-23
 
 #### PG-004 프론트 출제 스튜디오 4단계 계약
 
@@ -550,11 +551,13 @@
 - Step 1: 인증 강사의 ACTIVE 학생만 페이지 조회한다. 표시 이름은 강사가 접근 가능한 `student_personal_information.real_name`을 우선하고 없으면 학생 프로필 alias를 사용한다. ACTIVE 클래스·과목, 관계 시작일 기준 관리 일수, 최근 30일 Engagement Alert 수와 현재 생성 가능한 셀 목록을 함께 반환한다. AI 진단을 연결한 뒤에는 cell별 node 후보와 verdict를 Backend snapshot에 보존하되 프론트는 생성 가능한 목록에 없는 셀을 비활성화한다.
 - 약점 분석: 최근 8주 `SOLVE` 학습 기록 중 정오답과 영역·유형이 모두 있는 행을 집계한다. 셀 표본이 10건 미만이면 `ON_HOLD`, 10건 이상이면 학생 전체 평균 이상을 `GOOD`, 미만을 `WEAK_SIGNAL`로 제공한다. 화면의 `WEAK_CONFIRMED` 임계값은 확정 근거가 없어 자동 생성하지 않는다.
 - Step 2: Step 1에서 선택한 영역×유형별 문항 수를 그대로 이어받고 공통 난이도와 함께 하나의 요청 snapshot으로 저장해 Transactional Outbox에 반영한다. 시안의 12문항과 7문항은 서로 다른 예시 화면이며 같은 흐름의 값 충돌이 아니다. 프론트가 내부 taxonomy ID를 직접 입력할 필요는 없지만 Backend는 확정된 node 선택 정책의 결과를 child snapshot에 고정한다.
-- Step 3: AI 원문 결과는 계속 `jsonb`로 보존한다. 문두·선지·정답·출제 근거·검증 상태가 있는 결과만 별도 read model로 투영하며, 불완전한 결과는 추론해 채우지 않고 `UNSUPPORTED`로 표시한다.
+- 영역별 자료: `language`는 자료 필드를 받지 않는다. `reading`, `speech_writing`, `media`는 각 AI 계약의 `passage`를, `literature`는 `workSelection`을 프론트 요청에서 받아 child snapshot에 고정한다. Backend는 주제·장르·source kind를 임의 기본값으로 만들지 않고 잘못된 영역·자료 조합과 `bannedTopicsVersion != pg-banned-v1`을 AI 호출 전 거절한다.
+- Step 3: AI 원문 결과는 계속 `jsonb`로 보존한다. 문두·선지·1-based 정답·오답 분석·출제 근거·검증 상태가 있는 결과만 별도 read model로 투영하며, dropped는 nullable item을 가진 slot으로 보존하고 가짜 문항을 만들지 않는다. `verification_unavailable`은 저장할 수 있지만 학생 발행은 차단한다. `needs_review`는 강사 검토·선택 뒤에만 발행할 수 있다.
+- 수정: 상세의 `available_actions`에 `refine`이 있을 때만 `ai_refine`을 요청한다. 요청은 현재 `base_revision_no`를 사용하며 `stale_base_revision`과 `revision_in_progress`를 구분한다. 수정 결과 slot 상세가 도착하면 revision과 검증 상태를 갱신한다.
 - Step 4: 교사가 선택한 문항만 저장 세트와 발행 과제에 포함한다. AI 검증 상태, 교사 선택, 저장, 학생 발행은 서로 다른 상태다. 같은 요청의 저장과 발행 재호출은 중복 세트·과제를 만들지 않는다.
 - PDF: 백엔드는 선택 문항과 대상 학생을 포함한 인쇄용 구조화 데이터를 제공한다. 실제 PDF 레이아웃·폰트 렌더링은 프론트가 소유하며 서버 PDF 라이브러리는 이번 범위에 추가하지 않는다.
 - 개인정보·테넌트: 학생 실명과 내부 UUID는 강사 REST 응답과 백엔드 DB 안에서만 사용한다. Kafka/AI에는 기존 `tn_`, `st_` alias 경계를 유지하고 모든 신규 테이블에 FORCE RLS를 적용한다.
-- 마지막 검증일: 2026-08-14
+- 마지막 검증일: 2026-08-23
 
 #### PG-005 출제 스튜디오와 AI 계약 충돌 격리
 
@@ -562,23 +565,34 @@
 - 구현 상태: `PARTIAL`
 - 근거 수준: `CONVERSATION_CONFIRMED`, `EXTERNAL_CONTRACT`, `FRONTEND_DESIGN`
 - fan-out: backend 부모 요청의 `targets[]`에서 영역×유형 셀 하나당 child execution 하나를 만들고, 별도 adapter가 child별 `POST /v1/problems`를 호출한다. 부모 합계는 최대 20문항이다.
-- v1 target 해석: AI diagnosis의 `weakness_map.nodes`와 `propagated`가 node 후보·역전파 점수의 정본이다. `weakness_auto`가 배선되기 전 Backend 임시 선택은 사용자가 선택한 cell의 `weak_confirmed` 직접 근거를 우선하고, 부족분은 그 cell의 `weak_confirmed`·`suspect` node를 `from_nodes`로 참조하는 `propagated` root 후보에서 채운다. 후보는 `propagated.score` 내림차순, node ID 사전순으로 결정론 정렬하고 요청한 cell의 `count`개만 선택해 `manual_targets.size() == count`를 보장한다. AI `level`이 배포되면 score 동률의 2순위로 level 오름차순을 추가하며, `generation_supported`가 배포되면 false node를 제외한다. 배포 전에는 AI팀이 생성 불가로 확인한 `language.grammar.fortition`을 임시 제외한다. 선택 수가 count보다 적으면 AI를 호출하지 않고 `NO_EVIDENCE_READY_TARGET`로 종결한다. 선택된 node ID는 문자열을 바꾸지 않고 child snapshot과 AI `manual_targets`에 보존하며 Adapter가 재선택하거나 치환하지 않는다.
+- v1 target 해석: AI diagnosis의 `weakness_map.nodes`가 node 후보의 정본이다. 한 영역×유형 cell에 여러 node가 있으면 강사가 명시적으로 고른 `skill_node_id` 하나를 사용하고 선택값이 없으면 요청을 만들지 않는다. Backend는 객체 순서·score로 node를 자동 선택하지 않고 선택한 ID가 같은 diagnosis, cell에 속하며 `verdict != ok`인지 검증한다. 선택된 node ID는 문자열을 바꾸지 않고 child snapshot과 AI `manual_targets`에 보존하며 Adapter가 재선택하거나 치환하지 않는다.
 - 진단 provenance: Backend는 선택 node와 함께 diagnosis의 `weakness_map.snapshot_hash`·`taxonomy_version`을 문제 생성 요청까지 그대로 보존한다. `graph_version`·`config_version`은 provenance로 저장하되 `POST /v1/problems` body에는 보내지 않는다. 저장 버전과 현재 배포 버전이 달라도 node를 임의 migration하지 않고 재진단 또는 별도 승인된 migration을 사용한다.
 - child 식별: `problem_request_id`, `problem_execution_id`, `target_index`, `adapter_execution_id`, AI `execution_id`·`job_id`·`set_id`를 분리한다. AI ID는 부모 단일 컬럼이 아니라 child별로 보존한다. `X-Request-Id` echo는 추적 보조값일 뿐 소유권·상관관계의 정본이 아니다.
 - 상태 집계: child가 하나라도 실행 중이면 부모 `RUNNING`, 전부 종단이고 성공 문항이 있으면서 실패 child가 없으면 `SUCCEEDED`, 성공 문항과 실패 child가 함께 있으면 `PARTIAL_SUCCESS`, 성공 문항이 없고 실패가 있으면 `FAILED`로 집계한다. 전부 `rejected_insufficient`인 0건 결과는 업무상 완료로 취급한다.
-- 문항 전달: Adapter는 terminal job의 `set_id`로 `GET /v1/problems/{set_id}/items` 요약을 조회한 뒤 각 `slot_index`의 상세를 N+1 방식으로 조회한다. AI 원문 `choices[{no,text,why_wrong}]`와 1-based `answer.correct_no`를 보존하면서 Backend 호환 파생값을 추가한다. Adapter→Backend normalized Kafka record value가 UTF-8 직렬화 기준 3 MiB 이하일 때만 한 child 결과 이벤트에 slot 전량을 싣는다. 3 MiB를 넘으면 Backend가 해석할 수 없는 `result_ref` 성공 이벤트를 만들지 않고 해당 child를 `RESULT_TOO_LARGE` 실패로 종결한다. Adapter 소유 영속 조회 API 또는 slot/chunk event는 후속 계약이다. Backend는 AI HTTP를 직접 호출하지 않는다.
+- 문항 전달: Adapter는 terminal job의 `set_id`로 `GET /v1/problems/{set_id}/items` 요약을 조회한 뒤 각 `slot_index`의 상세를 N+1 방식으로 조회한다. terminal은 참조 이벤트로, 상세는 slot별 독립 이벤트로 전달한다. AI 원문 `choices[{no,text,why_wrong,misconception_tag}]`와 1-based `answer.correct_no`를 보존하고 `correct_option_index = correct_no - 1`을 파생한다. UTF-8 직렬화 기준 terminal·progress 참조 이벤트는 64 KiB, slot 상세·revision 결과 이벤트는 1 MiB를 상한으로 하고 초과 시 fail-closed한다. Backend는 AI HTTP를 직접 호출하지 않는다.
 - dropped slot: `slot_index`, `status=dropped`, nullable `item_id`, `failure_reason`, nullable `failure_detail`, 세트 `status_counts`, 요청·처리 수를 원문 보존한다. 존재하지 않는 문항 본문을 만들지 않는다. Backend는 실제 문항 projection과 별도로 nullable item 참조를 가진 slot projection을 두어 dropped 위치와 집계를 복원한다.
 - Step 1 진단: AI `POST /v1/diagnosis`를 판정 정본으로 채택하되 동기 HTTP 경로 `BE → adapter → AI`로 호출하고 timeout은 5초로 한다. 실패 시 과거 판정이나 backend 자체 계산을 섞지 않고 빈 grid를 반환한다. 현재 학습 기록에는 `tag_confirmed`, `skill_node_id`가 없어 입력 정책·스키마 보완 전에는 기존 backend 집계를 즉시 교체하지 않는다.
-- 영역·자료: AI는 5영역을 측정하되 화면은 원본 셀을 보존해 표시한다. 자료 입력 화면이 없는 v1에서는 `language` 외 출제를 비활성화하고 `media`를 `language`로 임의 변환하지 않는다. 이는 AI 미지원이 아니라 passage/work/material 입력 화면 미구현 제한이다.
+- 영역·자료: AI가 지원하는 5영역을 원본 cell로 보존한다. `language`는 자료를 받지 않고 `reading`·`speech_writing`·`media`는 각 계약의 `passage`, `literature`는 `work_selection`을 child 요청에 넣는다. 프론트가 필수 자료를 보내지 않거나 다른 영역 자료를 보내면 Backend가 요청 경계에서 거절하며 `media`를 `language`로 임의 변환하지 않는다.
 - HTTP 멱등: AI 보존 기간은 30일이다. 문제 생성은 canonical JSON SHA-256, 진단은 body의 `snapshot_hash`를 동일성 축으로 사용한다. adapter child 매핑도 30일 이상 보존한다.
 - 출제 source 변환: 프론트의 강사 약점 선택 의미는 Backend snapshot에 보존하고, AI v1 호출의 `target_source`는 실제 지원 값인 `teacher_manual`로 adapter가 변환한다. 이는 자동 약점 출제 `weakness_auto`를 의미하지 않는다.
 - 검증 상태 변환: AI `verified`, `needs_review`, `verification_unavailable`, `dropped`는 각각 Backend `PASSED`, `REVIEW_REQUIRED`, `UNVERIFIABLE`, `EXCLUDED`로 보존한다. AI 검증 상태는 교사 승인과 분리한다. `dropped`는 빈 `problem_generation_items` 행으로 만들지 않고 slot projection에서 표현한다.
 - AI ID 안정성: AI가 GET 응답마다 새 `meta.execution_id`를 만드는 현재 결함이 해결될 때까지 Adapter는 POST에서 받은 `execution_id`를 정본으로 보존하고 GET의 다른 값을 무시한다.
-- revision 범위: AI의 language `ai_refine` API 구현 여부와 별개로 문항 수정·수정 이력의 Backend·Adapter·Frontend 연동은 영상 MVP에서 제외한다. 후속 도입 시 영역 하드코딩 대신 AI detail의 `available_actions`를 수정 가능 여부의 정본으로 사용하고 별도 revision 상관관계·멱등·결과 projection 계약을 먼저 확정한다.
+- revision 범위: 5영역 모두 AI detail의 `available_actions`에 `refine`이 있을 때만 `ai_refine`을 허용한다. Backend 요청·Outbox와 Adapter polling/result event를 사용하며 AI `set_id`, `slot_index`, `base_revision_no`를 불변 상관관계로 보존한다. `teacher_direct`, `rollback`, 교체·삭제는 지원하지 않는다.
 - alias 검증: Adapter는 AI HTTP 호출 전에 tenant `tn_`, student target `st_`, class target `cl_` 형식을 검증한다. 내부 UUID·실명·연락처는 Kafka와 AI HTTP에 전달하지 않는다.
-- 기능별 예외: 21분 polling, 셀별 child fan-out, 3 MiB 이하 normalized child 결과, 부모 `PARTIAL_SUCCESS`, 교사 선택·저장·발행은 문제 출제 전용이며 위험탐지 공통 계약으로 확장하지 않는다.
+- 기능별 예외: 비종단 reconciliation, 셀별 child fan-out, terminal 참조·slot 상세 이벤트, 부모 `PARTIAL_SUCCESS`, 교사 선택·저장·발행은 문제 출제 전용이며 위험탐지 공통 계약으로 확장하지 않는다.
 - 남은 운영 차단: AI 요청·결과 저장소의 인메모리 구조와 신규 HTTP endpoint 배포 파이프라인은 운영 전 해소해야 한다. HTTP 인증은 v1 내부망 전제이며 망 경계가 바뀌면 별도 계약을 추가한다.
-- 마지막 검증일: 2026-08-19
+- 마지막 검증일: 2026-08-23
+
+#### PG-006 학생 오답의 다음 진단 환류
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `PARTIAL`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `EXTERNAL_CONTRACT`
+- 저장 경계: Backend application 경계는 발행된 과제의 문항과 학생 선택 `chosen_no`를 1-based `1..5`로 보존한다. 저장된 `answer.correct_no`와 대조해 `correct`를 Backend가 확정하고, 오답이면 선택 선지의 저장된 `misconception_tag`를 함께 보존한다. 정답이면 misconception은 null이다.
+- 진단 경계: 다음 diagnosis snapshot을 만들 때 저장된 제출에서 `chosen_no`, `correct_no`, `correct`, `skill_node_id`, 오답의 `misconception_tag`를 그대로 전달한다. AI `data.misconceptions`는 별도 리포트로 저장하며 weakness 판정을 덮어쓰지 않는다.
+- 공개 API 범위: 이번 이슈는 저장 모델과 application 경계까지 구현한다. 학생 인증·학생용 과제 조회·제출 공개 API는 별도 정책과 인증 계약이 확정되기 전 노출하지 않는다.
+- 보안: 제출 저장과 조회는 과제의 `teacher_id`, `student_id`, item 소유권을 함께 검증하고 PostgreSQL FORCE RLS를 적용한다.
+- 마지막 검증일: 2026-08-23
 
 ### Frontend·UX
 
@@ -726,6 +740,7 @@
 
 | 날짜 | 변경 | 검증 |
 | --- | --- | --- |
+| 2026-08-23 | 문제 출제 5영역 자료 입력, 강사 node 선택, 비종단 reconciliation, terminal 참조·slot 상세 이벤트, 5영역 `ai_refine`, 학생 오답 환류 저장 경계를 PG-001~006에 확정 | AI 팀 명세 2종과 Backend 승인 결정을 정책에 반영. 코드·Flyway·BDD 테스트는 이슈 #69에서 구현 예정 |
 | 2026-08-21 | `snapshot_hash` canonical 시간 표기를 UTC `Z`·비UTC offset 유지·0 또는 6자리 소수 초로 확정하고 초과 정밀도·단독 surrogate를 fail-closed 처리 | canonical·AsyncAPI 집중 테스트 14건 및 전체 Gradle build 290건 통과 |
 | 2026-08-20 | `weekly_activity`에 정수 `enrolled_seconds`를 추가하고 행 부재를 평가 제외로 명시, canonical 직렬화 대조 규칙 반영 | 집중 테스트 38건 및 전체 Gradle build 285건 통과 |
 | 2026-08-20 | requested envelope 영구 오류를 Backend fallback Adapter 재시도에서 제외하고, `weekly_activity` 조회 상한을 스냅숏 종료 시각으로 제한 | Adapter·listener·스냅숏 단위 테스트와 Detection PostgreSQL HTTP 통합 테스트 32건 통과 |
