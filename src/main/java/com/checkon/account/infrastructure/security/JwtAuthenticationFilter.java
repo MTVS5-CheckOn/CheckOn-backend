@@ -65,11 +65,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 	}
 
 	static void writeUnauthorized(HttpServletResponse response) throws IOException {
-		response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-		response.setContentType("application/json");
-		response.setCharacterEncoding("UTF-8");
-		response.getWriter().write(
-			"{\"code\":\"UNAUTHORIZED\",\"message\":\"인증이 필요합니다.\"}"
-		);
+		SecurityErrorResponseWriter.unauthorized(response);
 	}
 }
