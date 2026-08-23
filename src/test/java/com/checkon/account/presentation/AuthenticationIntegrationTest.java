@@ -46,7 +46,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>이 테스트는 HTTP 성공만 보는 대신 Flyway/Hibernate validate, BCrypt 검증,
  * JWT 최소 claim, 원문 미저장과 세션 상태 전이를 함께 증명한다.</p>
  */
-@SpringBootTest
+// dev 프로필이 읽는 로컬 .env가 Origin 검증 결과를 바꾸지 않게 고정한다.
+@SpringBootTest(properties = {
+	"checkon.auth.allowed-origins=http://localhost:3000,http://localhost:5173"
+})
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")
 @Testcontainers
@@ -256,8 +259,10 @@ class AuthenticationIntegrationTest {
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.code").value("SESSION_INVALID"));
 
+		// MockMvc의 기본 서버 Origin(http://localhost)과 같아서 CORS 요청으로
+		// 분류되지 않지만, Refresh 전용 Origin 필터는 허용 목록 밖 요청을 막는다.
 		mockMvc.perform(post("/api/v1/auth/refresh")
-				.header(HttpHeaders.ORIGIN, "https://attacker.example")
+				.header(HttpHeaders.ORIGIN, "http://localhost")
 				.cookie(new Cookie(COOKIE_NAME, refreshToken)))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.code").value("ORIGIN_NOT_ALLOWED"));

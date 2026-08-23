@@ -666,6 +666,25 @@
   - `src/main/resources/application-dev.yaml`
 - 마지막 검증일: 2026-08-06
 
+#### SEC-005 브라우저 프론트엔드 CORS와 Refresh 쿠키 경계
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
+- 책임 경계: 백엔드는 프론트 저장소를 변경하지 않고, 환경설정에 등록한 정확한 브라우저 Origin에서 API 응답을 사용할 수 있도록 CORS 응답을 제공한다. CORS는 인증·인가를 대신하지 않으며 보호 API는 기존 Bearer JWT와 TEACHER 권한을 유지한다.
+- Origin 정책: `AUTH_ALLOWED_ORIGINS`는 `http` 또는 `https` 스킴, 호스트, 선택적 포트만 가진 Origin의 쉼표 구분 목록이다. credential 요청을 허용하므로 `*`와 패턴 와일드카드를 사용하지 않고, 경로·쿼리·fragment·끝 슬래시는 설정 오류로 시작 시점에 거부한다. 운영 기본 목록은 비워 동일 Origin만 허용하고, dev 기본값은 `http://localhost:3000`, `http://localhost:5173`이다.
+- 요청 계약: 허용 메서드는 `GET`, `POST`, `PUT`, `PATCH`, `DELETE`이며 프론트 전용 비단순 헤더는 `Authorization`, `Content-Type`, `Idempotency-Key`다. preflight는 인증 없이 CORS 필터에서 처리하고, 비동기 생성 응답의 `Location`을 브라우저에 노출한다.
+- 쿠키 정책: Refresh Token은 기존처럼 `HttpOnly` 쿠키로만 전달한다. 로컬 HTTP dev는 `SameSite=Lax`, `Secure=false`를 사용하고, 서로 다른 사이트의 HTTPS 배포는 `SameSite=None`, `Secure=true`를 명시한다. `SameSite=None`과 `Secure=false` 조합 및 지원하지 않는 SameSite 값은 시작 시점에 거부한다.
+- 프론트 호출 조건: 로그인·Refresh·Logout은 브라우저가 Refresh 쿠키를 저장·전송·만료할 수 있도록 credential 요청이어야 한다. Access Token은 응답 본문에서 얻어 보호 API의 Bearer 헤더로 보낸다.
+- 코드 근거:
+  - `src/main/java/com/checkon/global/config/WebCorsConfiguration.java`
+  - `src/main/java/com/checkon/global/config/AccountSecurityConfiguration.java`
+  - `src/main/java/com/checkon/account/infrastructure/security/AuthenticationProperties.java`
+  - `src/test/java/com/checkon/global/config/CorsPreflightIntegrationTest.java`
+  - `src/test/java/com/checkon/global/config/CorsHttpIntegrationTest.java`
+  - `src/test/java/com/checkon/account/presentation/AuthenticationControllerCookieTest.java`
+- 마지막 검증일: 2026-08-23
+
 #### ENG-004 경보 후속 조치 Todo
 
 - 결정 상태: `CONFIRMED`
@@ -726,6 +745,7 @@
 
 | 날짜 | 변경 | 검증 |
 | --- | --- | --- |
+| 2026-08-23 | SEC-005로 브라우저 CORS exact-origin allowlist, credential preflight, Location 노출과 Refresh 쿠키 배포 조합을 확정·구현 | Origin·SameSite 설정 단위 테스트, 실제 Security filter chain CORS 통합 테스트와 인증 회귀 테스트 통과 |
 | 2026-08-21 | `snapshot_hash` canonical 시간 표기를 UTC `Z`·비UTC offset 유지·0 또는 6자리 소수 초로 확정하고 초과 정밀도·단독 surrogate를 fail-closed 처리 | canonical·AsyncAPI 집중 테스트 14건 및 전체 Gradle build 290건 통과 |
 | 2026-08-20 | `weekly_activity`에 정수 `enrolled_seconds`를 추가하고 행 부재를 평가 제외로 명시, canonical 직렬화 대조 규칙 반영 | 집중 테스트 38건 및 전체 Gradle build 285건 통과 |
 | 2026-08-20 | requested envelope 영구 오류를 Backend fallback Adapter 재시도에서 제외하고, `weekly_activity` 조회 상한을 스냅숏 종료 시각으로 제한 | Adapter·listener·스냅숏 단위 테스트와 Detection PostgreSQL HTTP 통합 테스트 32건 통과 |
