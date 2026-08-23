@@ -1,9 +1,9 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "CheckOn - Frontend to Backend - Roster and Class Management",
-    "description": "통신 방향: Frontend -> Backend\n범위: Roster Support, Class Management\n실행 정본 dashboard-api.yaml에서 프론트 호출 계약만 분리했다.",
-    "version": "1.1.0"
+    "title": "CheckOn - Frontend to Backend - All APIs",
+    "version": "1.1.0",
+    "description": "Apidog one-shot import document.\nFrontend -> Backend 운영 API 44개를 업무 영역별 tag로 분류했다."
   },
   "servers": [
     {
@@ -11,13 +11,405 @@
       "description": "Local CheckOn backend API"
     }
   ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
   "tags": [
+    {
+      "name": "Frontend to Backend/Authentication",
+      "description": "Frontend -> Backend: Authentication"
+    },
+    {
+      "name": "Frontend to Backend/Dashboard and Engagement",
+      "description": "Frontend -> Backend: Dashboard, Engagement, Todo"
+    },
     {
       "name": "Frontend to Backend/Roster and Class Management",
       "description": "Frontend -> Backend: Roster Support, Class Management"
+    },
+    {
+      "name": "Frontend to Backend/Learning Records",
+      "description": "Frontend -> Backend: Learning Records"
+    },
+    {
+      "name": "Frontend to Backend/Problem Generation and Studio",
+      "description": "Frontend -> Backend: Problem Generation, Problem Studio"
+    },
+    {
+      "name": "Frontend to Backend/Detection",
+      "description": "Frontend -> Backend: Detection"
+    },
+    {
+      "name": "Frontend to Backend/Counsel",
+      "description": "Frontend -> Backend: Counsel Draft and Inquiry Classification"
     }
   ],
   "paths": {
+    "/auth/sign-up/teachers": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Authentication"
+        ],
+        "operationId": "signUpTeacher",
+        "summary": "강사 회원가입",
+        "description": "이메일을 소문자로 정규화하고 TEACHER 계정과 강사 프로필을 함께 생성한다.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeacherSignUpRequest"
+              },
+              "example": {
+                "email": "teacher@example.com",
+                "password": "safe-password-123",
+                "displayName": "김서현"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "강사 계정 생성 성공",
+            "headers": {
+              "Location": {
+                "description": "생성된 Account 리소스 경로",
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeacherSignUpResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/SignUpInvalidRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/EmailAlreadyExists"
+          }
+        },
+        "x-original-tags": [
+          "Authentication"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Authentication"
+        ],
+        "operationId": "login",
+        "summary": "로그인",
+        "description": "Access Token은 응답 본문으로, Refresh Token은 HttpOnly 쿠키로 발급한다.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              },
+              "example": {
+                "email": "teacher@example.com",
+                "password": "safe-password-123"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "로그인 성공",
+            "headers": {
+              "Set-Cookie": {
+                "description": "Path=/api/v1/auth로 제한된 HttpOnly Refresh Token 쿠키",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthenticationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AuthenticationFailed"
+          }
+        },
+        "x-original-tags": [
+          "Authentication"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Authentication"
+        ],
+        "operationId": "refreshAuthentication",
+        "summary": "인증 토큰 갱신",
+        "description": "HttpOnly Refresh Token 쿠키를 회전시키고 새 Access Token을 발급한다. 브라우저 Origin은 서버 허용 목록과 일치해야 한다.",
+        "security": [
+          {
+            "refreshCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "토큰 갱신 성공",
+            "headers": {
+              "Set-Cookie": {
+                "description": "회전된 HttpOnly Refresh Token 쿠키",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthenticationResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/InvalidSession"
+          },
+          "403": {
+            "$ref": "#/components/responses/OriginNotAllowed"
+          }
+        },
+        "x-original-tags": [
+          "Authentication"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Authentication"
+        ],
+        "operationId": "logout",
+        "summary": "현재 인증 세션 로그아웃",
+        "description": "현재 Access Token의 세션을 폐기하고 Refresh Token 쿠키를 만료시킨다.",
+        "responses": {
+          "204": {
+            "description": "로그아웃 성공",
+            "headers": {
+              "Set-Cookie": {
+                "description": "Max-Age=0으로 만료된 Refresh Token 쿠키",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "x-original-tags": [
+          "Authentication"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/learning-records": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Learning Records"
+        ],
+        "operationId": "registerLearningRecord",
+        "summary": "수동 학습 기록 등록",
+        "description": "인증 강사가 현재 관리하는 학생의 원본 학습 기록을 등록한다. classGroupId가 있으면\noccurredAt 시점의 해당 반 소속도 확인한다. externalRecordRef는 nullable이며 멱등 키나\n유일 값으로 취급하지 않는다. teacherId와 sourceType은 요청에서 받지 않는다.\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LearningRecordRequest"
+              },
+              "example": {
+                "studentId": "0198c000-0000-7000-8000-000000000002",
+                "classGroupId": "0198c000-0000-7000-8000-000000000003",
+                "recordType": "SOLVE",
+                "occurredAt": "2026-08-03T01:00:00Z",
+                "correct": true,
+                "durationSec": 120,
+                "passageWordCount": 800,
+                "areaTag": "reading",
+                "subjectTrack": "common",
+                "typeTag": "infer",
+                "itemFormat": "mcq"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "학습 기록 등록 성공",
+            "headers": {
+              "Location": {
+                "description": "생성된 학습 기록 경로",
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningRecordResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/LearningRecordTargetNotFound"
+          }
+        },
+        "x-original-tags": [
+          "Learning Records"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/detection-runs": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Detection"
+        ],
+        "operationId": "requestDetectionRun",
+        "summary": "위험 탐지 실행 요청",
+        "description": "인증 강사의 analysisDate 기준 56일 학습 Snapshot을 준비하고 Kafka 요청 Outbox를 저장한다.\n동일 분석일과 동일 Snapshot의 재요청은 기존 실행을 재사용한다. status가 REQUESTED이면\n202, 이미 종료된 실행을 재사용하면 200을 반환한다.\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DetectionRunRequest"
+              },
+              "example": {
+                "analysisDate": "2026-08-03"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "이미 종료된 동일 실행 조회",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DetectionRunResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "비동기 위험 탐지 요청 접수",
+            "headers": {
+              "Location": {
+                "description": "실행 상태 조회 경로",
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DetectionRunResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/DetectionConflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/NoLearningRecords"
+          },
+          "502": {
+            "$ref": "#/components/responses/AiDetectionFailure"
+          }
+        },
+        "x-original-tags": [
+          "Detection"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
     "/students/{studentId}/pause": {
       "post": {
         "tags": [
@@ -120,44 +512,66 @@
         ]
       }
     },
-    "/students/{studentId}/personal-information/name": {
-      "put": {
+    "/detection-runs/latest": {
+      "get": {
         "tags": [
-          "Frontend to Backend/Roster and Class Management"
+          "Frontend to Backend/Detection"
         ],
-        "operationId": "saveStudentPersonalInformationName",
-        "summary": "학생 실명 저장",
-        "description": "대시보드 studentName 표시를 지원한다. 다른 테넌트 학생은 존재 여부를 숨겨 같은 404를 반환한다.",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/StudentId"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StudentNameRequest"
-              },
-              "example": {
-                "studentName": "김서연"
-              }
-            }
-          }
-        },
+        "operationId": "getLatestDetectionRun",
+        "summary": "인증 강사의 최근 위험 탐지 실행 조회",
+        "description": "위험신호 0건과 배치 실패를 운영 화면에서 구분할 수 있도록 가장 최근 실행 상태를 반환한다.",
         "responses": {
           "200": {
-            "description": "저장 성공",
+            "description": "최근 실행 상태",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StudentNameResponse"
-                },
-                "example": {
-                  "studentId": "0198f000-0000-7000-8000-000000000003",
-                  "studentName": "김서연",
-                  "updatedAt": "2026-08-05T00:00:00Z"
+                  "$ref": "#/components/schemas/DetectionRunStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/DetectionRunNotFound"
+          }
+        },
+        "x-original-tags": [
+          "Detection"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/detection-runs/{runId}": {
+      "get": {
+        "tags": [
+          "Frontend to Backend/Detection"
+        ],
+        "operationId": "getDetectionRun",
+        "summary": "위험 탐지 실행 상태 조회",
+        "description": "다른 강사의 실행은 존재 여부를 숨기기 위해 RUN_NOT_FOUND로 처리한다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/DetectionRunId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "실행 상태 조회 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DetectionRunStatusResponse"
                 }
               }
             }
@@ -172,22 +586,11 @@
             "$ref": "#/components/responses/Forbidden"
           },
           "404": {
-            "description": "없거나 접근 불가능한 학생",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                },
-                "example": {
-                  "code": "STUDENT_NOT_FOUND",
-                  "message": "학생을 찾을 수 없습니다."
-                }
-              }
-            }
+            "$ref": "#/components/responses/DetectionRunNotFound"
           }
         },
         "x-original-tags": [
-          "Roster Support"
+          "Detection"
         ],
         "servers": [
           {
@@ -478,6 +881,1969 @@
         },
         "x-original-tags": [
           "Class Management"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/dashboard/briefing": {
+      "get": {
+        "tags": [
+          "Frontend to Backend/Dashboard and Engagement"
+        ],
+        "operationId": "getDashboardBriefing",
+        "summary": "날짜별 대시보드 브리핑 조회",
+        "description": "Asia/Seoul 기준 오늘 또는 과거 날짜를 조회한다. 데이터가 없어도 200과 빈 배열을 반환한다.\nAlert는 rank, alertId 순이고 Evidence는 createdAt, id 순이다. Todo는 조회일까지 미완료인\n항목(이월 포함)을 dueDate, createdAt, id 순으로 반환한다. Reminder는 조회일 다음 날 00:00\n미만에 예정된 ACTIVE Reminder와 OPEN Intervention만 Alert별로 묶고, 최신 Intervention을 대표로\n선택해 scheduledAt, alertId 순으로 반환한다. studentName 미등록 시 null이며 alias로 대체하지 않는다.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/BriefingDate"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "브리핑 조회 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardBriefing"
+                },
+                "example": {
+                  "date": "2026-08-05",
+                  "alerts": [
+                    {
+                      "alertId": "0198f000-0000-7000-8000-000000000101",
+                      "studentId": "0198f000-0000-7000-8000-000000000003",
+                      "studentName": null,
+                      "ruleId": "R1",
+                      "signalType": "hidden_risk",
+                      "rank": 1,
+                      "brief": "최근 학습 신호를 확인해 주세요.",
+                      "briefFallback": false,
+                      "status": "PENDING_REVIEW",
+                      "evidence": [
+                        {
+                          "recordId": "record-1",
+                          "summary": "최근 오답률이 증가했습니다."
+                        }
+                      ]
+                    }
+                  ],
+                  "todos": [],
+                  "reminders": []
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "누락/날짜 형식 오류 또는 미래 날짜",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "future": {
+                    "value": {
+                      "code": "FUTURE_DATE_NOT_ALLOWED",
+                      "message": "Future briefing dates cannot be queried."
+                    }
+                  },
+                  "missing": {
+                    "value": {
+                      "code": "MISSING_REQUEST_PARAMETER",
+                      "message": "필수 요청 파라미터를 확인해 주세요."
+                    }
+                  },
+                  "format": {
+                    "value": {
+                      "code": "INVALID_DATE_FORMAT",
+                      "message": "날짜는 yyyy-MM-dd 형식이어야 합니다."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "x-original-tags": [
+          "Dashboard"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/dashboard/calendar": {
+      "get": {
+        "tags": [
+          "Frontend to Backend/Dashboard and Engagement"
+        ],
+        "operationId": "getDashboardCalendar",
+        "summary": "주간 대시보드 캘린더 조회",
+        "description": "startedAt 월요일부터 같은 주 endedAt 일요일까지 정확히 7일을 날짜 오름차순으로 반환한다.\n미래 주도 허용하며 빈 날짜는 eventCount 0이다. eventCount는 detection_runs.analysis_date에\n연결된 Alert 수로, 상태와 Evidence 수에 무관하게 Alert 한 건을 한 번 센다. Todo, Reminder,\n상담 일정 등은 포함하지 않는다.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/StartedAt"
+          },
+          {
+            "$ref": "#/components/parameters/EndedAt"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "7일 캘린더 조회 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardCalendar"
+                },
+                "example": {
+                  "startedAt": "2026-08-03",
+                  "endedAt": "2026-08-09",
+                  "items": [
+                    {
+                      "date": "2026-08-03",
+                      "eventCount": 2
+                    },
+                    {
+                      "date": "2026-08-04",
+                      "eventCount": 0
+                    },
+                    {
+                      "date": "2026-08-05",
+                      "eventCount": 1
+                    },
+                    {
+                      "date": "2026-08-06",
+                      "eventCount": 0
+                    },
+                    {
+                      "date": "2026-08-07",
+                      "eventCount": 0
+                    },
+                    {
+                      "date": "2026-08-08",
+                      "eventCount": 0
+                    },
+                    {
+                      "date": "2026-08-09",
+                      "eventCount": 0
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "누락, 날짜 형식 오류 또는 잘못된 주간 범위",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missing": {
+                    "value": {
+                      "code": "MISSING_REQUEST_PARAMETER",
+                      "message": "필수 요청 파라미터를 확인해 주세요."
+                    }
+                  },
+                  "format": {
+                    "value": {
+                      "code": "INVALID_DATE_FORMAT",
+                      "message": "날짜는 yyyy-MM-dd 형식이어야 합니다."
+                    }
+                  },
+                  "range": {
+                    "value": {
+                      "code": "INVALID_CALENDAR_RANGE",
+                      "message": "The calendar range must be one Monday-through-Sunday week."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "x-original-tags": [
+          "Dashboard"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/engagement/alerts": {
+      "get": {
+        "tags": [
+          "Frontend to Backend/Dashboard and Engagement"
+        ],
+        "operationId": "listEngagementAlerts",
+        "summary": "상태별 Alert 검토 큐 조회",
+        "description": "브리핑이 아니라 상태별 검토 큐 탐색용 목록이다. createdAt, id 오름차순이다.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "생략 시 PENDING_REVIEW",
+            "schema": {
+              "$ref": "#/components/schemas/AlertStatus"
+            },
+            "example": "PENDING_REVIEW"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Alert 목록(없으면 빈 배열)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AlertView"
+                  }
+                },
+                "example": []
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "x-original-tags": [
+          "Engagement"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/engagement/alerts/{alertId}": {
+      "get": {
+        "tags": [
+          "Frontend to Backend/Dashboard and Engagement"
+        ],
+        "operationId": "getEngagementAlertDetail",
+        "summary": "Alert 상세 조회",
+        "description": "alertId 하나로 학생·반·신호 표시 정보와 역할별 최신 Evidence를 반환한다. 신호 수치는 Evidence 개수가 아니라 signal의 observed를 사용한다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AlertId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "상세 조회 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertDetail"
+                },
+                "example": {
+                  "alertId": "0198f000-0000-7000-8000-000000000101",
+                  "studentId": "0198f000-0000-7000-8000-000000000003",
+                  "studentName": "김서연",
+                  "className": "고1 수능 국어반",
+                  "ruleId": "R4",
+                  "signalType": "hidden_risk",
+                  "displayLabel": "숨은 신호 · 풀이시간 급증",
+                  "brief": "최근 풀이시간이 개인 기준보다 증가했습니다.",
+                  "briefFallback": false,
+                  "status": "PENDING_REVIEW",
+                  "createdAt": "2026-08-05T00:00:00Z",
+                  "evidence": [
+                    {
+                      "id": "0198f000-0000-7000-8000-000000000301",
+                      "sourceHint": "learning_records",
+                      "recordId": "record-1",
+                      "summary": "근거"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/EngagementNotFound"
+          }
+        },
+        "x-original-tags": [
+          "Engagement"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/engagement/alerts/{alertId}/approval": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Dashboard and Engagement"
+        ],
+        "operationId": "approveEngagementAlert",
+        "summary": "Alert 승인",
+        "description": "PENDING_REVIEW Alert를 승인한다. 연결된 OPEN Todo도 완료한다. 이미 승인된 경우 멱등이다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AlertId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/AlertViewSuccess"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/EngagementNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/InvalidEngagementState"
+          }
+        },
+        "x-original-tags": [
+          "Engagement"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/engagement/alerts/{alertId}/rejection": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Dashboard and Engagement"
+        ],
+        "operationId": "rejectEngagementAlert",
+        "summary": "Alert 거절",
+        "description": "PENDING_REVIEW Alert를 사유와 함께 거절하고 연결된 OPEN Todo를 완료한다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AlertId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectionRequest"
+              },
+              "example": {
+                "note": "오경보로 판단했습니다."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/AlertViewSuccess"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/EngagementNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/InvalidEngagementState"
+          }
+        },
+        "x-original-tags": [
+          "Engagement"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/engagement/alerts/{alertId}/interventions": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Dashboard and Engagement"
+        ],
+        "operationId": "createAlertIntervention",
+        "summary": "Alert 기반 Intervention 생성",
+        "description": "APPROVED Alert에 OPEN Intervention과 7일 뒤 ACTIVE Reminder를 같은 트랜잭션에서 생성한다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AlertId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InterventionRequest"
+              },
+              "example": {
+                "type": "CALL",
+                "content": "전화 상담을 진행했습니다."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "생성 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterventionView"
+                },
+                "example": {
+                  "id": "0198f000-0000-7000-8000-000000000401",
+                  "alertId": "0198f000-0000-7000-8000-000000000101",
+                  "studentId": "0198f000-0000-7000-8000-000000000003",
+                  "type": "CALL",
+                  "content": "전화 상담을 진행했습니다.",
+                  "status": "OPEN",
+                  "createdAt": "2026-08-05T00:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/EngagementNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/InvalidEngagementState"
+          }
+        },
+        "x-original-tags": [
+          "Engagement"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/engagement/interventions/{interventionId}/completion": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Dashboard and Engagement"
+        ],
+        "operationId": "completeIntervention",
+        "summary": "Intervention 완료",
+        "description": "OPEN Intervention을 COMPLETED로 전환한다. 연결 Reminder는 변경하지 않는다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/InterventionId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/InterventionViewSuccess"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/EngagementNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/InvalidEngagementState"
+          }
+        },
+        "x-original-tags": [
+          "Engagement"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/engagement/interventions/{interventionId}/cancellation": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Dashboard and Engagement"
+        ],
+        "operationId": "cancelIntervention",
+        "summary": "Intervention 취소",
+        "description": "OPEN Intervention과 연결된 ACTIVE Reminder를 같은 시각에 취소한다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/InterventionId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/InterventionViewSuccess"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/EngagementNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/InvalidEngagementState"
+          }
+        },
+        "x-original-tags": [
+          "Engagement"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/todos/{todoId}": {
+      "patch": {
+        "tags": [
+          "Frontend to Backend/Dashboard and Engagement"
+        ],
+        "operationId": "completeTodo",
+        "summary": "Todo 완료",
+        "description": "done=true만 지원하며 반복 완료는 멱등이다. false로 완료 취소/재개할 수 없다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TodoId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TodoUpdateRequest"
+              },
+              "example": {
+                "done": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "완료 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodoResult"
+                },
+                "example": {
+                  "todoId": "0198f000-0000-7000-8000-000000000501",
+                  "kind": "ALERT_FOLLOW_UP",
+                  "done": true,
+                  "completedAt": "2026-08-05T00:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "본문 오류 또는 done이 true가 아님",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "invalid": {
+                    "value": {
+                      "code": "INVALID_TODO_UPDATE",
+                      "message": "done=true만 지원합니다."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "없거나 접근 불가능한 Todo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "TODO_NOT_FOUND",
+                  "message": "Todo를 찾을 수 없습니다."
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "완료할 수 없는 상태",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "INVALID_TODO_STATE",
+                  "message": "현재 상태에서는 요청을 처리할 수 없습니다."
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Todo"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/engagement/reminders/{reminderId}/completion": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Dashboard and Engagement"
+        ],
+        "operationId": "completeReminder",
+        "summary": "Reminder 완료",
+        "description": "ACTIVE Reminder를 COMPLETED로 전환한다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReminderId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ReminderViewSuccess"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/EngagementNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/InvalidEngagementState"
+          }
+        },
+        "x-original-tags": [
+          "Engagement"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/engagement/reminders/{reminderId}/cancellation": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Dashboard and Engagement"
+        ],
+        "operationId": "cancelReminder",
+        "summary": "Reminder 취소",
+        "description": "ACTIVE Reminder를 CANCELLED로 전환한다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReminderId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ReminderViewSuccess"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/EngagementNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/InvalidEngagementState"
+          }
+        },
+        "x-original-tags": [
+          "Engagement"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/students/{studentId}/personal-information/name": {
+      "put": {
+        "tags": [
+          "Frontend to Backend/Roster and Class Management"
+        ],
+        "operationId": "saveStudentPersonalInformationName",
+        "summary": "학생 실명 저장",
+        "description": "대시보드 studentName 표시를 지원한다. 다른 테넌트 학생은 존재 여부를 숨겨 같은 404를 반환한다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/StudentId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudentNameRequest"
+              },
+              "example": {
+                "studentName": "김서연"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "저장 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentNameResponse"
+                },
+                "example": {
+                  "studentId": "0198f000-0000-7000-8000-000000000003",
+                  "studentName": "김서연",
+                  "updatedAt": "2026-08-05T00:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "없거나 접근 불가능한 학생",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "STUDENT_NOT_FOUND",
+                  "message": "학생을 찾을 수 없습니다."
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Roster Support"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/problem-requests": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Problem Generation and Studio"
+        ],
+        "operationId": "createProblemGenerationRequest",
+        "summary": "AI 문제 출제 요청",
+        "description": "v1은 teacher_manual + manualTargets, language, 객관식, 지문 없음만 지원한다.\n요청과 Kafka Outbox를 같은 DB 트랜잭션에 저장하며, 동일 멱등 키와 동일\npayload는 기존 요청을 반환한다. AI 서버에는 내부 UUID와 실명을 전달하지 않는다.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemGenerationRequest"
+              },
+              "example": {
+                "targetKind": "STUDENT",
+                "targetId": "0198f000-0000-7000-8000-000000000003",
+                "manualTargets": [
+                  "skill.grammar.001"
+                ],
+                "taxonomyVersion": "2026.08",
+                "typeTags": [
+                  "CONCEPT"
+                ],
+                "count": 3,
+                "requestedDifficulty": "MEDIUM"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "요청 저장 성공 또는 동일 요청 재사용",
+            "headers": {
+              "Location": {
+                "description": "백엔드가 영속화한 출제 요청 조회 경로",
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemGenerationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "없거나 다른 테넌트에 속한 학생 또는 클래스",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "PROBLEM_TARGET_NOT_FOUND",
+                  "message": "출제 대상을 찾을 수 없습니다."
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "같은 멱등 키가 다른 payload에 사용됨",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "IDEMPOTENCY_CONFLICT",
+                  "message": "같은 멱등 키가 다른 요청에 이미 사용되었습니다."
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Problem Generation"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/problem-requests/{requestId}": {
+      "get": {
+        "tags": [
+          "Frontend to Backend/Problem Generation and Studio"
+        ],
+        "operationId": "getProblemGenerationRequest",
+        "summary": "문제 출제 요청 상태와 결과 조회",
+        "description": "AI 인메모리 상태가 아니라 백엔드 DB에 미러링된 상태와 원본 결과를 조회한다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemRequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "출제 요청 조회 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemGenerationResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "없거나 다른 테넌트에 속한 출제 요청",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "PROBLEM_REQUEST_NOT_FOUND",
+                  "message": "출제 요청을 찾을 수 없습니다."
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Problem Generation"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/problem-studio/students": {
+      "get": {
+        "tags": [
+          "Frontend to Backend/Problem Generation and Studio"
+        ],
+        "operationId": "listProblemStudioStudents",
+        "summary": "Step 1 대상 학생 목록",
+        "description": "ACTIVE 학생의 화면 표시 정보와 최근 30일 이상 신호 수를 페이지로 조회한다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/Size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "대상 학생 목록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemStudioStudentPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "x-original-tags": [
+          "Problem Studio"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/problem-studio/students/{studentId}/weakness-analysis": {
+      "get": {
+        "tags": [
+          "Frontend to Backend/Problem Generation and Studio"
+        ],
+        "operationId": "getProblemStudioWeaknessAnalysis",
+        "summary": "Step 1 최근 8주 영역·유형 분석",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/StudentId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "최근 8주 분석",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemStudioWeaknessAnalysis"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "없거나 접근할 수 없는 학생",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Problem Studio"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/problem-studio/requests": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Problem Generation and Studio"
+        ],
+        "operationId": "createProblemStudioRequest",
+        "summary": "Step 2 영역별 출제 조건으로 생성 요청",
+        "description": "영역×유형별 문항 수의 합계는 1~20이며 요청과 Kafka Outbox를 원자 저장한다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemStudioRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "요청 저장",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemStudioRequestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "없거나 접근할 수 없는 학생",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "멱등 키 충돌",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Problem Studio"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/problem-studio/requests/{requestId}/review": {
+      "get": {
+        "tags": [
+          "Frontend to Backend/Problem Generation and Studio"
+        ],
+        "operationId": "getProblemStudioReview",
+        "summary": "Step 3 AI 생성 문항 검토 조회",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemRequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "문항과 검증 상태 집계",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemStudioReview"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "없거나 접근할 수 없는 요청",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Problem Studio"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/problem-studio/requests/{requestId}/selection": {
+      "put": {
+        "tags": [
+          "Frontend to Backend/Problem Generation and Studio"
+        ],
+        "operationId": "replaceProblemStudioSelection",
+        "summary": "Step 4 선택 문항 교체",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemRequestId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProblemStudioSelectionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "선택이 반영된 검토 모델",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemStudioReview"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "요청 없음",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "저장 이후 선택 변경 등 상태 충돌",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Problem Studio"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/problem-studio/requests/{requestId}/save": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Problem Generation and Studio"
+        ],
+        "operationId": "saveProblemStudioSet",
+        "summary": "Step 4 선택 문항 저장",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemRequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "동일 요청은 같은 저장 세트 반환",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemStudioSavedSet"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "요청 없음",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "저장 불가능 상태",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Problem Studio"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/problem-studio/requests/{requestId}/publish": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Problem Generation and Studio"
+        ],
+        "operationId": "publishProblemStudioAssignment",
+        "summary": "Step 4 대상 학생에게 과제 발행",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemRequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "동일 요청은 같은 발행 과제 반환",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemStudioAssignment"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "요청 없음",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "발행 불가능 상태",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Problem Studio"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/problem-studio/requests/{requestId}/printable": {
+      "get": {
+        "tags": [
+          "Frontend to Backend/Problem Generation and Studio"
+        ],
+        "operationId": "getProblemStudioPrintableData",
+        "summary": "Step 4 프론트 PDF 렌더링용 데이터",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProblemRequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "선택 문항과 대상 학생 인쇄 데이터",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemStudioPrintable"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "요청 없음",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "선택 문항 없음",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Problem Studio"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/counsel/drafts": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Counsel"
+        ],
+        "operationId": "createCounselDraft",
+        "summary": "학부모 상담 초안 생성 요청",
+        "description": "문의 1건 = 초안 1개다. 생성은 Kafka 비동기다(2026-08-20 Kafka-철회 재확정) —\n백엔드가 job_id를 즉시 minting해 202로 돌려주고, text는 마스킹한 뒤 카프카\n아웃박스로 발행한다. 실제 AI 처리는 어댑터가 비동기로 수행하며 완료/실패는\nKafka 이벤트로 통지된다. status는 항상 queued로 시작하고, 결과는\nGET /counsel/drafts/{jobId}로 폴링해 확인한다.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CounselIdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CounselCreateDraftRequest"
+              },
+              "example": {
+                "studentId": "0198f900-0000-7000-8000-000000000011",
+                "classId": "0198f900-0000-7000-8000-000000000021",
+                "inquiryRef": "iq_884",
+                "topic": "grade",
+                "urgency": "immediate",
+                "receivedAt": "2026-08-20T14:20:00+09:00",
+                "text": "요즘 아이가 힘들어하는 것 같은데 학원에서는 뭘 하고 있는 건가요?",
+                "labels": [
+                  "narrative",
+                  "anxious"
+                ],
+                "dismissedSuggestions": [],
+                "periodLabel": "2026년 8월",
+                "facts": [
+                  {
+                    "recordId": "le_2041",
+                    "summary": "6월 지문 42개·312문항"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "job_id 즉시 minting(신규 요청) 또는 동일 요청 재사용(같은 Idempotency-Key 재시도). status는 queued다.",
+            "headers": {
+              "Location": {
+                "description": "초안 조회 경로",
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CounselCreateDraftResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "없거나 다른 테넌트에 속한 학생 또는 반",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "COUNSEL_TARGET_NOT_FOUND",
+                  "message": "학생 또는 반을 찾을 수 없습니다."
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "같은 Idempotency-Key에 다른 본문이 이미 쓰임",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "IDEMPOTENCY_CONFLICT",
+                  "message": "같은 멱등 키가 다른 요청에 이미 사용되었습니다."
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Counsel"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/counsel/drafts/{jobId}": {
+      "get": {
+        "tags": [
+          "Frontend to Backend/Counsel"
+        ],
+        "operationId": "getCounselDraft",
+        "summary": "상담 초안 결과 조회",
+        "description": "잡이 성공(status=succeeded)해도 근거 부족 등으로 초안이 없을 수 있다 — result.draftStatus로 판정한다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CounselJobId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "초안 조회 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CounselGetDraftResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "없는 job_id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "COUNSEL_JOB_NOT_FOUND",
+                  "message": "상담 초안 잡을 찾을 수 없습니다."
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "상담 AI 서버 연결 실패",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Counsel"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/counsel/drafts/{jobId}/refine": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Counsel"
+        ],
+        "operationId": "refineCounselDraft",
+        "summary": "상담 초안 다듬기 1턴",
+        "description": "게이트 차단도 200으로 온다(applied:false) — 4xx/5xx가 아니다. Idempotency-Key는\n턴마다 새 값을 발급해 그 턴의 재시도에만 재사용해야 한다. 생성이 Kafka\n비동기로 바뀌면서(2026-08-20) 완료 이벤트가 아직 도착하지 않아 AI의 실제\njob_id를 모르면 409(COUNSEL_DRAFT_NOT_READY)로 거절한다 — 잠시 후 재시도한다.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CounselJobId"
+          },
+          {
+            "$ref": "#/components/parameters/CounselIdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CounselRefineRequest"
+              },
+              "example": {
+                "instruction": "조금 더 부드러운 말투로 바꿔 주세요.",
+                "turnNo": 1
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "반영 또는 차단 결과",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CounselRefineResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "없는 job_id 또는 다듬기 대상이 아닌 초안(template_only)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "같은 멱등 키가 다른 요청에 이미 사용됨(IDEMPOTENCY_CONFLICT), 또는 완료 이벤트를 아직 못 받아 다듬을 초안이 없음(COUNSEL_DRAFT_NOT_READY)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "상담 AI 서버 연결 실패",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Counsel"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/counsel/drafts/{jobId}/sent": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Counsel"
+        ],
+        "operationId": "markCounselDraftSent",
+        "summary": "발송 완료 처리(발송본 보관)",
+        "description": "강사가 실제로 발송한 본문을 기록한다. AI 계약 변경은 없는 순수 로컬 저장이며 AI 학습에 쓰이지 않는다(계약 부록 §7).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CounselJobId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CounselMarkSentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "발송본 기록 성공"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "없는 job_id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Counsel"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/counsel/inquiries/{inquiryRef}/classify": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Counsel"
+        ],
+        "operationId": "classifyInquiry",
+        "summary": "문의 자동 분류",
+        "description": "POST /v1/classify를 감싼다. counsel과 달리 동기 200 단발 호출이고 Idempotency-Key가\n없다 — (X-Tenant-Id, inquiryRef)로 AI 쪽에 캐시되어 재시도가 원래 안전하다.\n분류 실패(classified:false)도 200이며, 그때는 topic=etc 등 고정 폴백 값이 온다.\ntext는 원문 그대로 보낸다 — counsel의 마스킹된 text와 반대다. AI가 자체 redaction을\n거치고, 마스킹이 불확실하면 LLM을 부르지 않고 폴백한다.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CounselInquiryRef"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassifyInquiryRequest"
+              },
+              "example": {
+                "text": "여름방학 특강 시간표가 궁금합니다"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "분류 결과(성공 또는 정직한 미분류)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassifyResultResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "description": "분류 AI 서버 연결 실패 또는 내부 오류",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Counsel"
+        ],
+        "servers": [
+          {
+            "url": "http://localhost:8080/api/v1",
+            "description": "Local CheckOn backend API"
+          }
+        ]
+      }
+    },
+    "/counsel/inquiries/{inquiryRef}/confirmation": {
+      "post": {
+        "tags": [
+          "Frontend to Backend/Counsel"
+        ],
+        "operationId": "confirmInquiryClassification",
+        "summary": "분류 확인 또는 정정",
+        "description": "POST /v1/confirmations를 감싼다. 강사가 topic을 정정하면, 이 호출과는 별개로\n새 Idempotency-Key로 POST /counsel/drafts를 다시 불러 정정된 topic으로 초안을\n재생성해야 한다 — 이 엔드포인트는 평가셋 기록만 하고 초안을 건드리지 않는다.\n같은 값을 다시 확인해도 정정으로 집계되지 않는다.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CounselInquiryRef"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmClassificationRequest"
+              },
+              "example": {
+                "action": "corrected",
+                "correctedTopic": "counsel_request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "확인·정정 기록 성공"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "저장된 분류가 없음(한 번도 분류하지 않았거나 classify가 미분류였음)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "COUNSEL_CLASSIFICATION_NOT_FOUND",
+                  "message": "분류 결과를 찾을 수 없습니다."
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "분류 AI 서버 연결 실패 또는 내부 오류",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-original-tags": [
+          "Counsel"
         ],
         "servers": [
           {
@@ -3676,15 +6042,10 @@
       }
     }
   },
-  "security": [
-    {
-      "bearerAuth": []
-    }
-  ],
   "x-checkon-communication": {
     "caller": "Frontend",
     "receiver": "Backend",
-    "scope": "Roster Support, Class Management",
+    "mode": "combined",
     "source": "dashboard-api.yaml"
   }
 }

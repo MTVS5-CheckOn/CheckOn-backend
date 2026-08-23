@@ -1,152 +1,126 @@
 {
-    "source":  "apidog_1.openapi.json",
-    "sourceSha256":  "5140151ccff3022ac83ff4ef603bdcfbe73ec69ff5dbc037f75bac4175fb3cef",
-    "sourceOperationCount":  42,
-    "partitionCount":  10,
-    "assignedExactlyOnce":  true,
-    "generatedAt":  "2026-08-13T10:35:18.4191454+09:00",
-    "parts":  [
-                  {
-                      "file":  "01-frontend-backend-auth.openapi.json",
-                      "caller":  "Frontend",
-                      "receiver":  "Backend",
-                      "scope":  "Authentication",
-                      "serverUrl":  "http://localhost:8080/api/v1",
-                      "operationCount":  4,
-                      "operations":  [
-                                         "POST /auth/sign-up/teachers",
-                                         "POST /auth/login",
-                                         "POST /auth/refresh",
-                                         "POST /auth/logout"
-                                     ]
-                  },
-                  {
-                      "file":  "02-frontend-backend-dashboard-engagement.openapi.json",
-                      "caller":  "Frontend",
-                      "receiver":  "Backend",
-                      "scope":  "Dashboard, Engagement, Todo",
-                      "serverUrl":  "http://localhost:8080/api/v1",
-                      "operationCount":  12,
-                      "operations":  [
-                                         "GET /dashboard/briefing",
-                                         "GET /dashboard/calendar",
-                                         "GET /engagement/alerts",
-                                         "GET /engagement/alerts/{alertId}",
-                                         "POST /engagement/alerts/{alertId}/approval",
-                                         "POST /engagement/alerts/{alertId}/rejection",
-                                         "POST /engagement/alerts/{alertId}/interventions",
-                                         "POST /engagement/interventions/{interventionId}/completion",
-                                         "POST /engagement/interventions/{interventionId}/cancellation",
-                                         "POST /engagement/reminders/{reminderId}/completion",
-                                         "POST /engagement/reminders/{reminderId}/cancellation",
-                                         "PATCH /todos/{todoId}"
-                                     ]
-                  },
-                  {
-                      "file":  "03-frontend-backend-roster-class.openapi.json",
-                      "caller":  "Frontend",
-                      "receiver":  "Backend",
-                      "scope":  "Roster Support, Class Management",
-                      "serverUrl":  "http://localhost:8080/api/v1",
-                      "operationCount":  6,
-                      "operations":  [
-                                         "PUT /students/{studentId}/personal-information/name",
-                                         "GET /classes",
-                                         "POST /classes",
-                                         "GET /classes/{classId}",
-                                         "PATCH /classes/{classId}",
-                                         "POST /classes/{classId}/archive"
-                                     ]
-                  },
-                  {
-                      "file":  "04-frontend-backend-learning.openapi.json",
-                      "caller":  "Frontend",
-                      "receiver":  "Backend",
-                      "scope":  "Learning Records",
-                      "serverUrl":  "http://localhost:8080/api/v1",
-                      "operationCount":  1,
-                      "operations":  [
-                                         "POST /learning-records"
-                                     ]
-                  },
-                  {
-                      "file":  "05-frontend-backend-problem-studio.openapi.json",
-                      "caller":  "Frontend",
-                      "receiver":  "Backend",
-                      "scope":  "Problem Generation, Problem Studio",
-                      "serverUrl":  "http://localhost:8080/api/v1",
-                      "operationCount":  10,
-                      "operations":  [
-                                         "POST /problem-requests",
-                                         "GET /problem-requests/{requestId}",
-                                         "GET /problem-studio/students",
-                                         "GET /problem-studio/students/{studentId}/weakness-analysis",
-                                         "POST /problem-studio/requests",
-                                         "GET /problem-studio/requests/{requestId}/review",
-                                         "PUT /problem-studio/requests/{requestId}/selection",
-                                         "POST /problem-studio/requests/{requestId}/save",
-                                         "POST /problem-studio/requests/{requestId}/publish",
-                                         "GET /problem-studio/requests/{requestId}/printable"
-                                     ]
-                  },
-                  {
-                      "file":  "06-frontend-backend-detection.openapi.json",
-                      "caller":  "Frontend",
-                      "receiver":  "Backend",
-                      "scope":  "Detection",
-                      "serverUrl":  "http://localhost:8080/api/v1",
-                      "operationCount":  2,
-                      "operations":  [
-                                         "POST /detection-runs",
-                                         "GET /detection-runs/{runId}"
-                                     ]
-                  },
-                  {
-                      "file":  "07-backend-ai-risk-detection.openapi.json",
-                      "caller":  "Backend",
-                      "receiver":  "AI Server",
-                      "scope":  "Risk Detection",
-                      "serverUrl":  "http://localhost:8000",
-                      "operationCount":  1,
-                      "operations":  [
-                                         "POST /v1/detect"
-                                     ]
-                  },
-                  {
-                      "file":  "08-backend-ai-counsel.openapi.json",
-                      "caller":  "Backend",
-                      "receiver":  "AI Server",
-                      "scope":  "Counsel Draft",
-                      "serverUrl":  "http://localhost:8000",
-                      "operationCount":  1,
-                      "operations":  [
-                                         "POST /v1/counsel/drafts"
-                                     ]
-                  },
-                  {
-                      "file":  "09-development-backend-detection.openapi.json",
-                      "caller":  "Apidog or Development Tool",
-                      "receiver":  "Backend (dev profile only)",
-                      "scope":  "Development Detection Control",
-                      "serverUrl":  "http://localhost:8080",
-                      "operationCount":  2,
-                      "operations":  [
-                                         "POST /api/dev/detection-runs",
-                                         "POST /api/dev/detection-runs/{runId}/execute"
-                                     ]
-                  },
-                  {
-                      "file":  "90-review-required-legacy.openapi.json",
-                      "caller":  "Unconfirmed",
-                      "receiver":  "Backend",
-                      "scope":  "Legacy or duplicate paths requiring owner review",
-                      "serverUrl":  "http://localhost:8080",
-                      "operationCount":  3,
-                      "operations":  [
-                                         "GET /",
-                                         "POST /api/v1/detection-runs",
-                                         "GET /api/v1/detection-runs/{runId}"
-                                     ]
-                  }
-              ]
+  "source": "dashboard-api.yaml",
+  "sourceSha256": "1fdc1e9b6d99a50d64b7945b3fa173deb3ba4b9db5868d173cdde8aeb60500ec",
+  "sourceOperationCount": 44,
+  "partitionCount": 7,
+  "assignedExactlyOnce": true,
+  "combinedFile": "00-checkon-frontend.openapi.json",
+  "combinedOperationCount": 44,
+  "generatedAt": "2026-08-23T21:55:07.3525191+09:00",
+  "parts": [
+    {
+      "file": "01-frontend-backend-auth.openapi.json",
+      "caller": "Frontend",
+      "receiver": "Backend",
+      "scope": "Authentication",
+      "serverUrl": "http://localhost:8080/api/v1",
+      "operationCount": 4,
+      "operations": [
+        "POST /auth/sign-up/teachers",
+        "POST /auth/login",
+        "POST /auth/refresh",
+        "POST /auth/logout"
+      ]
+    },
+    {
+      "file": "02-frontend-backend-dashboard-engagement.openapi.json",
+      "caller": "Frontend",
+      "receiver": "Backend",
+      "scope": "Dashboard, Engagement, Todo",
+      "serverUrl": "http://localhost:8080/api/v1",
+      "operationCount": 12,
+      "operations": [
+        "GET /dashboard/briefing",
+        "GET /dashboard/calendar",
+        "GET /engagement/alerts",
+        "GET /engagement/alerts/{alertId}",
+        "POST /engagement/alerts/{alertId}/approval",
+        "POST /engagement/alerts/{alertId}/rejection",
+        "POST /engagement/alerts/{alertId}/interventions",
+        "POST /engagement/interventions/{interventionId}/completion",
+        "POST /engagement/interventions/{interventionId}/cancellation",
+        "POST /engagement/reminders/{reminderId}/completion",
+        "POST /engagement/reminders/{reminderId}/cancellation",
+        "PATCH /todos/{todoId}"
+      ]
+    },
+    {
+      "file": "03-frontend-backend-roster-class.openapi.json",
+      "caller": "Frontend",
+      "receiver": "Backend",
+      "scope": "Roster Support, Class Management",
+      "serverUrl": "http://localhost:8080/api/v1",
+      "operationCount": 8,
+      "operations": [
+        "POST /students/{studentId}/pause",
+        "POST /students/{studentId}/return",
+        "PUT /students/{studentId}/personal-information/name",
+        "GET /classes",
+        "POST /classes",
+        "GET /classes/{classId}",
+        "PATCH /classes/{classId}",
+        "POST /classes/{classId}/archive"
+      ]
+    },
+    {
+      "file": "04-frontend-backend-learning.openapi.json",
+      "caller": "Frontend",
+      "receiver": "Backend",
+      "scope": "Learning Records",
+      "serverUrl": "http://localhost:8080/api/v1",
+      "operationCount": 1,
+      "operations": [
+        "POST /learning-records"
+      ]
+    },
+    {
+      "file": "05-frontend-backend-problem-studio.openapi.json",
+      "caller": "Frontend",
+      "receiver": "Backend",
+      "scope": "Problem Generation, Problem Studio",
+      "serverUrl": "http://localhost:8080/api/v1",
+      "operationCount": 10,
+      "operations": [
+        "POST /problem-requests",
+        "GET /problem-requests/{requestId}",
+        "GET /problem-studio/students",
+        "GET /problem-studio/students/{studentId}/weakness-analysis",
+        "POST /problem-studio/requests",
+        "GET /problem-studio/requests/{requestId}/review",
+        "PUT /problem-studio/requests/{requestId}/selection",
+        "POST /problem-studio/requests/{requestId}/save",
+        "POST /problem-studio/requests/{requestId}/publish",
+        "GET /problem-studio/requests/{requestId}/printable"
+      ]
+    },
+    {
+      "file": "06-frontend-backend-detection.openapi.json",
+      "caller": "Frontend",
+      "receiver": "Backend",
+      "scope": "Detection",
+      "serverUrl": "http://localhost:8080/api/v1",
+      "operationCount": 3,
+      "operations": [
+        "POST /detection-runs",
+        "GET /detection-runs/latest",
+        "GET /detection-runs/{runId}"
+      ]
+    },
+    {
+      "file": "07-frontend-backend-counsel.openapi.json",
+      "caller": "Frontend",
+      "receiver": "Backend",
+      "scope": "Counsel Draft and Inquiry Classification",
+      "serverUrl": "http://localhost:8080/api/v1",
+      "operationCount": 6,
+      "operations": [
+        "POST /counsel/drafts",
+        "GET /counsel/drafts/{jobId}",
+        "POST /counsel/drafts/{jobId}/refine",
+        "POST /counsel/drafts/{jobId}/sent",
+        "POST /counsel/inquiries/{inquiryRef}/classify",
+        "POST /counsel/inquiries/{inquiryRef}/confirmation"
+      ]
+    }
+  ]
 }

@@ -922,7 +922,7 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {description: 없는 job_id 또는 다듬기 대상이 아닌 초안(template_only), content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
-        '409': {description: 같은 멱등 키가 다른 요청에 이미 사용됨(IDEMPOTENCY_CONFLICT), 또는 완료 이벤트를 아직 못 받아 다듬을 초안이 없음(COUNSEL_DRAFT_NOT_READY), content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '409': {description: '같은 멱등 키가 다른 요청에 이미 사용됨(IDEMPOTENCY_CONFLICT), 또는 완료 이벤트를 아직 못 받아 다듬을 초안이 없음(COUNSEL_DRAFT_NOT_READY)', content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
         '502': {description: 상담 AI 서버 연결 실패, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
   /counsel/drafts/{jobId}/sent:
     post:
@@ -1255,7 +1255,7 @@ components:
         runId: {type: string, format: uuid}
         status: {$ref: '#/components/schemas/DetectionRunStatus'}
         analysisDate: {type: string, format: date}
-        created: {type: boolean, description: 새 실행을 생성했으면 true, 기존 실행을 재사용하면 false}
+        created: {type: boolean, description: '새 실행을 생성했으면 true, 기존 실행을 재사용하면 false'}
         attemptNumber: {type: integer, format: int32, minimum: 1}
     DetectionRunStatusResponse:
       type: object
@@ -1269,6 +1269,7 @@ components:
         attemptCount: {type: integer, format: int32, minimum: 0}
         errorCode: {type: string, nullable: true}
         stats:
+          type: object
           allOf: [{$ref: '#/components/schemas/DetectionRunStats'}]
           nullable: true
           description: 성공 결과가 저장되기 전에는 null. rulesSkipped로 신호 0건과 규칙 실행 불가를 구분한다.
@@ -1435,7 +1436,7 @@ components:
         detectionSignalResultId: {type: string, format: uuid}
         runId: {type: string, format: uuid, description: Alert 원천 Signal이 속한 Detection run 식별자}
         status: {$ref: '#/components/schemas/AlertStatus'}
-        decisionNote: {type: string, nullable: true, description: PENDING_REVIEW와 승인 시 null, 거절 시 사유}
+        decisionNote: {type: string, nullable: true, description: 'PENDING_REVIEW와 승인 시 null, 거절 시 사유'}
         decidedAt: {type: string, format: date-time, nullable: true, description: PENDING_REVIEW이면 null}
         createdAt: {type: string, format: date-time}
     AlertDetail:
@@ -1549,6 +1550,7 @@ components:
           items: {$ref: '#/components/schemas/ProblemTypeTag'}
         count: {type: integer, format: int32, minimum: 1, maximum: 10}
         requestedDifficulty:
+          type: string
           allOf: [{$ref: '#/components/schemas/ProblemDifficulty'}]
           nullable: true
     ProblemGenerationResponse:
@@ -1813,6 +1815,7 @@ components:
         jobId: {type: string}
         status: {$ref: '#/components/schemas/CounselJobPhase'}
         result:
+          type: object
           nullable: true
           allOf: [{$ref: '#/components/schemas/CounselDraftResult'}]
           description: 잡이 아직 안 끝났으면 null. status=succeeded여도 draftStatus=rejected_insufficient인 정상 조합이 있다.
@@ -1854,6 +1857,7 @@ components:
         confidenceUrgency: {type: number, format: float, minimum: 0, maximum: 1}
         classified: {type: boolean, description: 'false면 topic·sentiment·urgency는 고정 폴백 값(topic=etc 등)이지 실제 판정이 아니다.'}
         fallbackReason:
+          type: string
           nullable: true
           allOf: [{$ref: '#/components/schemas/ClassifyFallbackReason'}]
           description: classified=false일 때만 값이 있다.
@@ -1862,9 +1866,9 @@ components:
       required: [action]
       properties:
         action: {$ref: '#/components/schemas/ConfirmationAction'}
-        correctedTopic: {allOf: [{$ref: '#/components/schemas/CounselTopic'}], nullable: true, description: action=corrected일 때만 보낸다. 부분 정정 가능 — 3축 중 바뀐 것만 채운다.}
-        correctedSentiment: {allOf: [{$ref: '#/components/schemas/InquirySentiment'}], nullable: true}
-        correctedUrgency: {allOf: [{$ref: '#/components/schemas/CounselUrgency'}], nullable: true}
+        correctedTopic: {type: string, allOf: [{$ref: '#/components/schemas/CounselTopic'}], nullable: true, description: action=corrected일 때만 보낸다. 부분 정정 가능 — 3축 중 바뀐 것만 채운다.}
+        correctedSentiment: {type: string, allOf: [{$ref: '#/components/schemas/InquirySentiment'}], nullable: true}
+        correctedUrgency: {type: string, allOf: [{$ref: '#/components/schemas/CounselUrgency'}], nullable: true}
     ErrorResponse:
       type: object
       required: [code, message]
