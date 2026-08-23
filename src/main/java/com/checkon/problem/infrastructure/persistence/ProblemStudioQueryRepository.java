@@ -21,12 +21,17 @@ import com.checkon.problem.application.ProblemStudioViews.ReviewItem;
 import com.checkon.problem.application.ProblemStudioViews.ReviewSlot;
 import com.checkon.problem.domain.ProblemValidationStatus;
 
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+
 @Repository
 public class ProblemStudioQueryRepository {
 	private final JdbcClient jdbc;
+	private final ObjectMapper objectMapper;
 
-	public ProblemStudioQueryRepository(JdbcClient jdbc) {
+	public ProblemStudioQueryRepository(JdbcClient jdbc, ObjectMapper objectMapper) {
 		this.jdbc = jdbc;
+		this.objectMapper = objectMapper;
 	}
 
 	public List<StudentRow> findStudents(UUID teacherId, Instant signalSince, int page, int size) {
@@ -141,7 +146,8 @@ public class ProblemStudioQueryRepository {
 
 	public List<ReviewItem> findReviewItems(UUID teacherId, UUID requestId, boolean selectedOnly) {
 		List<ItemRow> items = jdbc.sql("""
-			SELECT id, external_item_id, ordinal, stem, passage, correct_answer_text,
+			SELECT id, external_item_id, ordinal, area_tag, type_tag, skill_node_id, correct_no,
+			       stem, passage, correct_answer_text,
 			       explanation, source_basis, validation_status, validation_message, selected
 			FROM problem_generation_items
 			WHERE teacher_id = :teacherId AND problem_request_id = :requestId
@@ -151,6 +157,8 @@ public class ProblemStudioQueryRepository {
 			.param("selectedOnly", selectedOnly)
 			.query((rs, row) -> new ItemRow(
 				rs.getObject("id", UUID.class), rs.getString("external_item_id"), rs.getInt("ordinal"),
+				rs.getString("area_tag"), rs.getString("type_tag"), rs.getString("skill_node_id"),
+				rs.getInt("correct_no"),
 				rs.getString("stem"), rs.getString("passage"), rs.getString("correct_answer_text"),
 				rs.getString("explanation"), rs.getString("source_basis"),
 				ProblemValidationStatus.valueOf(rs.getString("validation_status")),
@@ -160,7 +168,8 @@ public class ProblemStudioQueryRepository {
 
 		Map<UUID, List<Option>> options = new LinkedHashMap<>();
 		jdbc.sql("""
-			SELECT option.item_id, option.position, option.content, item.correct_answer_text
+			SELECT option.item_id, option.position, option.content, option.why_wrong,
+			       option.misconception_tag, item.correct_answer_text
 			FROM problem_generation_item_options option
 			JOIN problem_generation_items item
 			  ON item.id = option.item_id
@@ -171,12 +180,15 @@ public class ProblemStudioQueryRepository {
 			""").param("teacherId", teacherId).param("requestId", requestId)
 			.query((rs, row) -> new OptionRow(
 				rs.getObject("item_id", UUID.class), rs.getInt("position"),
-				rs.getString("content"), rs.getString("correct_answer_text")
+				rs.getString("content"), rs.getString("correct_answer_text"),
+				rs.getString("why_wrong"), rs.getString("misconception_tag")
 			)).list().forEach(option -> options.computeIfAbsent(option.itemId(), ignored -> new ArrayList<>())
-				.add(new Option(option.position(), option.content(), option.content().equals(option.correctAnswer()))));
+				.add(new Option(option.position(), option.content(), option.content().equals(option.correctAnswer()),
+					option.whyWrong(), option.misconceptionTag())));
 
 		return items.stream().map(item -> new ReviewItem(
-			item.id(), item.ordinal(), item.externalItemId(), item.stem(), item.passage(),
+			item.id(), item.ordinal(), item.externalItemId(), item.areaTag(), item.typeTag(),
+			item.skillNodeId(), item.correctNo(), item.stem(), item.passage(),
 			List.copyOf(options.getOrDefault(item.id(), List.of())), item.correctAnswerText(),
 			item.explanation(), item.sourceBasis(), item.validationStatus(),
 			item.validationMessage(), item.selected()
@@ -185,13 +197,22 @@ public class ProblemStudioQueryRepository {
 
 	public List<ReviewSlot> findReviewSlots(UUID teacherId,UUID requestId) {
 		return jdbc.sql("""
-			SELECT slot_index,item_id,external_item_id,status,current_revision_no,review_reason,failure_reason
+			SELECT problem_execution_id,slot_index,item_id,external_item_id,status,current_revision_no,
+			       available_actions::text,review_reason,failure_reason
 			FROM problem_generation_slots WHERE teacher_id=:teacherId AND problem_request_id=:requestId
 			ORDER BY problem_execution_id,slot_index
 			""").param("teacherId",teacherId).param("requestId",requestId).query((rs,row)->new ReviewSlot(
-			rs.getInt("slot_index"),rs.getObject("item_id",UUID.class),rs.getString("external_item_id"),
+			rs.getObject("problem_execution_id",UUID.class),rs.getInt("slot_index"),
+			rs.getObject("item_id",UUID.class),rs.getString("external_item_id"),
 			ProblemValidationStatus.valueOf(rs.getString("status")),rs.getInt("current_revision_no"),
-			rs.getString("review_reason"),rs.getString("failure_reason"))).list();
+			actions(rs.getString("available_actions")),rs.getString("review_reason"),rs.getString("failure_reason"))).list();
+	}
+
+	private List<String> actions(String json) {
+		try { var root=objectMapper.readTree(json); List<String> result=new ArrayList<>();
+			if(root!=null&&root.isArray()) for(var value:root) if(value.isTextual()) result.add(value.asText());
+			return List.copyOf(result); }
+		catch(JacksonException exception) { throw new IllegalStateException("stored available_actions is invalid",exception); }
 	}
 
 	public Optional<PrintableStudent> findPrintableStudent(UUID teacherId, UUID requestId) {
@@ -223,10 +244,12 @@ public class ProblemStudioQueryRepository {
 	public record RequestRow(UUID id, String targetKind, UUID studentId, String status,
 		String projectionStatus, String projectionErrorCode) { }
 	public record PrintableStudent(UUID studentId, String studentName, String className, String subject) { }
-	private record ItemRow(UUID id, String externalItemId, int ordinal, String stem, String passage,
+	private record ItemRow(UUID id, String externalItemId, int ordinal, String areaTag, String typeTag,
+		String skillNodeId, int correctNo, String stem, String passage,
 		String correctAnswerText, String explanation, String sourceBasis,
 		ProblemValidationStatus validationStatus, String validationMessage, boolean selected) { }
-	private record OptionRow(UUID itemId, int position, String content, String correctAnswer) { }
+	private record OptionRow(UUID itemId, int position, String content, String correctAnswer,
+		String whyWrong, String misconceptionTag) { }
 
 	private static Instant instant(ResultSet rs, String column) throws SQLException {
 		OffsetDateTime value = rs.getObject(column, OffsetDateTime.class);

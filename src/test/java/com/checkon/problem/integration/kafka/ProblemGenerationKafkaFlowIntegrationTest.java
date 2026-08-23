@@ -121,8 +121,10 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 			UUID diagnosisId=insertGeneratedDiagnosis();
 			UUID requestId = requestService.createStudio(TEACHER, new CreateProblemStudioCommand(
 				STUDENT,diagnosisId, List.of(
-					new CreateProblemStudioCommand.Target("language",ProblemTypeTag.CONCEPT,3),
-					new CreateProblemStudioCommand.Target("language",ProblemTypeTag.INFER,2)),
+					new CreateProblemStudioCommand.Target("language",ProblemTypeTag.CONCEPT,3,
+						"node.concept",null,null),
+					new CreateProblemStudioCommand.Target("language",ProblemTypeTag.INFER,2,
+						"node.infer",null,null)),
 				ProblemDifficulty.MEDIUM,"studio-kafka-flow-0001")).requestId();
 			String tenantAlias = tenantAlias(requestId);
 			try (Consumer<String,String> consumer = consumer("studio-request-observer-"+UUID.randomUUID())) {
@@ -135,7 +137,7 @@ class ProblemGenerationKafkaFlowIntegrationTest {
 					assertThat(record.key()).isEqualTo(tenantAlias);
 					assertThat(record.value()).contains(requestId.toString(),"problem_execution_id","target_index","teacher_manual")
 						.doesNotContain(TEACHER.toString(),STUDENT.toString(),"teacher_weakness_selection");
-					assertThat(header(record,"schema_version")).isEqualTo("pg-child-request-1");
+					assertThat(header(record,"schema_version")).isEqualTo("pg-child-request-2");
 				});
 			}
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM problem_generation_executions WHERE problem_request_id=? AND status='DISPATCHED'",Integer.class,requestId)).isEqualTo(2);

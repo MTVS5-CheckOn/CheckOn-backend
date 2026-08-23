@@ -781,6 +781,25 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {description: 없거나 접근할 수 없는 요청, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /problem-studio/requests/{requestId}/executions/{executionId}/slots/{slotIndex}/revisions:
+    post:
+      tags: [Problem Studio]
+      operationId: reviseProblemStudioSlot
+      summary: Step 3 AI 문항 수정 요청
+      description: 저장 전 슬롯에 대해 ai_refine 수정만 허용하며 baseRevisionNo로 낙관적 동시성을 검증한다.
+      parameters:
+        - {$ref: '#/components/parameters/ProblemRequestId'}
+        - {name: executionId, in: path, required: true, schema: {type: string, format: uuid}}
+        - {name: slotIndex, in: path, required: true, schema: {type: integer, minimum: 0}}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProblemStudioRevisionRequest'}}}}
+      responses:
+        '202': {description: 수정 요청 접수, content: {application/json: {schema: {$ref: '#/components/schemas/ProblemStudioRevisionResponse'}}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 요청·실행·슬롯 없음, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '409': {description: stale revision 또는 진행 중 수정 충돌, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
   /problem-studio/requests/{requestId}/selection:
     put:
       tags: [Problem Studio]
@@ -1588,7 +1607,7 @@ components:
         notableSummary: {type: string, nullable: true}
     ProblemStudioWeaknessAnalysis:
       type: object
-      required: [diagnosisId, studentId, windowStart, windowEnd, minimumSampleSize, cells, generationCapabilities, diagnosis]
+      required: [diagnosisId, studentId, windowStart, windowEnd, minimumSampleSize, cells, skillNodes, generationCapabilities, diagnosis]
       properties:
         diagnosisId: {type: string, format: uuid, description: Step 2 요청이 그대로 참조해야 하는 불변 진단 ID}
         studentId: {type: string, format: uuid}
@@ -1597,6 +1616,10 @@ components:
         minimumSampleSize: {type: integer, enum: [10]}
         studentAveragePercent: {type: number, nullable: true}
         cells: {type: array, items: {$ref: '#/components/schemas/ProblemStudioWeaknessCell'}}
+        skillNodes:
+          type: array
+          description: 교사가 출제 요청에서 명시적으로 선택할 수 있는 진단 근거 노드다.
+          items: {$ref: '#/components/schemas/ProblemStudioSkillNodeCandidate'}
         generationCapabilities:
           type: array
           description: 현재 AI evidence로 생성 가능한 셀만 포함한다. 프론트는 이 목록에 없는 셀을 비활성화한다.
@@ -1616,10 +1639,17 @@ components:
       type: object
       required: [areaTag, typeTag, maximumCount, recommendedMaximumCount]
       properties:
-        areaTag: {type: string, enum: [language]}
-        typeTag: {type: string, enum: [CONCEPT, INFER]}
+        areaTag: {type: string, enum: [language, reading, literature, speech_writing, media]}
+        typeTag: {type: string, enum: [FACT, INFER, CRITIC, CONCEPT]}
         maximumCount: {type: integer, enum: [20]}
         recommendedMaximumCount: {type: integer, enum: [3]}
+    ProblemStudioSkillNodeCandidate:
+      type: object
+      required: [skillNodeId, verdict, basis]
+      properties:
+        skillNodeId: {type: string, maxLength: 120}
+        verdict: {type: string, description: ok가 아닌 진단 노드만 출제 대상으로 선택할 수 있다.}
+        basis: {type: array, items: {type: string}}
     ProblemStudioWeaknessCell:
       type: object
       required: [areaTag, typeTag, solvedCount, correctCount, evaluation]
@@ -1647,11 +1677,35 @@ components:
     ProblemStudioTarget:
       type: object
       additionalProperties: false
-      required: [areaTag, typeTag, count]
+      required: [areaTag, typeTag, count, skillNodeId]
       properties:
-        areaTag: {type: string, enum: [language]}
-        typeTag: {type: string, enum: [CONCEPT, INFER]}
+        areaTag: {type: string, enum: [language, reading, literature, speech_writing, media]}
+        typeTag: {type: string, enum: [FACT, INFER, CRITIC, CONCEPT]}
         count: {type: integer, minimum: 1, maximum: 20}
+        skillNodeId: {type: string, maxLength: 120}
+        passage: {$ref: '#/components/schemas/ProblemStudioPassage'}
+        workSelection: {$ref: '#/components/schemas/ProblemStudioWorkSelection'}
+    ProblemStudioPassage:
+      type: object
+      additionalProperties: false
+      description: reading·speech_writing·media 영역에서 필수이며 language·literature에서는 허용하지 않는다.
+      properties:
+        areaTag: {type: string, maxLength: 40}
+        domain: {type: string, maxLength: 40}
+        topicHint: {type: string, maxLength: 300}
+        wordCount: {type: integer, minimum: 1, maximum: 5000}
+        sentenceComplexity: {type: string, maxLength: 20}
+        paragraphCount: {type: integer, minimum: 2, maximum: 6}
+        sourceKind: {type: string, maxLength: 40}
+        bannedTopicsVersion: {type: string, enum: [pg-banned-v1]}
+    ProblemStudioWorkSelection:
+      type: object
+      additionalProperties: false
+      description: literature 영역에서만 필수다.
+      properties:
+        genre: {type: string, maxLength: 40}
+        era: {type: string, maxLength: 100}
+        conceptKeywords: {type: array, maxItems: 20, items: {type: string, maxLength: 100}}
     ProblemStudioRequestResponse:
       type: object
       required: [requestId, status, replayed]
@@ -1673,13 +1727,15 @@ components:
         slots: {type: array, items: {$ref: '#/components/schemas/ProblemStudioReviewSlot'}}
     ProblemStudioReviewSlot:
       type: object
-      required: [slotIndex, status, currentRevisionNo]
+      required: [executionId, slotIndex, status, currentRevisionNo, availableActions]
       properties:
+        executionId: {type: string, format: uuid}
         slotIndex: {type: integer, minimum: 0}
         itemId: {type: string, format: uuid, nullable: true}
         externalItemId: {type: string, nullable: true}
         status: {$ref: '#/components/schemas/ProblemValidationStatus'}
         currentRevisionNo: {type: integer, minimum: 0}
+        availableActions: {type: array, uniqueItems: true, items: {type: string, enum: [refine]}}
         reviewReason: {type: string, nullable: true}
         failureReason: {type: string, nullable: true}
     ProblemStudioReviewCounts:
@@ -1692,11 +1748,15 @@ components:
         excluded: {type: integer, minimum: 0}
     ProblemStudioReviewItem:
       type: object
-      required: [itemId, ordinal, stem, options, validationStatus, selected]
+      required: [itemId, ordinal, areaTag, typeTag, skillNodeId, correctNo, stem, options, validationStatus, selected]
       properties:
         itemId: {type: string, format: uuid}
         ordinal: {type: integer, minimum: 1}
         externalItemId: {type: string, nullable: true}
+        areaTag: {type: string, enum: [language, reading, literature, speech_writing, media]}
+        typeTag: {type: string, enum: [FACT, INFER, CRITIC, CONCEPT]}
+        skillNodeId: {type: string}
+        correctNo: {type: integer, minimum: 1, maximum: 5}
         stem: {type: string}
         passage: {type: string, nullable: true}
         options: {type: array, minItems: 2, items: {$ref: '#/components/schemas/ProblemStudioOption'}}
@@ -1713,6 +1773,23 @@ components:
         position: {type: integer, minimum: 1}
         content: {type: string}
         correct: {type: boolean}
+        whyWrong: {type: string, nullable: true}
+        misconceptionTag: {type: string, nullable: true}
+    ProblemStudioRevisionRequest:
+      type: object
+      additionalProperties: false
+      required: [baseRevisionNo, revisionKind, instruction]
+      properties:
+        baseRevisionNo: {type: integer, minimum: 0}
+        revisionKind: {type: string, enum: [ai_refine]}
+        instruction: {type: string, minLength: 1, maxLength: 2000}
+    ProblemStudioRevisionResponse:
+      type: object
+      required: [revisionRequestId, status, replayed]
+      properties:
+        revisionRequestId: {type: string, format: uuid}
+        status: {type: string, enum: [PENDING, DISPATCHED, COMPLETED, FAILED]}
+        replayed: {type: boolean}
     ProblemStudioSelectionRequest:
       type: object
       additionalProperties: false
@@ -1863,4 +1940,12 @@ components:
     ErrorResponse:
       type: object
       required: [code, message]
-      properties: {code: {type: string}, message: {type: string}}
+      properties:
+        code: {type: string}
+        message: {type: string}
+        detail:
+          type: object
+          nullable: true
+          properties:
+            reason: {type: string, nullable: true}
+            currentRevisionNo: {type: integer, minimum: 0, nullable: true}

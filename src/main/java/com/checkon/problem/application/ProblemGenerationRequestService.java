@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -42,11 +43,24 @@ public class ProblemGenerationRequestService {
 	private static final String SCHEMA_VERSION = "pg-request-1";
 	private static final Pattern SKILL_NODE_PATTERN = Pattern.compile("[a-zA-Z0-9][a-zA-Z0-9._:-]{0,119}");
 	private static final Pattern CLIENT_KEY_PATTERN = Pattern.compile("[A-Za-z0-9._:-]{8,200}");
-	private static final String MVP_STUDIO_AREA = "language";
-	private static final List<ProblemTypeTag> MVP_STUDIO_TYPES = List.of(
-		ProblemTypeTag.CONCEPT,
-		ProblemTypeTag.INFER
+	private static final Set<String> STUDIO_AREAS = Set.of(
+		"language", "reading", "literature", "speech_writing", "media"
 	);
+	private static final Set<ProblemTypeTag> STUDIO_TYPES = Set.of(
+		ProblemTypeTag.FACT, ProblemTypeTag.INFER, ProblemTypeTag.CRITIC, ProblemTypeTag.CONCEPT
+	);
+	private static final Set<String> READING_DOMAINS = Set.of(
+		"humanities", "social", "science", "tech", "art", "fusion"
+	);
+	private static final Set<String> SENTENCE_COMPLEXITIES = Set.of("basic", "standard", "advanced");
+	private static final Set<String> LITERATURE_GENRES = Set.of(
+		"classical_poetry", "modern_poetry", "modern_novel"
+	);
+	private static final Set<String> SPEECH_SOURCE_KINDS = Set.of(
+		"presentation", "writing_draft", "writing_sources"
+	);
+	private static final Set<String> MEDIA_SOURCE_KINDS = Set.of("single", "paired");
+	private static final String BANNED_TOPICS_VERSION = "pg-banned-v1";
 
 	private final ProblemGenerationRequestRepository requests;
 	private final ProblemGenerationExecutionRepository executions;
@@ -112,7 +126,7 @@ public class ProblemGenerationRequestService {
 			? buildAiPayload(command, targetRef)
 			: buildStudioAiPayload(command, targetRef, studioTargets, diagnosis);
 		String snapshotHash = hasher.sha256(writeJson(aiPayload));
-		aiPayload.put("snapshot_hash", snapshotHash);
+		if (studioTargets.isEmpty()) aiPayload.put("snapshot_hash", snapshotHash);
 		String requestPayload = writeJson(aiPayload);
 		boolean inserted = requests.insert(new NewRequest(requestId, teacherId, tenantAlias, command.targetKind(),
 			command.targetKind() == ProblemTargetKind.STUDENT ? command.targetId() : null,
@@ -125,37 +139,34 @@ public class ProblemGenerationRequestService {
 			return new CreationResult(existing.id(), false);
 		}
 		if (!studioTargets.isEmpty()) {
-			List<UUID> targetIds = studioWorkflow.insertTargets(teacherId, requestId, studioTargets);
+			List<UUID> targetIds = studioWorkflow.insertTargets(teacherId, requestId,
+				studioTargets.stream().map(target -> new ProblemStudioWorkflowRepository.NewTarget(
+					target.areaTag(), target.typeTag(), target.count(), target.skillNodeId(),
+					writeJson(sourcePayload(target))
+				)).toList());
 			List<UUID> childIds = ids.nextIds(studioTargets.size() * 2);
 			DiagnosisCandidates candidates=diagnosisCandidates(diagnosis);
-			int rejected=0;
 			for (int index = 0; index < studioTargets.size(); index++) {
 				UUID executionId = childIds.get(index * 2);
 				UUID childEventId = childIds.get(index * 2 + 1);
-				String childKey = "pgc_" + compact(executionId);
+				String childKey = "problem-request:%s:target:%d".formatted(requestId, index);
 				var target=studioTargets.get(index);
-				List<String> nodes=nodeSelector.select(target.areaTag(),target.typeTag().name(),target.count(),
-					candidates.nodes(),candidates.propagated());
-				LinkedHashMap<String,Object> childRequest = buildStudioChildPayload(command, targetRef, target, diagnosis, nodes);
+				String node = requireSelectedNode(target, candidates.nodes());
+				LinkedHashMap<String,Object> childRequest = buildStudioChildPayload(
+					command, targetRef, target, diagnosis, List.of(node));
 				String childHash = hasher.sha256(writeJson(childRequest));
-				childRequest.put("snapshot_hash", childHash);
 				String childSnapshot = writeJson(childRequest);
 				NewExecution execution=new NewExecution(executionId, teacherId, requestId, targetIds.get(index), index,
 					childKey, childHash, childSnapshot, now);
-				if(nodes.size()!=target.count()) { executions.insertRejected(execution,"NO_EVIDENCE_READY_TARGET"); rejected++; }
-				else {
-					executions.insert(execution);
-					String childEvent = writeJson(buildChildEnvelope(childEventId, requestId, executionId, index,
-						tenantAlias, childKey, childRequest, now));
-					outbox.insert(new NewOutboxEvent(childEventId, teacherId, requestId, executionId,
-						EVENT_TYPE, "pg-child-request-1", tenantAlias, childEvent, now));
-				}
+				executions.insert(execution);
+				String childEvent = writeJson(buildChildEnvelope(childEventId, requestId, executionId, index,
+					tenantAlias, childKey, childRequest, now));
+				outbox.insert(new NewOutboxEvent(childEventId, teacherId, requestId, executionId, null,
+					EVENT_TYPE, "pg-child-request-2", tenantAlias, childEvent, now));
 			}
-			if(rejected==studioTargets.size()) requests.updateAggregatedStatus(requestId,teacherId,
-				com.checkon.problem.domain.ProblemGenerationStatus.FAILED,"NO_EVIDENCE_READY_TARGET",now);
 		} else {
 			String eventPayload = writeJson(buildEnvelope(eventId, requestId, tenantAlias, aiIdempotencyKey, aiPayload, now));
-			outbox.insert(new NewOutboxEvent(eventId, teacherId, requestId, null, EVENT_TYPE, SCHEMA_VERSION, tenantAlias, eventPayload, now));
+			outbox.insert(new NewOutboxEvent(eventId, teacherId, requestId, null, null, EVENT_TYPE, SCHEMA_VERSION, tenantAlias, eventPayload, now));
 		}
 		return new CreationResult(requestId, true);
 	}
@@ -192,8 +203,6 @@ public class ProblemGenerationRequestService {
 		payload.put("item_format", "mcq");
 		payload.put("count", command.count());
 		payload.put("requested_difficulty", command.requestedDifficulty());
-		payload.put("target", "auto");
-		payload.put("passage", null);
 		return payload;
 	}
 
@@ -215,7 +224,9 @@ public class ProblemGenerationRequestService {
 			value.put("area_tag", target.areaTag());
 			value.put("type_tag", target.typeTag().name().toLowerCase(Locale.ROOT));
 			value.put("count", target.count());
-			return Map.copyOf(value);
+			value.put("skill_node_id", target.skillNodeId());
+			value.putAll(sourcePayload(target));
+			return java.util.Collections.unmodifiableMap(value);
 		}).toList();
 		payload.put("generation_targets", generationTargets);
 		List<String> areas = targets.stream().map(CreateProblemStudioCommand.Target::areaTag).distinct().toList();
@@ -224,8 +235,6 @@ public class ProblemGenerationRequestService {
 		payload.put("item_format", "mcq");
 		payload.put("count", command.count());
 		payload.put("requested_difficulty", command.requestedDifficulty());
-		payload.put("target", "auto");
-		payload.put("passage", null);
 		payload.put("analysis_window_weeks", 8);
 		return payload;
 	}
@@ -236,20 +245,27 @@ public class ProblemGenerationRequestService {
 		payload.put("target_kind", "student"); payload.put("target_ref", targetRef);
 		payload.put("target_source", "teacher_manual"); payload.put("manual_targets",nodes);
 		payload.put("taxonomy_version", diagnosis.taxonomyVersion());
+		payload.put("snapshot_hash", diagnosis.snapshotHash());
 		payload.put("area_tag", target.areaTag()); payload.put("type_tags", List.of(target.typeTag().name().toLowerCase(Locale.ROOT)));
 		payload.put("item_format", "mcq"); payload.put("count", target.count());
-		payload.put("requested_difficulty", command.requestedDifficulty()); payload.put("target", "auto"); payload.put("passage", null);
+		payload.put("requested_difficulty", command.requestedDifficulty()); payload.putAll(sourcePayload(target));
 		return payload;
 	}
 
 	private static LinkedHashMap<String,Object> buildChildEnvelope(UUID eventId, UUID requestId, UUID executionId,
 		int targetIndex, String tenantAlias, String aiKey, Map<String,Object> request, Instant occurredAt) {
 		LinkedHashMap<String,Object> payload = new LinkedHashMap<>();
-		payload.put("problem_request_id",requestId.toString()); payload.put("problem_execution_id",executionId.toString());
-		payload.put("target_index",targetIndex); payload.put("idempotency_key",aiKey); payload.put("request",request);
+		payload.put("problem_request_id",requestId.toString()); payload.put("request_id",requestId.toString());
+		payload.put("problem_execution_id",executionId.toString()); payload.put("child_execution_id",executionId.toString());
+		payload.put("target_index",targetIndex); payload.put("idempotency_key",aiKey);
+		payload.put("area_tag",request.get("area_tag")); payload.put("type_tags",request.get("type_tags"));
+		payload.put("skill_node_id",((List<?>)request.get("manual_targets")).getFirst());
+		payload.put("requested_count",request.get("count")); payload.put("snapshot_hash",request.get("snapshot_hash"));
+		payload.put("taxonomy_version",request.get("taxonomy_version")); payload.put("contract_version","problem-http-v1");
+		payload.put("request",request);
 		LinkedHashMap<String,Object> envelope = new LinkedHashMap<>();
 		envelope.put("event_id",eventId.toString()); envelope.put("event_type",EVENT_TYPE); envelope.put("occurred_at",occurredAt.toString());
-		envelope.put("tenant_id",tenantAlias); envelope.put("schema_version","pg-child-request-1");
+		envelope.put("tenant_id",tenantAlias); envelope.put("schema_version","pg-child-request-2");
 		envelope.put("correlation_id",requestId.toString()); envelope.put("causation_id",null); envelope.put("payload",payload);
 		return envelope;
 	}
@@ -294,12 +310,16 @@ public class ProblemGenerationRequestService {
 			if (target == null || target.typeTag() == null || target.count() < 1 || target.count() > 20)
 				throw ProblemGenerationException.invalidRequest("each target requires a type and count between 1 and 20");
 			String areaTag = requireText(target.areaTag(), "areaTag", 80).toLowerCase(Locale.ROOT);
-			if (!MVP_STUDIO_AREA.equals(areaTag) || !MVP_STUDIO_TYPES.contains(target.typeTag()))
+			if (!STUDIO_AREAS.contains(areaTag) || !STUDIO_TYPES.contains(target.typeTag()))
 				throw ProblemGenerationException.invalidRequest(
-					"v1 supports only language area with CONCEPT or INFER type"
+					"v1 supports five Korean areas and FACT, INFER, CRITIC, or CONCEPT type"
 				);
+			String skillNodeId = requireText(target.skillNodeId(), "skillNodeId", 120);
+			if (!SKILL_NODE_PATTERN.matcher(skillNodeId).matches())
+				throw ProblemGenerationException.invalidRequest("skillNodeId is invalid");
+			var source = normalizeSource(areaTag, target.passage(), target.workSelection());
 			targets.add(new CreateProblemStudioCommand.Target(
-				areaTag, target.typeTag(), target.count()
+				areaTag, target.typeTag(), target.count(), skillNodeId, source.passage(), source.workSelection()
 			));
 		}
 		if (new LinkedHashSet<>(targets.stream().map(value -> value.areaTag() + "\u0000" + value.typeTag()).toList()).size()
@@ -317,6 +337,111 @@ public class ProblemGenerationRequestService {
 		);
 		return new StudioCommand(normalized, List.copyOf(targets));
 	}
+
+	private static NormalizedSource normalizeSource(String areaTag, CreateProblemStudioCommand.Passage rawPassage,
+		CreateProblemStudioCommand.WorkSelection rawWorkSelection) {
+		if ("language".equals(areaTag)) {
+			if (rawPassage != null || rawWorkSelection != null)
+				throw ProblemGenerationException.invalidRequest("language must not contain passage or workSelection");
+			return new NormalizedSource(null, null);
+		}
+		if ("literature".equals(areaTag)) {
+			if (rawPassage != null || rawWorkSelection == null)
+				throw ProblemGenerationException.invalidRequest("literature requires only workSelection");
+			String genre = normalizeVocabulary(rawWorkSelection.genre(), "workSelection.genre", LITERATURE_GENRES);
+			String era = optionalText(rawWorkSelection.era(), "workSelection.era", 100);
+			List<String> keywords = normalizeKeywords(rawWorkSelection.conceptKeywords());
+			return new NormalizedSource(null, new CreateProblemStudioCommand.WorkSelection(genre, era, keywords));
+		}
+		if (rawPassage == null || rawWorkSelection != null)
+			throw ProblemGenerationException.invalidRequest(areaTag + " requires only passage");
+		String passageArea = normalizeVocabulary(rawPassage.areaTag(), "passage.areaTag", Set.of(areaTag));
+		String topic = optionalText(rawPassage.topicHint(), "passage.topicHint", 300);
+		String banned = normalizeVocabulary(rawPassage.bannedTopicsVersion(), "passage.bannedTopicsVersion",
+			Set.of(BANNED_TOPICS_VERSION));
+		if ("reading".equals(areaTag)) {
+			String domain = normalizeVocabulary(rawPassage.domain(), "passage.domain", READING_DOMAINS);
+			String complexity = normalizeVocabulary(rawPassage.sentenceComplexity(),
+				"passage.sentenceComplexity", SENTENCE_COMPLEXITIES);
+			if (rawPassage.wordCount() == null || rawPassage.wordCount() < 1)
+				throw ProblemGenerationException.invalidRequest("reading passage.wordCount must be positive");
+			if (rawPassage.paragraphCount() == null || rawPassage.paragraphCount() < 2 || rawPassage.paragraphCount() > 6)
+				throw ProblemGenerationException.invalidRequest("reading passage.paragraphCount must be between 2 and 6");
+			if (rawPassage.sourceKind() != null)
+				throw ProblemGenerationException.invalidRequest("reading passage must not contain sourceKind");
+			return new NormalizedSource(new CreateProblemStudioCommand.Passage(passageArea, domain, topic,
+				rawPassage.wordCount(), complexity, rawPassage.paragraphCount(), null, banned), null);
+		}
+		if (rawPassage.domain() != null || rawPassage.wordCount() != null
+			|| rawPassage.sentenceComplexity() != null || rawPassage.paragraphCount() != null)
+			throw ProblemGenerationException.invalidRequest(areaTag + " passage contains reading-only fields");
+		Set<String> allowedKinds = "speech_writing".equals(areaTag) ? SPEECH_SOURCE_KINDS : MEDIA_SOURCE_KINDS;
+		String sourceKind = normalizeVocabulary(rawPassage.sourceKind(), "passage.sourceKind", allowedKinds);
+		return new NormalizedSource(new CreateProblemStudioCommand.Passage(passageArea, null, topic,
+			null, null, null, sourceKind, banned), null);
+	}
+
+	private static List<String> normalizeKeywords(List<String> raw) {
+		if (raw == null) return List.of();
+		if (raw.size() > 20) throw ProblemGenerationException.invalidRequest("conceptKeywords must contain at most 20 entries");
+		List<String> values = raw.stream().map(value -> requireText(value, "conceptKeyword", 100)).toList();
+		if (new LinkedHashSet<>(values).size() != values.size())
+			throw ProblemGenerationException.invalidRequest("conceptKeywords must not contain duplicates");
+		return List.copyOf(values);
+	}
+
+	private static String normalizeVocabulary(String value, String name, Set<String> allowed) {
+		String normalized = requireText(value, name, 80).toLowerCase(Locale.ROOT);
+		if (!allowed.contains(normalized)) throw ProblemGenerationException.invalidRequest(name + " is not supported");
+		return normalized;
+	}
+
+	private static String optionalText(String value, String name, int maxLength) {
+		return value == null ? null : requireText(value, name, maxLength);
+	}
+	private static Map<String, Object> sourcePayload(CreateProblemStudioCommand.Target target) {
+		LinkedHashMap<String, Object> source = new LinkedHashMap<>();
+		if (target.passage() != null) {
+			var passage = target.passage();
+			LinkedHashMap<String, Object> value = new LinkedHashMap<>();
+			value.put("area_tag", passage.areaTag());
+			putIfNotNull(value, "domain", passage.domain());
+			putIfNotNull(value, "topic_hint", passage.topicHint());
+			putIfNotNull(value, "word_count", passage.wordCount());
+			putIfNotNull(value, "sentence_complexity", passage.sentenceComplexity());
+			putIfNotNull(value, "paragraph_count", passage.paragraphCount());
+			putIfNotNull(value, "source_kind", passage.sourceKind());
+			value.put("banned_topics_version", passage.bannedTopicsVersion());
+			source.put("passage", value);
+		}
+		if (target.workSelection() != null) {
+			var selection = target.workSelection();
+			LinkedHashMap<String, Object> value = new LinkedHashMap<>();
+			value.put("genre", selection.genre());
+			putIfNotNull(value, "era", selection.era());
+			value.put("concept_keywords", selection.conceptKeywords());
+			source.put("work_selection", value);
+		}
+		return java.util.Collections.unmodifiableMap(source);
+	}
+
+	private static void putIfNotNull(Map<String, Object> target, String key, Object value) {
+		if (value != null) target.put(key, value);
+	}
+
+	private static String requireSelectedNode(CreateProblemStudioCommand.Target target,
+		List<ProblemDiagnosisNodeSelector.NodeCandidate> candidates) {
+		String cellBasis = "cell:" + target.areaTag() + "×" + target.typeTag().name().toLowerCase(Locale.ROOT);
+		return candidates.stream()
+			.filter(candidate -> target.skillNodeId().equals(candidate.nodeId()))
+			.filter(candidate -> !"ok".equalsIgnoreCase(candidate.verdict()))
+			.filter(candidate -> candidate.basis() != null && candidate.basis().contains(cellBasis))
+			.map(ProblemDiagnosisNodeSelector.NodeCandidate::nodeId)
+			.findFirst()
+			.orElseThrow(() -> ProblemGenerationException.invalidRequest(
+				"skillNodeId must be a non-ok node from the selected diagnosis cell"));
+	}
+
 	private DiagnosisCandidates diagnosisCandidates(Snapshot diagnosis) {
 		try {
 			var root=objectMapper.readTree(diagnosis.responsePayload());
@@ -388,4 +513,6 @@ public class ProblemGenerationRequestService {
 	private record StudioCommand(NormalizedCommand command, List<CreateProblemStudioCommand.Target> targets) { }
 	private record DiagnosisCandidates(List<ProblemDiagnosisNodeSelector.NodeCandidate> nodes,
 		List<ProblemDiagnosisNodeSelector.PropagatedCandidate> propagated) { }
+	private record NormalizedSource(CreateProblemStudioCommand.Passage passage,
+		CreateProblemStudioCommand.WorkSelection workSelection) { }
 }

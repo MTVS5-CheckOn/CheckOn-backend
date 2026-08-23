@@ -13,6 +13,7 @@ import com.checkon.problem.domain.ProblemGenerationStatus;
 import com.checkon.problem.infrastructure.persistence.ProblemGenerationConsumedEventRepository;
 import com.checkon.problem.infrastructure.persistence.ProblemGenerationRequestRepository;
 import com.checkon.problem.infrastructure.persistence.ProblemGenerationExecutionRepository;
+import com.checkon.problem.infrastructure.persistence.ProblemGenerationRevisionRepository;
 import com.checkon.problem.infrastructure.persistence.ProblemGenerationRequestRepository.ResultUpdate;
 import com.checkon.problem.integration.kafka.ParsedProblemGenerationResultEvent;
 import com.checkon.problem.integration.kafka.ProblemGenerationEventContractException;
@@ -22,13 +23,16 @@ public class ProblemGenerationResultProcessor {
 	private final ProblemGenerationRequestRepository requests;
 	private final ProblemGenerationExecutionRepository executions;
 	private final ProblemGenerationConsumedEventRepository consumedEvents;
+	private final ProblemGenerationRevisionRepository revisions;
 	private final ProblemGenerationItemProjector itemProjector;
 	private final TeacherTenantDatabaseContext tenantContext;
 	private final Clock clock;
 	public ProblemGenerationResultProcessor(ProblemGenerationRequestRepository requests, ProblemGenerationExecutionRepository executions,
-		ProblemGenerationConsumedEventRepository consumedEvents, ProblemGenerationItemProjector itemProjector,
+		ProblemGenerationConsumedEventRepository consumedEvents, ProblemGenerationRevisionRepository revisions,
+		ProblemGenerationItemProjector itemProjector,
 		TeacherTenantDatabaseContext tenantContext, Clock clock) {
-		this.requests = requests; this.executions = executions; this.consumedEvents = consumedEvents; this.itemProjector = itemProjector;
+		this.requests = requests; this.executions = executions; this.consumedEvents = consumedEvents;
+		this.revisions = revisions; this.itemProjector = itemProjector;
 		this.tenantContext = tenantContext; this.clock = clock;
 	}
 
@@ -76,19 +80,36 @@ public class ProblemGenerationResultProcessor {
 		if (event.targetIndex() == null || event.targetIndex() != child.targetIndex()) throw contract("target_index does not match child execution");
 		verifyStableId("adapter_execution_id", child.adapterExecutionId() == null ? null : child.adapterExecutionId().toString(),
 			event.adapterExecutionId() == null ? null : event.adapterExecutionId().toString());
-		verifyStableId("job_id",child.jobId(),event.jobId()); verifyStableId("execution_id",child.aiExecutionId(),event.aiExecutionId());
+		if(event.kind()!=ParsedProblemGenerationResultEvent.EventKind.REVISION_RESULT) {
+			verifyStableId("job_id",child.jobId(),event.jobId());
+			verifyStableId("execution_id",child.aiExecutionId(),event.aiExecutionId());
+		}
 		verifyStableId("set_id",child.setId(),event.setId());
+		if (event.kind() == ParsedProblemGenerationResultEvent.EventKind.REVISION_RESULT) {
+			processRevision(teacherId,request.id(),child.id(),event);
+			return;
+		}
 		if (child.status().terminal()) {
 			if (child.status() != event.executionStatus()) throw contract("terminal child result cannot be replaced");
 			return;
 		}
 		Instant now = Instant.now(clock);
+		if (event.kind() == ParsedProblemGenerationResultEvent.EventKind.SLOT_DETAIL) {
+			itemProjector.projectSlot(teacherId, request.id(), child.id(), event.slotPayload());
+			executions.refreshSlotCompletion(child.id(), teacherId, now);
+			aggregateParent(teacherId, request.id(), now);
+			return;
+		}
 		String error = event.executionStatus().failureForParentAggregation() ? firstNonBlank(event.errorCode(),"AI_EXECUTION_FAILED") : null;
-		executions.applyResult(new ProblemGenerationExecutionRepository.ResultUpdate(child.id(),teacherId,event.executionStatus(),
-			event.adapterExecutionId(),event.aiExecutionId(),event.jobId(),event.setId(),event.resultStatus(),error,
-			event.resultPayload(),event.versionsPayload(),event.executionStatus().terminal()?event.occurredAt():null,now));
-		if (event.executionStatus() == com.checkon.problem.domain.ProblemGenerationExecutionStatus.SUCCEEDED)
+		executions.applyWorkerReference(new ProblemGenerationExecutionRepository.WorkerReference(
+			child.id(),teacherId,event.workerPhase(),event.domainStatus(),event.adapterExecutionId(),
+			event.aiExecutionId(),event.jobId(),event.setId(),event.resultStatus(),error,
+			event.requestedCount(),event.processedCount(),event.unstartedCount(),event.statusCountsPayload(),
+			event.resultPayload(),event.versionsPayload(),event.occurredAt(),now));
+		if (event.executionStatus() == com.checkon.problem.domain.ProblemGenerationExecutionStatus.SUCCEEDED
+			&& containsLegacyItems(event.resultPayload()))
 			itemProjector.project(teacherId,request.id(),child.id(),event.resultPayload());
+		executions.refreshSlotCompletion(child.id(), teacherId, now);
 		aggregateParent(teacherId,request.id(),now);
 	}
 
@@ -110,5 +131,25 @@ public class ProblemGenerationResultProcessor {
 		if (current != null && incoming != null && !Objects.equals(current, incoming)) throw contract(name + " changed during one problem request");
 	}
 	private static String firstNonBlank(String value, String fallback) { return value == null || value.isBlank() ? fallback : value; }
+	private static boolean containsLegacyItems(String payload) {
+		return payload != null && (payload.contains("\"items\"") || payload.contains("\"problems\"")
+			|| payload.contains("\"questions\""));
+	}
+
+	private void processRevision(UUID teacherId, UUID requestId, UUID executionId,
+		ParsedProblemGenerationResultEvent event) {
+		if(event.revisionRequestId()==null) throw contract("revision result requires revision_request_id");
+		Instant now=Instant.now(clock);
+		String normalized=event.eventType().toLowerCase(java.util.Locale.ROOT);
+		if(normalized.endsWith(".succeeded")) {
+			if(event.slotPayload()==null) throw contract("successful revision result requires payload.slot");
+			itemProjector.reviseSlot(teacherId,requestId,executionId,event.slotPayload());
+			revisions.complete(event.revisionRequestId(),teacherId,"SUCCEEDED",event.aiExecutionId(),null,event.occurredAt(),now);
+			return;
+		}
+		String status="REVISION_CONFLICT".equals(event.errorCode())?"CONFLICT":"FAILED";
+		revisions.complete(event.revisionRequestId(),teacherId,status,event.aiExecutionId(),
+			firstNonBlank(event.errorCode(),"AI_REVISION_FAILED"),event.occurredAt(),now);
+	}
 	private static ProblemGenerationEventContractException contract(String message) { return new ProblemGenerationEventContractException(message); }
 }
