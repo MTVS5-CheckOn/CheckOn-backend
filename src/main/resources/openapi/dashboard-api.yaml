@@ -9,6 +9,11 @@ info:
     인증 헤더 없이 사용할 수 있으며 서버에 고정된 테스트 teacherProfileId를 사용한다.
     그 외 테넌트는 인증 principal의 teacherProfileId로 결정하며 teacherId/tenantId는 신뢰하지 않는다.
     통계, observing, feedbackGiven, 상담 일정, 문의, 리포트 승인 대기와 Reminder 알림 발송은 범위 밖이다.
+
+    브라우저 연동: 서버가 명시적으로 허용한 Origin만 API를 호출할 수 있다. Refresh Token은
+    HttpOnly 쿠키로만 오가므로 로그인·갱신·로그아웃 요청은 fetch의 credentials: 'include' 또는
+    axios의 withCredentials: true를 사용한다. Access Token은 응답 본문에서 읽어 Authorization
+    Bearer 헤더로 전달한다. 202 응답의 Location 헤더는 브라우저에 노출된다.
 servers:
   - url: /api/v1
     description: 환경별 호스트 뒤에 붙는 API base path (Apidog 환경에서 호스트를 설정)

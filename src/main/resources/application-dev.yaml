@@ -8,3 +8,9 @@ checkon:
       enabled: ${TEST_AUTH_ENABLED:true}
       account-id: ${TEST_ACCOUNT_ID:0198f000-0000-7000-8000-000000000000}
       teacher-profile-id: ${TEST_TEACHER_PROFILE_ID:0198f000-0000-7000-8000-000000000001}
+  auth:
+    # Create React App(3000)과 Vite(5173)의 로컬 기본 포트를 지원한다.
+    # 그 밖의 Origin은 AUTH_ALLOWED_ORIGINS로 명시해야 한다.
+    allowed-origins: ${AUTH_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+    # dev는 HTTP localhost이므로 Secure 쿠키를 끈다. 운영 기본값은 true다.
+    refresh-cookie-secure: ${REFRESH_COOKIE_SECURE:false}

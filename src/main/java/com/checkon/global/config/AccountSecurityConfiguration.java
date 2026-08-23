@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -62,6 +63,7 @@ public class AccountSecurityConfiguration {
 				"/api/v1/auth/refresh"
 			)
 			.authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
+			.cors(Customizer.withDefaults())
 			.csrf(csrf -> csrf.disable())
 			.addFilterBefore(
 				new RefreshRequestOriginFilter(properties),
@@ -100,6 +102,7 @@ public class AccountSecurityConfiguration {
 				.requestMatchers("/api/dev/**").hasRole("TEACHER")
 				.anyRequest().authenticated()
 			)
+			.cors(Customizer.withDefaults())
 			.csrf(csrf -> csrf.disable())
 			.exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(
 				new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)
