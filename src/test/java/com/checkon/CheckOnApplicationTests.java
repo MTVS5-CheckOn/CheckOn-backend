@@ -111,7 +111,7 @@ class CheckOnApplicationTests {
 	}
 
 	@Test
-	@DisplayName("Given Flyway가 실행되면 When 현재 스키마를 조회할 때 Then 프론트 문제 출제 스튜디오까지 생성한다")
+	@DisplayName("Given Flyway가 실행되면 When 현재 스키마를 조회할 때 Then 학생·학부모 테넌트 관계까지 생성한다")
 	void flywayCreatesCurrentApplicationTables() {
 		String detectionRuns = jdbcTemplate.queryForObject(
 			"SELECT to_regclass('public.detection_runs')::text",
@@ -185,6 +185,18 @@ class CheckOnApplicationTests {
 			"SELECT to_regclass('public.problem_assignments')::text",
 			String.class
 		);
+		String parentProfiles = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.parent_profiles')::text",
+			String.class
+		);
+		String parentTeacherRelationships = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.parent_teacher_relationships')::text",
+			String.class
+		);
+		String parentStudentRelationships = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.parent_student_relationships')::text",
+			String.class
+		);
 		Integer classManagementColumns = jdbcTemplate.queryForObject("""
 			SELECT count(*)
 			FROM information_schema.columns
@@ -240,6 +252,9 @@ class CheckOnApplicationTests {
 		assertThat(problemGenerationItems).isEqualTo("problem_generation_items");
 		assertThat(savedProblemSets).isEqualTo("saved_problem_sets");
 		assertThat(problemAssignments).isEqualTo("problem_assignments");
+		assertThat(parentProfiles).isEqualTo("parent_profiles");
+		assertThat(parentTeacherRelationships).isEqualTo("parent_teacher_relationships");
+		assertThat(parentStudentRelationships).isEqualTo("parent_student_relationships");
 		assertThat(classManagementColumns).isEqualTo(2);
 		assertThat(advisoryColumns).isEqualTo(1);
 		assertThat(structuredSignalColumns).isEqualTo(4);
@@ -248,7 +263,7 @@ class CheckOnApplicationTests {
 		assertThat(jdbcTemplate.queryForObject(
 			"SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1",
 			String.class
-		)).isEqualTo("32");
+		)).isEqualTo("33");
 	}
 
 	@Test

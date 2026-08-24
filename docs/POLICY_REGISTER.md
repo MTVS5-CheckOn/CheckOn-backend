@@ -92,7 +92,7 @@
 - 구현 상태: `NOT_IMPLEMENTED`
 - 근거 수준: `CONVERSATION_ONLY`, `CODE_CONFIRMED`
 - 현재 상태: `student_profiles`에는 강사별 직접 RLS 정책이 없다. 강사 소유 관계와 학습 기록은 별도 테넌트 경계를 적용한다.
-- 결정 필요: 학생 프로필 자체를 어떤 주체가 소유·조회하는지, 강사 변경 이력과 보호자 접근을 포함해 합의해야 한다.
+- 결정 필요: 학생 프로필 자체의 학생·학부모 API 접근 방식과 계정 탈퇴·보존 정책을 합의해야 한다. 강사 접근은 해당 학생과 현재 `ACTIVE` 또는 `PAUSED` 관계가 있는 강사로 제한한다.
 - 금지 사항: 소유권 정책이 정해지기 전에 `student_profiles`에 임의의 강사 소유 RLS를 추가하지 않는다.
 - 코드 근거: `src/main/resources/db/migration/V7__enforce_teacher_tenant_row_level_security.sql`
 - 마지막 검증일: 2026-08-04
@@ -123,24 +123,24 @@
 - 결정 상태: `CONFIRMED`
 - 구현 상태: `IMPLEMENTED`
 - 근거 수준: `DOCUMENT_CONFIRMED`, `CODE_CONFIRMED`
-- 정책: MVP에서 학생은 활성 강사를 최대 한 명만 가진다. 동시 요청에서도 이 규칙이 깨지지 않도록 DB partial unique index로 보장한다.
+- 정책: 학생은 여러 강사와 동시에 연결될 수 있다. 다만 같은 강사와 학생 사이에는 `ACTIVE`와 `PAUSED`를 합쳐 현재 관계를 최대 한 건만 두며, 동시 요청에서도 깨지지 않도록 `(teacher_id, student_id)` partial unique index로 보장한다.
 - 이력 정책: 종료된 관계는 삭제하지 않고 `ENDED`와 `ended_at`으로 보존하며, 재연결 시 새 행을 만든다.
 - 코드 근거:
   - `src/main/resources/db/migration/V6__create_roster_model.sql`
   - `src/main/java/com/checkon/roster/domain/TeacherStudentRelationship.java`
-- 마지막 검증일: 2026-08-04
+- 마지막 검증일: 2026-08-24
 
 #### ROS-002 학생의 활성 반 소속
 
 - 결정 상태: `CONFIRMED`
 - 구현 상태: `IMPLEMENTED`
 - 근거 수준: `DOCUMENT_CONFIRMED`, `CODE_CONFIRMED`
-- 정책: MVP에서 학생은 활성 반을 최대 한 개만 가진다. 활성 반의 소유 강사와 학생의 활성 강사가 일치해야 한다.
+- 정책: 학생은 서로 다른 강사의 반에 동시에 소속될 수 있다. 같은 강사 아래에서는 `ACTIVE`와 `PAUSED`를 합쳐 현재 반을 최대 한 개만 가지며, 활성 반의 소유 강사와 학생의 활성 강사 관계가 일치해야 한다.
 - 이력 정책: 종료된 소속은 보존하고, 이후 소속은 새 행으로 기록한다.
 - 코드 근거:
   - `src/main/resources/db/migration/V6__create_roster_model.sql`
   - `src/main/java/com/checkon/roster/domain/ClassEnrollment.java`
-- 마지막 검증일: 2026-08-04
+- 마지막 검증일: 2026-08-24
 
 #### ROS-003 미확정 Roster 정책 묶음
 
@@ -149,7 +149,7 @@
 - 근거 수준: `CONVERSATION_ONLY`
 - 결정 필요:
   - 학생 회원가입 및 계정 연결 방식
-  - 보호자와 초대 흐름
+  - 보호자·학생·강사 관계를 만드는 초대 및 승인 흐름
   - 관계 종료 사유의 분류와 필수 여부
   - 반 자체의 학년 보유 여부
 - 금지 사항: 별도 결정 없이 enum, 컬럼, 상태 전이 또는 API 계약을 추가하지 않는다.
@@ -161,10 +161,23 @@
 - 구현 상태: `IMPLEMENTED`
 - 근거 수준: `CONVERSATION_CONFIRMED`
 - 정책: 강사의 현재 `ACTIVE` 학생 관계와 활성 반 소속은 함께 `PAUSED`로 휴원할 수 있고, 같은 관계·소속을 다시 `ACTIVE`로 복귀시킬 수 있다. `ENDED`는 계속 최종 상태이며 재활성화하지 않는다.
-- 유일성: `ACTIVE`와 `PAUSED` 관계는 모두 현재 관리 관계로 보아 학생당 최대 한 건만 허용한다. 반 소속도 `ACTIVE`와 `PAUSED`를 합쳐 최대 한 건만 허용한다.
+- 유일성: `ACTIVE`와 `PAUSED` 관계는 모두 현재 관리 관계로 보아 같은 `(teacher_id, student_id)` 조합당 최대 한 건만 허용한다. 반 소속도 같은 강사와 학생 안에서 `ACTIVE`와 `PAUSED`를 합쳐 최대 한 건만 허용한다.
 - Detection 이력: 휴원은 `enrolled → paused`, 복귀는 `paused → returned`를 `detection_student_status_history`에 같은 트랜잭션으로 기록한다. 복귀 이력은 최근 Detection 근거 창 안에서 `enrollment_transition`으로 제공하고 학생 상태를 `returned`로 표시한다.
 - 테넌트 경계: 인증된 강사의 `teacherProfileId`와 PostgreSQL RLS를 함께 적용하며, 다른 강사의 학생과 실제 없음은 같은 404로 처리한다.
-- 마지막 검증일: 2026-08-13
+- 마지막 검증일: 2026-08-24
+
+#### ROS-005 학부모의 강사·학생 관계
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
+- 학부모-강사: 학부모는 여러 강사와 동시에 연결될 수 있다. 같은 `(parent_id, teacher_id)` 조합의 `ACTIVE` 관계는 최대 한 건만 허용하고 종료 이력은 `ENDED`로 보존한다.
+- 학부모-학생: 한 학부모는 여러 학생과 연결될 수 있지만, 학생 한 명의 `ACTIVE` 학부모 관계는 최대 한 건만 허용한다. 먼저 연결된 학부모 관계가 종료되기 전에는 다른 학부모를 연결할 수 없다.
+- 테넌트 경계: 강사는 자신과 연결된 학부모 관계만 접근할 수 있다. 학부모-학생 관계는 해당 강사가 학부모와 학생 양쪽에 현재 관계를 가진 경우에만 조회·변경할 수 있다.
+- 현재 제외: 회원가입, 초대·수락, 학생·학부모가 직접 호출하는 API의 테넌트 선택 계약, 탈퇴·삭제·보존 정책은 별도 계약 전까지 구현하지 않는다.
+- 코드 근거:
+  - `src/main/resources/db/migration/V33__support_student_parent_multi_tenancy.sql`
+- 마지막 검증일: 2026-08-24
 
 ### Class Management
 

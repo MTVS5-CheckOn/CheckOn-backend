@@ -16,11 +16,6 @@ import com.checkon.roster.domain.TeacherStudentRelationship;
 public interface TeacherStudentRelationshipRepository
 	extends JpaRepository<TeacherStudentRelationship, UUID> {
 
-	boolean existsByStudentIdAndStatus(
-		UUID studentId,
-		com.checkon.roster.domain.RelationshipStatus status
-	);
-
 	boolean existsByTeacherIdAndStudentIdAndStatus(
 		UUID teacherId,
 		UUID studentId,
