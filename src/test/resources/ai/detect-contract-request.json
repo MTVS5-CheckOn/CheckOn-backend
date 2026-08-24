@@ -1,0 +1,61 @@
+{
+  "snapshot_meta": {
+    "week_start": "2026-07-20",
+    "snapshot_hash": "sha256:test-42-2026-07-20",
+    "term_context": "normal",
+    "classes": [
+      { "class_ref": "cl_a1" },
+      { "class_ref": "cl_b2" }
+    ]
+  },
+  "students": [
+    {
+      "student_ref": "st_10",
+      "class_ref": "cl_b2",
+      "enrolled_weeks": 14,
+      "status": "enrolled",
+      "consent": "granted"
+    }
+  ],
+  "learning_events": [
+    {
+      "record_id": "le_1053",
+      "student_ref": "st_10",
+      "type": "solve",
+      "occurred_at": "2026-07-13T19:20:00+09:00",
+      "correct": true,
+      "duration_sec": 180,
+      "passage_word_count": 800,
+      "area_tag": "reading",
+      "subject_track": "common",
+      "type_tag": "infer",
+      "item_format": "mcq",
+      "assignment_title_text": null,
+      "source": "trackB"
+    },
+    {
+      "record_id": "le_1054",
+      "student_ref": "st_10",
+      "type": "submit",
+      "occurred_at": "2026-07-16T19:28:00+09:00",
+      "correct": null,
+      "duration_sec": null,
+      "passage_word_count": null,
+      "area_tag": null,
+      "subject_track": null,
+      "type_tag": null,
+      "item_format": null,
+      "assignment_title_text": null,
+      "source": "studentHome"
+    }
+  ],
+  "alert_context": [
+    {
+      "student_ref": "st_10",
+      "signal_type": "acc_drop",
+      "status": "open",
+      "resolved_at": null,
+      "followed_up": false
+    }
+  ]
+}

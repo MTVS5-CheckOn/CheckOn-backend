@@ -17,27 +17,52 @@ java {
 repositories {
     mavenCentral()
 }
-
 dependencies {
-    implementation 'org.springframework.boot:spring-boot-h2console'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-client'
+    implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-flyway'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+    // Spring Kafka client alone does not create KafkaTemplate. The Boot starter
+    // adds Kafka auto-configuration required by @RetryableTopic/DLT listeners.
+    implementation 'org.springframework.boot:spring-boot-starter-kafka'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
+
     compileOnly 'org.projectlombok:lombok'
+    runtimeOnly 'org.postgresql:postgresql'
     developmentOnly 'org.springframework.boot:spring-boot-docker-compose'
-    runtimeOnly 'com.h2database:h2'
-    runtimeOnly 'com.mysql:mysql-connector-j'
     annotationProcessor 'org.projectlombok:lombok'
+
+
+    // testImplementation
     testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-security-oauth2-client-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    // 통합 테스트 환경
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.springframework.kafka:spring-kafka-test'
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    testImplementation 'org.testcontainers:testcontainers-postgresql'
+    testImplementation 'org.testcontainers:testcontainers-kafka'
+
     testCompileOnly 'org.projectlombok:lombok'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testAnnotationProcessor 'org.projectlombok:lombok'
 }
 
+
 tasks.named('test') {
     useJUnitPlatform()
+    // 통합 테스트가 늘면서(@SpringBootTest/@Testcontainers 30여 개) Spring 컨텍스트
+    // 캐시와 Postgres/Kafka 컨테이너 클라이언트가 한 JVM 안에 계속 누적돼
+    // CI 러너 기본 힙(가용 메모리의 25%)으로는 OutOfMemoryError가 났다.
+    // 힙을 넉넉히 잡고, forkEvery로 일정 개수마다 JVM을 재시작해 누적된
+    // 컨텍스트를 주기적으로 비운다.
+    maxHeapSize = '6g'
+    forkEvery = 10
 }

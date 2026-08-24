@@ -1,0 +1,548 @@
+package com.checkon.learning.application;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.UUID;
+
+import org.junit.jupiter.api.Test;
+
+import com.checkon.detection.application.AiDetectionConsentMode;
+import com.checkon.detection.application.AiDetectionConsentPolicy;
+import com.checkon.detection.application.DetectionAssignmentWeekSummaryService;
+import com.checkon.detection.application.DetectionStudentStatusHistoryService;
+import com.checkon.detection.application.PrepareDetectionRunService;
+import com.checkon.detection.integration.ai.AiDetectionConsentProperties;
+import com.checkon.engagement.application.EngagementAlertContextService;
+import com.checkon.global.persistence.TeacherTenantDatabaseContext;
+import com.checkon.learning.domain.LearningRecord;
+import com.checkon.learning.domain.LearningRecordType;
+import com.checkon.learning.infrastructure.persistence.LearningRecordRepository;
+import com.checkon.roster.domain.ClassEnrollment;
+import com.checkon.roster.domain.RelationshipStatus;
+import com.checkon.roster.domain.TeacherStudentRelationship;
+import com.checkon.roster.infrastructure.persistence.ClassEnrollmentRepository;
+import com.checkon.roster.infrastructure.persistence.TeacherStudentRelationshipRepository;
+
+class LearningRecordSnapshotServiceTest {
+
+	private static final UUID TEACHER = UUID.fromString("0198a000-0000-7000-8000-000000000001");
+	private static final UUID STUDENT = UUID.fromString("0198a000-0000-7000-8000-000000000002");
+	private static final UUID STUDENT_2 = UUID.fromString("0198a000-0000-7000-8000-000000000005");
+	private static final UUID RECORD = UUID.fromString("0198a000-0000-7000-8000-000000000003");
+	private static final UUID CLASS = UUID.fromString("0198a000-0000-7000-8000-000000000004");
+	private static final Instant FROM = Instant.parse("2026-07-27T00:00:00Z");
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 임시 동의 정책의 ACTIVE 학생, When 스냅샷을 만들면, Then enrolled 상태와 MANUAL source를 유지한다")
+	void givenTemporaryConsentActiveStudent_whenBuildingSnapshot_thenKeepsEnrolledAndManualSource() {
+		Fixture fixture = fixture(AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true);
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.students()).singleElement().satisfies(student -> {
+			assertThat(student.studentRef()).isEqualTo("st_demo_student");
+			assertThat(student.consent()).isEqualTo("granted");
+			assertThat(student.status()).isEqualTo("enrolled");
+		});
+		assertThat(snapshot.learningEvents()).singleElement().satisfies(event ->
+			assertThat(event.source()).isEqualTo("MANUAL")
+		);
+		assertThat(snapshot.snapshotMeta().classes()).singleElement();
+		assertThat(snapshot.detectionEvidence()).singleElement().satisfies(evidence -> {
+			assertThat(evidence.kind()).isEqualTo("weekly_activity");
+			assertThat(evidence.studentRef()).isEqualTo("st_demo_student");
+		});
+		assertThat(snapshot.detectionEvidence())
+			.filteredOn(evidence -> evidence.kind().equals("weekly_activity"))
+			.filteredOn(evidence -> evidence.weekStart().equals(LocalDate.parse("2026-07-27")))
+			.singleElement()
+			.satisfies(evidence -> assertThat(evidence.activityCount()).isEqualTo(1));
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 최근 복귀 이력, When 스냅샷을 만들면, Then returned 학생과 enrollment transition을 보낸다")
+	void givenRecentReturnHistory_whenBuildingSnapshot_thenSendsR5Evidence() {
+		Fixture fixture = fixture(AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true);
+		Instant returnedAt = FROM.plusSeconds(10);
+		when(fixture.statusHistory().findReturnedTransitions(
+			eq(TEACHER), any(Instant.class), any(Instant.class)
+		)).thenReturn(List.of(new DetectionStudentStatusHistoryService.ReturnedTransition(
+			UUID.fromString("0198a000-0000-7000-8000-000000000006"),
+			STUDENT,
+			returnedAt,
+			"enrolled",
+			"returned"
+		)));
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.students()).singleElement().satisfies(student ->
+			assertThat(student.status()).isEqualTo("returned")
+		);
+		assertThat(snapshot.detectionEvidence())
+			.filteredOn(evidence -> evidence.kind().equals("enrollment_transition"))
+			.singleElement().satisfies(evidence -> {
+				assertThat(evidence.sourceTable()).isEqualTo("student_status_history");
+				assertThat(evidence.recordId()).isEqualTo(
+					"0198a000-0000-7000-8000-000000000006"
+				);
+				assertThat(evidence.studentRef()).isEqualTo("st_demo_student");
+				assertThat(evidence.fromStatus()).isEqualTo("enrolled");
+				assertThat(evidence.toStatus()).isEqualTo("returned");
+			});
+		verify(fixture.statusHistory()).findReturnedTransitions(
+			TEACHER,
+			Instant.parse("2026-07-26T15:00:00Z"),
+			Instant.parse("2026-08-02T15:00:00Z")
+		);
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given PAUSED 학생, When 스냅샷을 만들면, Then paused 상태로 보내 AI 판정에서 제외한다")
+	void givenPausedStudent_whenBuildingSnapshot_thenSendsPausedStatus() {
+		Fixture fixture = fixture(AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true);
+		TeacherStudentRelationship paused = TeacherStudentRelationship.start(
+			TEACHER, STUDENT, FROM.minusSeconds(60), FROM.minusSeconds(60)
+		);
+		paused.pause();
+		when(fixture.relationships().findAllByTeacherIdAndStatusIn(
+			TEACHER, List.of(RelationshipStatus.ACTIVE, RelationshipStatus.PAUSED)
+		)).thenReturn(List.of(paused));
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.students()).singleElement().satisfies(student ->
+			assertThat(student.status()).isEqualTo("paused")
+		);
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 과제 주간 집계 행, When 스냅샷을 만들면, Then R2 assignment window를 보낸다")
+	void givenAssignmentSummary_whenBuildingSnapshot_thenSendsR2Evidence() {
+		Fixture fixture = fixture(AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true);
+		when(fixture.assignmentSummaries().findAll(
+			eq(TEACHER), any(LocalDate.class), any(LocalDate.class)
+		)).thenReturn(List.of(new DetectionAssignmentWeekSummaryService.AssignmentWeekSummary(
+			UUID.fromString("0198a000-0000-7000-8000-000000000007"),
+			STUDENT, LocalDate.parse("2026-07-27"), 3, 0
+		)));
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.detectionEvidence())
+			.filteredOn(evidence -> evidence.kind().equals("assignment_window"))
+			.singleElement().satisfies(evidence -> {
+				assertThat(evidence.sourceTable()).isEqualTo("assignment_week_summary");
+				assertThat(evidence.recordId()).isEqualTo(
+					"0198a000-0000-7000-8000-000000000007"
+				);
+				assertThat(evidence.expectedCount()).isEqualTo(3);
+				assertThat(evidence.submittedCount()).isZero();
+			});
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 과제가 없다고 확인된 주와 미적재 주, When 스냅샷을 만들면, Then 0건 행만 보내고 미적재 주는 합성하지 않는다")
+	void givenKnownZeroAndUnknownAssignmentWeeks_whenBuildingSnapshot_thenPreservesAbsenceMeaning() {
+		Fixture fixture = fixture(AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true);
+		when(fixture.assignmentSummaries().findAll(
+			eq(TEACHER), any(LocalDate.class), any(LocalDate.class)
+		)).thenReturn(List.of(new DetectionAssignmentWeekSummaryService.AssignmentWeekSummary(
+			UUID.fromString("0198a000-0000-7000-8000-000000000008"),
+			STUDENT, LocalDate.parse("2026-07-20"), 0, 0
+		)));
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.detectionEvidence())
+			.filteredOn(evidence -> evidence.kind().equals("assignment_window"))
+			.singleElement().satisfies(evidence -> {
+				assertThat(evidence.weekStart()).isEqualTo(LocalDate.parse("2026-07-20"));
+				assertThat(evidence.expectedCount()).isZero();
+				assertThat(evidence.submittedCount()).isZero();
+			});
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given an active student with no learning events, When building a snapshot, Then zero weekly activity is sent")
+	void givenActiveStudentWithoutEvents_whenBuildingSnapshot_thenSendsZeroActivityEvidence() {
+		Fixture fixture = fixture(AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, false);
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.students()).singleElement().satisfies(student -> {
+			assertThat(student.classRef()).isEqualTo("cl_unassigned");
+			assertThat(student.status()).isEqualTo("enrolled");
+		});
+		assertThat(snapshot.learningEvents()).isEmpty();
+		assertThat(snapshot.snapshotMeta().classes()).isEmpty();
+		assertThat(snapshot.detectionEvidence()).hasSize(1);
+		assertThat(snapshot.detectionEvidence())
+			.filteredOn(evidence -> evidence.kind().equals("weekly_activity"))
+			.filteredOn(evidence -> evidence.weekStart().equals(LocalDate.parse("2026-07-27")))
+			.singleElement()
+			.satisfies(evidence -> assertThat(evidence.activityCount()).isZero());
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 관계 시작 전 주차가 포함된 조회 범위, When 스냅샷을 만들면, Then 시작 전 행은 생략하고 시작 후 0건은 보낸다")
+	void givenWeeksBeforeRelationship_whenBuildingSnapshot_thenOmitsUnknownWeeksAndKeepsObservedZero() {
+		// Given
+		Instant relationshipStartedAt = Instant.parse("2026-07-13T00:00:00Z");
+		Fixture fixture = fixture(
+			AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true, true,
+			relationshipStartedAt
+		);
+
+		// When
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		// Then
+		assertThat(snapshot.students()).singleElement().satisfies(student -> {
+			assertThat(student.status()).isEqualTo("enrolled");
+			assertThat(student.enrolledWeeks()).isEqualTo(2);
+		});
+		assertThat(snapshot.detectionEvidence())
+			.extracting(evidence -> evidence.weekStart())
+			.containsExactly(
+				LocalDate.parse("2026-07-13"),
+				LocalDate.parse("2026-07-20"),
+				LocalDate.parse("2026-07-27")
+			);
+		assertThat(snapshot.detectionEvidence())
+			.extracting(evidence -> evidence.activityCount())
+			.containsExactly(0, 0, 1);
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 최근 반 등록과 오래된 ACTIVE 관계, When 스냅샷을 만들면, Then 관계 시작일로 재원 기간을 계산한다")
+	void givenRecentClassEnrollment_whenBuildingSnapshot_thenDoesNotResetRelationshipWeeks() {
+		// Given
+		Fixture fixture = fixture(
+			AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true, true,
+			FROM.minus(35, ChronoUnit.DAYS)
+		);
+		ClassEnrollment recentEnrollment = mock(ClassEnrollment.class);
+		when(recentEnrollment.studentId()).thenReturn(STUDENT);
+		when(recentEnrollment.classGroupId()).thenReturn(CLASS);
+		when(recentEnrollment.enrolledAt()).thenReturn(FROM.minus(1, ChronoUnit.DAYS));
+		when(fixture.enrollments().findAllByTeacherIdAndStatusIn(
+			TEACHER, List.of(RelationshipStatus.ACTIVE, RelationshipStatus.PAUSED)
+		)).thenReturn(List.of(recentEnrollment));
+
+		// When
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		// Then
+		assertThat(snapshot.students()).singleElement().satisfies(student ->
+			assertThat(student.enrolledWeeks()).isEqualTo(5)
+		);
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 시작일이 다른 두 학생, When 스냅샷을 만들면, Then 학생별 weekly activity 시작 주를 독립 적용한다")
+	void givenStudentsWithDifferentStartDates_whenBuildingSnapshot_thenAppliesCutoffPerStudent() {
+		// Given
+		Fixture fixture = fixture(
+			AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true, true,
+			Instant.parse("2026-07-13T00:00:00Z")
+		);
+		TeacherStudentRelationship secondRelationship = TeacherStudentRelationship.start(
+			TEACHER, STUDENT_2, Instant.parse("2026-07-27T00:00:00Z"),
+			Instant.parse("2026-07-27T00:00:00Z")
+		);
+		when(fixture.relationships().findAllByTeacherIdAndStatusIn(
+			TEACHER, List.of(RelationshipStatus.ACTIVE, RelationshipStatus.PAUSED)
+		)).thenReturn(List.of(
+			TeacherStudentRelationship.start(
+				TEACHER, STUDENT, Instant.parse("2026-07-13T00:00:00Z"),
+				Instant.parse("2026-07-13T00:00:00Z")
+			),
+			secondRelationship
+		));
+		when(fixture.aliases().getOrCreate(TEACHER, STUDENT_2))
+			.thenReturn("st_demo_student_2");
+
+		// When
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		// Then
+		assertThat(snapshot.detectionEvidence())
+			.filteredOn(evidence -> evidence.studentRef().equals("st_demo_student"))
+			.hasSize(3);
+		assertThat(snapshot.detectionEvidence())
+			.filteredOn(evidence -> evidence.studentRef().equals("st_demo_student_2"))
+			.singleElement()
+			.satisfies(evidence -> assertThat(evidence.weekStart())
+				.isEqualTo(LocalDate.parse("2026-07-27")));
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 한 주 전체가 휴원인 학생, When 스냅샷을 만들면, Then 해당 주를 생략하고 재원 주수에서 제외한다")
+	void givenStudentPausedForWholeWeek_whenBuildingSnapshot_thenOmitsWeekAndExcludesPauseFromEnrollment() {
+		// Given
+		Instant relationshipStartedAt = Instant.parse("2026-06-28T15:00:00Z");
+		Instant snapshotTo = Instant.parse("2026-08-02T15:00:00Z");
+		Fixture fixture = fixture(
+			AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true, true,
+			relationshipStartedAt
+		);
+		when(fixture.statusHistory().findPauseTransitions(
+			eq(TEACHER), any(Instant.class), any(Instant.class)
+		)).thenReturn(List.of(
+			pauseTransition("0198a000-0000-7000-8000-000000000011",
+				"2026-07-05T15:00:00Z", "enrolled", "paused"),
+			pauseTransition("0198a000-0000-7000-8000-000000000012",
+				"2026-07-12T15:00:00Z", "paused", "returned")
+		));
+
+		// When
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal",
+			FROM, snapshotTo
+		);
+
+		// Then
+		assertThat(snapshot.students()).singleElement().satisfies(student ->
+			assertThat(student.enrolledWeeks()).isEqualTo(4)
+		);
+		assertThat(snapshot.detectionEvidence())
+			.filteredOn(evidence -> evidence.kind().equals("weekly_activity"))
+			.extracting(evidence -> evidence.weekStart())
+			.containsExactly(
+				LocalDate.parse("2026-06-29"),
+				LocalDate.parse("2026-07-13"),
+				LocalDate.parse("2026-07-20"),
+				LocalDate.parse("2026-07-27")
+			);
+		assertThat(snapshot.detectionEvidence())
+			.filteredOn(evidence -> evidence.kind().equals("weekly_activity"))
+			.allSatisfy(evidence -> assertThat(evidence.enrolledSeconds())
+				.isEqualTo(7L * 24 * 60 * 60));
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 한 주 중 휴원과 복귀가 발생한 학생, When 스냅샷을 만들면, Then 전이 주의 실제 활동 행을 유지한다")
+	void givenStudentPausedAndReturnedWithinWeek_whenBuildingSnapshot_thenKeepsTransitionWeek() {
+		// Given
+		Instant relationshipStartedAt = Instant.parse("2026-06-28T15:00:00Z");
+		Instant snapshotTo = Instant.parse("2026-08-02T15:00:00Z");
+		Fixture fixture = fixture(
+			AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true, true,
+			relationshipStartedAt
+		);
+		when(fixture.statusHistory().findPauseTransitions(
+			eq(TEACHER), any(Instant.class), any(Instant.class)
+		)).thenReturn(List.of(
+			pauseTransition("0198a000-0000-7000-8000-000000000013",
+				"2026-07-08T00:00:00Z", "enrolled", "paused"),
+			pauseTransition("0198a000-0000-7000-8000-000000000014",
+				"2026-07-10T00:00:00Z", "paused", "returned")
+		));
+
+		// When
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal",
+			FROM, snapshotTo
+		);
+
+		// Then
+		assertThat(snapshot.detectionEvidence())
+			.filteredOn(evidence -> evidence.kind().equals("weekly_activity"))
+			.filteredOn(evidence -> evidence.weekStart().equals(LocalDate.parse("2026-07-06")))
+			.singleElement()
+			.satisfies(evidence -> {
+				assertThat(evidence.activityCount()).isZero();
+				assertThat(evidence.enrolledSeconds()).isEqualTo(5L * 24 * 60 * 60);
+			});
+	}
+
+	@Test
+	void recordedGrantModeExcludesStudentsWithoutAConsentSource() {
+		Fixture fixture = fixture(AiDetectionConsentMode.REQUIRE_RECORDED_GRANT, true);
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.students()).isEmpty();
+		assertThat(snapshot.learningEvents()).isEmpty();
+		assertThat(snapshot.snapshotMeta().classes()).isEmpty();
+		verifyNoInteractions(fixture.aliases());
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 종료 학생의 과거 기록, When 스냅샷을 만들면, Then 학생과 기록을 AI 요청에서 제외한다")
+	void givenEndedStudentHistory_whenBuildingSnapshot_thenExcludesFormerStudent() {
+		Fixture fixture = fixture(AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true, false);
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.students()).isEmpty();
+		assertThat(snapshot.learningEvents()).isEmpty();
+		assertThat(snapshot.detectionEvidence()).isEmpty();
+		assertThat(snapshot.alertContext()).isEmpty();
+		verifyNoInteractions(fixture.aliases());
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("Given 기존 해결 경보, When 스냅샷을 만들면, Then AI alias 기반 alert_context를 채운다")
+	void givenResolvedAlertHistory_whenBuildingSnapshot_thenAddsPseudonymousAlertContext() {
+		Fixture fixture = fixture(AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true);
+		when(fixture.alertContexts().latestByStudentAndSignalType(TEACHER)).thenReturn(List.of(
+			new EngagementAlertContextService.AlertHistory(
+				STUDENT, "hidden_risk", "resolved", Instant.parse("2026-08-05T10:00:00Z"), true
+			)
+		));
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.alertContext()).singleElement().satisfies(context -> {
+			assertThat(context.studentRef()).isEqualTo("st_demo_student");
+			assertThat(context.signalType()).isEqualTo("hidden_risk");
+			assertThat(context.status()).isEqualTo("resolved");
+			assertThat(context.resolvedAt().toInstant())
+				.isEqualTo(Instant.parse("2026-08-05T10:00:00Z"));
+			assertThat(context.followedUp()).isTrue();
+		});
+	}
+
+	private Fixture fixture(AiDetectionConsentMode mode, boolean includeRecord) {
+		return fixture(mode, includeRecord, true);
+	}
+
+	private Fixture fixture(
+		AiDetectionConsentMode mode,
+		boolean includeRecord,
+		boolean activeRelationship
+	) {
+		return fixture(mode, includeRecord, activeRelationship, FROM.minusSeconds(60));
+	}
+
+	private Fixture fixture(
+		AiDetectionConsentMode mode,
+		boolean includeRecord,
+		boolean activeRelationship,
+		Instant relationshipStartedAt
+	) {
+		LearningRecordRepository records = mock(LearningRecordRepository.class);
+		ClassEnrollmentRepository enrollments = mock(ClassEnrollmentRepository.class);
+		TeacherStudentRelationshipRepository relationships = mock(
+			TeacherStudentRelationshipRepository.class
+		);
+		EngagementAlertContextService alertContexts = mock(EngagementAlertContextService.class);
+		AiStudentAliasService aliases = mock(AiStudentAliasService.class);
+		PrepareDetectionRunService prepareService = mock(PrepareDetectionRunService.class);
+		DetectionAssignmentWeekSummaryService assignmentSummaries = mock(
+			DetectionAssignmentWeekSummaryService.class
+		);
+		DetectionStudentStatusHistoryService statusHistory = mock(
+			DetectionStudentStatusHistoryService.class
+		);
+		TeacherTenantDatabaseContext tenantContext = mock(TeacherTenantDatabaseContext.class);
+		LearningRecord record = record();
+
+		when(records.findAllByTeacherIdAndOccurredAtGreaterThanEqualAndOccurredAtLessThan(
+			eq(TEACHER), any(Instant.class), any(Instant.class)
+		)).thenReturn(includeRecord ? List.of(record) : List.of());
+		when(enrollments.findAllByTeacherIdAndStatusIn(
+			TEACHER, List.of(RelationshipStatus.ACTIVE, RelationshipStatus.PAUSED)
+		))
+			.thenReturn(List.of());
+		when(alertContexts.latestByStudentAndSignalType(TEACHER)).thenReturn(List.of());
+		when(statusHistory.findReturnedTransitions(
+			eq(TEACHER), any(Instant.class), any(Instant.class)
+		)).thenReturn(List.of());
+		when(statusHistory.findPauseTransitions(
+			eq(TEACHER), any(Instant.class), any(Instant.class)
+		)).thenReturn(List.of());
+		when(assignmentSummaries.findAll(
+			eq(TEACHER), any(LocalDate.class), any(LocalDate.class)
+		)).thenReturn(List.of());
+		when(relationships.findAllByTeacherIdAndStatusIn(
+			TEACHER, List.of(RelationshipStatus.ACTIVE, RelationshipStatus.PAUSED)
+		))
+			.thenReturn(activeRelationship ? List.of(TeacherStudentRelationship.start(
+				TEACHER, STUDENT, relationshipStartedAt, relationshipStartedAt
+			)) : List.of());
+		if (mode == AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL) {
+			when(aliases.getOrCreate(TEACHER, STUDENT)).thenReturn("st_demo_student");
+		}
+
+		AiDetectionConsentPolicy consentPolicy = new AiDetectionConsentPolicy(
+			new AiDetectionConsentProperties(mode)
+		);
+		return new Fixture(new LearningRecordSnapshotService(
+			records, enrollments, relationships, alertContexts, aliases,
+			consentPolicy, assignmentSummaries, statusHistory,
+			prepareService, tenantContext
+		), aliases, alertContexts, enrollments, relationships,
+			assignmentSummaries, statusHistory);
+	}
+
+	private LearningRecord record() {
+		LearningRecord record = mock(LearningRecord.class);
+		when(record.id()).thenReturn(RECORD);
+		when(record.teacherId()).thenReturn(TEACHER);
+		when(record.studentId()).thenReturn(STUDENT);
+		when(record.classGroupId()).thenReturn(CLASS);
+		when(record.recordType()).thenReturn(LearningRecordType.SOLVE);
+		when(record.occurredAt()).thenReturn(FROM.plusSeconds(1));
+		when(record.sourceType()).thenReturn("MANUAL");
+		return record;
+	}
+
+	private DetectionStudentStatusHistoryService.PauseTransition pauseTransition(
+		String id,
+		String occurredAt,
+		String fromStatus,
+		String toStatus
+	) {
+		return new DetectionStudentStatusHistoryService.PauseTransition(
+			UUID.fromString(id), STUDENT, Instant.parse(occurredAt), fromStatus, toStatus
+		);
+	}
+
+	private record Fixture(
+		LearningRecordSnapshotService service,
+		AiStudentAliasService aliases,
+		EngagementAlertContextService alertContexts,
+		ClassEnrollmentRepository enrollments,
+		TeacherStudentRelationshipRepository relationships,
+		DetectionAssignmentWeekSummaryService assignmentSummaries,
+		DetectionStudentStatusHistoryService statusHistory
+	) {
+	}
+}

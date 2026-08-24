@@ -1,0 +1,96 @@
+openapi: 3.1.0
+info:
+  title: CheckOn Risk Detection Control API
+  version: 1.0.0
+  description: |
+    Teacher-facing control API. A successful POST means the request was durably accepted;
+    AI analysis runs asynchronously through Kafka. The Kafka event contract is
+    risk-detection-kafka.asyncapi.yaml, not this OpenAPI file.
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/v1/detection-runs:
+    post:
+      summary: 위험 탐지 분석 요청 (Kafka 비동기)
+      description: |
+        백엔드가 인증된 교사의 학습 기록으로 snapshot을 생성해 Kafka 요청 이벤트를 발행한다.
+        성공은 AI 분석 완료가 아니라 Outbox 접수 상태(`202 Accepted`)를 뜻한다.
+        테넌트는 인증 principal에서만 결정된다.
+      operationId: requestDetectionRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [analysisDate]
+              properties:
+                analysisDate:
+                  type: string
+                  format: date
+                  example: '2026-08-12'
+      responses:
+        '202':
+          description: The run and its Kafka Outbox request were accepted.
+          headers:
+            Location:
+              schema: { type: string }
+              description: Status resource URL.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DetectionRunResponse' }
+        '422':
+          description: No eligible learning records are available.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '409':
+          description: Same date has a different immutable snapshot.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+  /api/v1/detection-runs/{runId}:
+    get:
+      summary: Get risk-detection run status
+      operationId: getDetectionRunStatus
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Run status owned by the authenticated teacher.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DetectionRunStatusResponse' }
+        '404':
+          description: Run does not exist or is not owned by the teacher.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+components:
+  schemas:
+    DetectionRunResponse:
+      type: object
+      required: [runId, status, analysisDate, created, attemptNumber]
+      properties:
+        runId: { type: string, format: uuid }
+        status: { type: string, enum: [PREPARED, REQUESTED, SUCCEEDED, FAILED] }
+        analysisDate: { type: string, format: date }
+        created: { type: boolean }
+        attemptNumber: { type: integer, minimum: 0 }
+    DetectionRunStatusResponse:
+      type: object
+      required: [runId, status, analysisDate, attemptCount]
+      properties:
+        runId: { type: string, format: uuid }
+        status: { type: string, enum: [PREPARED, REQUESTED, SUCCEEDED, FAILED] }
+        analysisDate: { type: string, format: date }
+        attemptCount: { type: integer, minimum: 0 }
+        errorCode: { type: [string, 'null'] }
+    ErrorResponse:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }

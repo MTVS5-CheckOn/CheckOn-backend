@@ -1,0 +1,397 @@
+asyncapi: 2.6.0
+info:
+  title: CheckOn Risk Detection Kafka Contract
+  version: 1.6.0
+  description: |
+    Internal asynchronous contract between CheckOn control/outbox, its HTTP adapter,
+    and its result consumer. The AI service itself exposes POST /v1/detect and does
+    not connect to Kafka.
+    The v1 request emits assignment_window evidence for R2, weekly_activity evidence
+    for R1/R3/R4/R6, and enrollment_transition evidence for R5.
+    All timestamps are RFC 3339 instants. All identifiers are UUIDv7 except opaque aliases.
+    snapshot_hash canonical JSON sorts every object key lexicographically and each array
+    by its schema-specific key, emits UTF-8 non-ASCII text without escaping, and uses no
+    separator whitespace. students, learning_events, and alert_context keep empty arrays;
+    only an empty detection_evidence key is omitted. Nullable learning-event fields and
+    alert_context.resolved_at remain explicit nulls. Dates use YYYY-MM-DD. Timestamps keep
+    their non-UTC offset, render UTC as Z, always include seconds, omit a zero fraction,
+    and otherwise use exactly six fractional digits. Sub-microsecond precision is invalid.
+    Unpaired UTF-16 surrogate code units are invalid canonical input.
+    Floats, snapshot_hash itself, classes, and passage_ref are outside the hash surface.
+servers:
+  local:
+    url: localhost:9094
+    protocol: kafka
+    description: Local Docker Compose broker. Container-to-container clients use kafka:9092.
+defaultContentType: application/json
+channels:
+  checkon.risk-detection.requested.v1:
+    description: Backend Outbox emits a durable request for the Backend HTTP Adapter.
+    publish:
+      operationId: backendPublishesRiskDetectionRequest
+      message:
+        $ref: '#/components/messages/RiskDetectionRequested'
+  checkon.risk-detection.completed.v1:
+    description: Backend HTTP Adapter emits the AI HTTP 200 response.
+    subscribe:
+      operationId: backendConsumesRiskDetectionCompleted
+      message:
+        $ref: '#/components/messages/RiskDetectionCompleted'
+  checkon.risk-detection.failed.v1:
+    description: Backend HTTP Adapter emits a terminal or retry-exhausted HTTP failure.
+    subscribe:
+      operationId: backendConsumesRiskDetectionFailed
+      message:
+        $ref: '#/components/messages/RiskDetectionFailed'
+components:
+  messages:
+    RiskDetectionRequested:
+      name: RiskDetectionRequested
+      title: Backend Outbox to Backend HTTP Adapter request
+      contentType: application/json
+      correlationId:
+        location: $message.payload#/correlation_id
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: Must be the tenant_alias value.
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/RiskDetectionEvent'
+          - type: object
+            properties:
+              event_type:
+                const: risk-detection.requested
+              payload:
+                $ref: '#/components/schemas/DetectionRequest'
+    RiskDetectionCompleted:
+      name: RiskDetectionCompleted
+      title: Backend HTTP Adapter to Backend successful result
+      contentType: application/json
+      correlationId:
+        location: $message.payload#/correlation_id
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: Must be the tenant_alias copied from the request.
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/RiskDetectionEvent'
+          - type: object
+            properties:
+              event_type:
+                const: risk-detection.completed
+              payload:
+                $ref: '#/components/schemas/DetectionResponse'
+    RiskDetectionFailed:
+      name: RiskDetectionFailed
+      title: Backend HTTP Adapter to Backend failed result
+      contentType: application/json
+      correlationId:
+        location: $message.payload#/correlation_id
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: Must be the tenant_alias copied from the request.
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/RiskDetectionEvent'
+          - type: object
+            properties:
+              event_type:
+                const: risk-detection.failed
+              payload:
+                $ref: '#/components/schemas/DetectionFailure'
+  schemas:
+    RiskDetectionEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - event_id
+        - event_type
+        - schema_version
+        - correlation_id
+        - causation_id
+        - tenant_alias
+        - run_id
+        - attempt_id
+        - request_id
+        - idempotency_key
+        - snapshot_hash
+        - occurred_at
+        - payload
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Unique event identity; consumers must deduplicate it.
+        event_type:
+          type: string
+          enum: [risk-detection.requested, risk-detection.completed, risk-detection.failed]
+        schema_version:
+          type: string
+          const: '1.0'
+        correlation_id:
+          type: string
+          format: uuid
+          description: Equals run_id for all messages in one detection run.
+        causation_id:
+          type: string
+          format: uuid
+          description: For completed/failed, the consumed requested event_id. Request events use their own event_id.
+        tenant_alias:
+          type: string
+          pattern: '^tn_[0-9a-f]{32}$'
+          description: Opaque teacher tenant alias; never a teacher UUID or PII.
+        run_id:
+          type: string
+          format: uuid
+        attempt_id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+          description: Equals attempt_id as a string in v1.
+        idempotency_key:
+          type: string
+          description: tenant_alias plus analysis date; same run retries preserve it.
+        snapshot_hash:
+          type: string
+          description: SHA-256 hash of the immutable request payload.
+        occurred_at:
+          type: string
+          format: date-time
+        payload: {}
+    DetectionRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshot_meta, students, learning_events, alert_context]
+      properties:
+        snapshot_meta:
+          type: object
+          required: [week_start, snapshot_hash, term_context, classes]
+          properties:
+            week_start: { type: string, format: date }
+            snapshot_hash: { type: string }
+            term_context: { type: string }
+            classes:
+              type: array
+              items:
+                type: object
+                required: [class_ref]
+                properties:
+                  class_ref: { type: string }
+        students:
+          type: array
+          items:
+            type: object
+            required: [student_ref, class_ref, enrolled_weeks, status, consent]
+            properties:
+              student_ref: { type: string, pattern: '^st_[0-9a-f]{32}$' }
+              class_ref: { type: string }
+              enrolled_weeks:
+                type: integer
+                minimum: 0
+                description: Completed weeks from teacher_student_relationships.started_at to the snapshot boundary.
+              status:
+                type: string
+                description: An ACTIVE teacher-student relationship is enrolled regardless of class assignment.
+              consent: { type: string, enum: [granted, denied, unknown] }
+        learning_events:
+          type: array
+          items:
+            type: object
+            required: [record_id, student_ref, type, occurred_at]
+            properties:
+              record_id: { type: string }
+              student_ref: { type: string, pattern: '^st_[0-9a-f]{32}$' }
+              type: { type: string }
+              occurred_at: { type: string, format: date-time }
+              correct: { type: [boolean, 'null'] }
+              duration_sec: { type: [integer, 'null'], minimum: 0 }
+              passage_word_count: { type: [integer, 'null'], minimum: 0 }
+              area_tag: { type: [string, 'null'] }
+              subject_track: { type: [string, 'null'] }
+              type_tag: { type: [string, 'null'] }
+              item_format: { type: [string, 'null'] }
+              assignment_title_text: { type: [string, 'null'] }
+              source: { type: [string, 'null'] }
+        alert_context:
+          type: array
+          items:
+            type: object
+            required: [student_ref, signal_type, status, followed_up]
+            properties:
+              student_ref: { type: string }
+              signal_type: { type: string }
+              status: { type: string }
+              resolved_at: { type: [string, 'null'], format: date-time }
+              followed_up: { type: boolean }
+        detection_evidence:
+          type: array
+          description: |
+            Optional evidence facts. New v1 requests emit assignment_window rows that exist,
+            weekly_activity from each student's relationship-start week through the analysis
+            week, up to the ten-week snapshot window, and enrollment_transition for a
+            transition whose to_status is returned in the analysis week.
+            Weeks before relationship start are omitted because no evidence exists; real
+            zero-activity weeks on or after relationship start use activity_count=0.
+            Each weekly_activity row includes integer enrolled_seconds after clipping the KST
+            week to relationship/snapshot bounds and subtracting confirmed pause intervals.
+            A missing weekly_activity row means the week is not eligible for evaluation, not
+            zero activity, so week_start values need not be consecutive. enrolled_weeks and the
+            weekly_activity row count can differ because transition weeks are partial weeks.
+            Missing assignment rows are omitted rather than synthesized as zero. Array omission
+            and [] have the same snapshot_hash meaning.
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/AssignmentWindowEvidence'
+              - $ref: '#/components/schemas/WeeklyActivityEvidence'
+              - $ref: '#/components/schemas/EnrollmentTransitionEvidence'
+            discriminator:
+              propertyName: kind
+    AssignmentWindowEvidence:
+      type: object
+      additionalProperties: false
+      required: [kind, source_table, record_id, student_ref, week_start, expected_count, submitted_count]
+      properties:
+        kind: { const: assignment_window }
+        source_table: { const: assignment_week_summary }
+        record_id: { type: string, minLength: 1 }
+        student_ref: { type: string, pattern: '^st_[0-9a-f]{32}$' }
+        week_start: { type: string, format: date, description: Monday in Asia/Seoul }
+        expected_count: { type: integer, minimum: 0 }
+        submitted_count: { type: integer, minimum: 0 }
+    WeeklyActivityEvidence:
+      type: object
+      additionalProperties: false
+      required: [kind, source_table, record_id, student_ref, week_start, activity_count, enrolled_seconds]
+      properties:
+        kind: { const: weekly_activity }
+        source_table: { const: student_week_activity }
+        record_id: { type: string, minLength: 1 }
+        student_ref: { type: string, pattern: '^st_[0-9a-f]{32}$' }
+        week_start: { type: string, format: date, description: Monday in Asia/Seoul }
+        activity_count: { type: integer, minimum: 0 }
+        enrolled_seconds: { type: integer, minimum: 1, maximum: 604800 }
+    EnrollmentTransitionEvidence:
+      type: object
+      additionalProperties: false
+      required: [kind, source_table, record_id, student_ref, occurred_at, from_status, to_status]
+      properties:
+        kind: { const: enrollment_transition }
+        source_table: { const: student_status_history }
+        record_id: { type: string, minLength: 1 }
+        student_ref: { type: string, pattern: '^st_[0-9a-f]{32}$' }
+        occurred_at: { type: string, format: date-time }
+        from_status: { type: string, enum: [enrolled, paused, returned] }
+        to_status: { const: returned }
+    DetectionResponse:
+      type: object
+      required: [data, error, meta]
+      properties:
+        data:
+          type: object
+          required: [signals, stats]
+          properties:
+            signals:
+              type: array
+              items:
+                type: object
+                required: [signal_id, student_ref, class_ref, rule_id, signal_type, display_label, score, rank, lifecycle, brief, evidence]
+                properties:
+                  signal_id: { type: string }
+                  student_ref: { type: string }
+                  class_ref: { type: string }
+                  rule_id: { type: string }
+                  signal_type: { type: string }
+                  display_label: { type: string }
+                  metric:
+                    type: [string, 'null']
+                    description: Rule metric identifier; null for backend-first rollout and R5.
+                  observed:
+                    type: [number, 'null']
+                    description: Structured observed value for the signal.
+                  baseline:
+                    type: [number, 'null']
+                    description: Structured baseline value for R1, R3, and R4 only.
+                  sample_size:
+                    type: [integer, 'null']
+                    minimum: 0
+                    description: Optional denominator for the signal value.
+                  score: { type: number }
+                  rank: { type: integer }
+                  advisory:
+                    type: boolean
+                    default: false
+                    description: Student-detail reference only; never creates an Alert or Todo.
+                  lifecycle: { type: string }
+                  brief:
+                    type: object
+                    required: [text, gate_passed, fallback_used]
+                    properties:
+                      text: { type: string }
+                      gate_passed: { type: boolean }
+                      fallback_used: { type: boolean }
+                  evidence:
+                    type: array
+                    items:
+                      type: object
+                      required: [source_table, record_id, summary, role]
+                      properties:
+                        source_table: { type: string }
+                        record_id: { type: string }
+                        summary: { type: string }
+                        role:
+                          type: string
+                          enum: [trigger, baseline]
+                          description: Evidence role. baseline is emitted only for R3.
+                        observed:
+                          type: [number, 'null']
+                          description: Observed value belonging to this evidence record.
+                        sample_size:
+                          type: [integer, 'null']
+                          minimum: 0
+                          description: Optional denominator belonging to this evidence record.
+                        occurred_on:
+                          type: [string, 'null']
+                          format: date
+            stats:
+              type: object
+              required: [students_evaluated, signals_raised, excluded_under_2w, capped_out, rules_skipped]
+              properties:
+                students_evaluated: { type: integer, minimum: 0 }
+                signals_raised: { type: integer, minimum: 0 }
+                excluded_under_2w: { type: integer, minimum: 0 }
+                capped_out: { type: integer, minimum: 0 }
+                rules_skipped: { type: array, items: { type: object } }
+                r1_threshold_pp:
+                  type: [number, 'null']
+                  description: Optional R1 threshold in percentage points, preserved for diagnostics.
+                r1_threshold_source:
+                  type: [string, 'null']
+                  description: Optional source used to derive the R1 threshold.
+                r1_pool_n:
+                  type: [integer, 'null']
+                  minimum: 0
+                  description: Optional R1 comparison-pool size.
+        error:
+          type: 'null'
+        meta:
+          type: object
+          required: [execution_id, versions]
+          properties:
+            execution_id: { type: string }
+            versions: { type: object, additionalProperties: { type: string } }
+    DetectionFailure:
+      type: object
+      additionalProperties: false
+      required: [code, message, detail, retryable]
+      properties:
+        code: { type: string, maxLength: 60 }
+        message: { type: string }
+        detail: {}
+        retryable: { type: boolean }
