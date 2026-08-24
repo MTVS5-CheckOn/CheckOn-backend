@@ -8,6 +8,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -139,14 +140,31 @@ class RosterPersistenceIntegrationTest {
 	}
 
 	@Test
-	void databaseRejectsSecondActiveTeacherForStudent() {
+	@DisplayName("Given 한 학생과 서로 다른 강사일 때 When 활성 관계를 각각 만들면 Then 두 테넌트 관계를 모두 허용한다")
+	void allowsActiveRelationshipsWithDifferentTeachersForStudent() {
 		UUID firstTeacher = insertTeacher("first@example.com", "첫 강사");
 		UUID secondTeacher = insertTeacher("second@example.com", "둘째 강사");
 		UUID studentId = insertStudentWithGrade(1);
 		insertRelationship(firstTeacher, studentId, "ACTIVE");
 
+		assertThat(insertRelationship(secondTeacher, studentId, "ACTIVE"))
+			.isNotNull();
+		assertThat(jdbcTemplate.queryForObject(
+			"SELECT count(*) FROM teacher_student_relationships WHERE student_id = ? AND status = 'ACTIVE'",
+			Integer.class,
+			studentId
+		)).isEqualTo(2);
+	}
+
+	@Test
+	@DisplayName("Given 같은 강사와 학생의 현재 관계일 때 When 두 번째 관계를 만들면 Then DB가 중복을 거절한다")
+	void rejectsSecondCurrentRelationshipForSameTeacherAndStudent() {
+		UUID teacherId = insertTeacher("teacher@example.com", "강사");
+		UUID studentId = insertStudentWithGrade(1);
+		insertRelationship(teacherId, studentId, "PAUSED");
+
 		assertThatThrownBy(() -> insertRelationship(
-			secondTeacher,
+			teacherId,
 			studentId,
 			"ACTIVE"
 		)).isInstanceOf(DataIntegrityViolationException.class);
@@ -183,6 +201,7 @@ class RosterPersistenceIntegrationTest {
 	}
 
 	@Test
+	@DisplayName("Given 같은 강사의 한 학생일 때 When 두 활성 반에 등록하면 Then DB가 두 번째 등록을 거절한다")
 	void databaseRejectsSecondActiveEnrollmentForStudent() {
 		UUID teacherId = insertTeacher("teacher@example.com", "강사");
 		UUID studentId = insertStudentWithGrade(2);
@@ -201,6 +220,97 @@ class RosterPersistenceIntegrationTest {
 			teacherId,
 			studentId,
 			"ACTIVE"
+		)).isInstanceOf(DataIntegrityViolationException.class);
+	}
+
+	@Test
+	@DisplayName("Given 한 학생과 서로 다른 강사일 때 When 각 강사의 반에 등록하면 Then 두 활성 소속을 모두 허용한다")
+	void allowsActiveClassEnrollmentPerTeacherForStudent() {
+		UUID firstTeacher = insertTeacher("first-class@example.com", "첫 강사");
+		UUID secondTeacher = insertTeacher("second-class@example.com", "둘째 강사");
+		UUID studentId = insertStudentWithGrade(2);
+		insertRelationship(firstTeacher, studentId, "ACTIVE");
+		insertRelationship(secondTeacher, studentId, "ACTIVE");
+		UUID firstClass = insertClass(firstTeacher, "첫 강사 반");
+		UUID secondClass = insertClass(secondTeacher, "둘째 강사 반");
+
+		insertEnrollment(firstClass, firstTeacher, studentId, "ACTIVE");
+		insertEnrollment(secondClass, secondTeacher, studentId, "ACTIVE");
+
+		assertThat(jdbcTemplate.queryForObject(
+			"SELECT count(*) FROM class_enrollments WHERE student_id = ? AND status = 'ACTIVE'",
+			Integer.class,
+			studentId
+		)).isEqualTo(2);
+	}
+
+	@Test
+	@DisplayName("Given 한 학부모와 서로 다른 강사일 때 When 활성 관계를 만들면 Then 여러 강사 연결을 허용하고 같은 조합 중복은 거절한다")
+	void allowsParentAcrossTeachersAndRejectsDuplicateActivePair() {
+		UUID firstTeacher = insertTeacher("parent-first@example.com", "첫 강사");
+		UUID secondTeacher = insertTeacher("parent-second@example.com", "둘째 강사");
+		UUID parentId = insertParent("parent@example.com");
+
+		insertParentTeacherRelationship(parentId, firstTeacher, "ACTIVE");
+		insertParentTeacherRelationship(parentId, secondTeacher, "ACTIVE");
+
+		assertThat(jdbcTemplate.queryForObject(
+			"SELECT count(*) FROM parent_teacher_relationships WHERE parent_id = ? AND status = 'ACTIVE'",
+			Integer.class,
+			parentId
+		)).isEqualTo(2);
+		assertThatThrownBy(() -> insertParentTeacherRelationship(
+			parentId,
+			firstTeacher,
+			"ACTIVE"
+		)).isInstanceOf(DataIntegrityViolationException.class);
+	}
+
+	@Test
+	@DisplayName("Given 한 학생에게 활성 학부모가 있을 때 When 다른 학부모를 연결하면 Then DB가 두 번째 연결을 거절한다")
+	void rejectsSecondActiveParentForStudent() {
+		UUID firstParent = insertParent("first-parent@example.com");
+		UUID secondParent = insertParent("second-parent@example.com");
+		UUID studentId = insertStudentWithGrade(1);
+		insertParentStudentRelationship(firstParent, studentId, "ACTIVE");
+
+		assertThatThrownBy(() -> insertParentStudentRelationship(
+			secondParent,
+			studentId,
+			"ACTIVE"
+		)).isInstanceOf(DataIntegrityViolationException.class);
+	}
+
+	@Test
+	@DisplayName("Given 한 학부모와 여러 학생일 때 When 각 자녀를 연결하면 Then 모두 허용한다")
+	void allowsParentToHaveMultipleStudents() {
+		UUID parentId = insertParent("multi-child-parent@example.com");
+		UUID firstStudent = insertStudentWithGrade(1);
+		UUID secondStudent = insertStudentWithGrade(2);
+
+		insertParentStudentRelationship(parentId, firstStudent, "ACTIVE");
+		insertParentStudentRelationship(parentId, secondStudent, "ACTIVE");
+
+		assertThat(jdbcTemplate.queryForObject(
+			"SELECT count(*) FROM parent_student_relationships WHERE parent_id = ? AND status = 'ACTIVE'",
+			Integer.class,
+			parentId
+		)).isEqualTo(2);
+	}
+
+	@Test
+	@DisplayName("Given 강사 계정일 때 When 학부모 프로필에 연결하면 Then DB가 역할 불일치를 거절한다")
+	void rejectsParentProfileForNonParentAccount() {
+		UUID teacherId = insertTeacher("not-parent@example.com", "강사");
+		UUID accountId = jdbcTemplate.queryForObject(
+			"SELECT account_id FROM teacher_profiles WHERE id = ?",
+			UUID.class,
+			teacherId
+		);
+
+		assertThatThrownBy(() -> jdbcTemplate.update(
+			"INSERT INTO parent_profiles (id, account_id, created_at, updated_at) VALUES (?, ?, ?, ?)",
+			UUID.randomUUID(), accountId, DB_NOW, DB_NOW
 		)).isInstanceOf(DataIntegrityViolationException.class);
 	}
 
@@ -407,6 +517,59 @@ class RosterPersistenceIntegrationTest {
 			DB_NOW
 		);
 		return studentId;
+	}
+
+	private UUID insertParent(String email) {
+		UUID accountId = UUID.randomUUID();
+		UUID parentId = UUID.randomUUID();
+		jdbcTemplate.update(
+			"INSERT INTO accounts (id, email, role, status, created_at) VALUES (?, ?, 'PARENT', 'ACTIVE', ?)",
+			accountId,
+			email,
+			DB_NOW
+		);
+		jdbcTemplate.update(
+			"INSERT INTO parent_profiles (id, account_id, created_at, updated_at) VALUES (?, ?, ?, ?)",
+			parentId,
+			accountId,
+			DB_NOW,
+			DB_NOW
+		);
+		return parentId;
+	}
+
+	private UUID insertParentTeacherRelationship(
+		UUID parentId,
+		UUID teacherId,
+		String status
+	) {
+		UUID id = UUID.randomUUID();
+		jdbcTemplate.update(
+			"""
+				INSERT INTO parent_teacher_relationships (
+				    id, parent_id, teacher_id, status, started_at, ended_at, created_at
+				) VALUES (?, ?, ?, ?, ?, CASE WHEN ? = 'ENDED' THEN ? ELSE NULL END, ?)
+				""",
+			id, parentId, teacherId, status, DB_NOW, status, DB_NOW.plusSeconds(60), DB_NOW
+		);
+		return id;
+	}
+
+	private UUID insertParentStudentRelationship(
+		UUID parentId,
+		UUID studentId,
+		String status
+	) {
+		UUID id = UUID.randomUUID();
+		jdbcTemplate.update(
+			"""
+				INSERT INTO parent_student_relationships (
+				    id, parent_id, student_id, status, started_at, ended_at, created_at
+				) VALUES (?, ?, ?, ?, ?, CASE WHEN ? = 'ENDED' THEN ? ELSE NULL END, ?)
+				""",
+			id, parentId, studentId, status, DB_NOW, status, DB_NOW.plusSeconds(60), DB_NOW
+		);
+		return id;
 	}
 
 	private UUID insertClass(UUID teacherId, String name) {

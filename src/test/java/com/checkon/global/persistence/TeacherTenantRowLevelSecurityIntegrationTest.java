@@ -51,6 +51,18 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 		UUID.fromString("019846dc-7c00-7000-8000-000000001021");
 	private static final UUID CLASS_B =
 		UUID.fromString("019846dc-7c00-7000-8000-000000001022");
+	private static final UUID PARENT_A =
+		UUID.fromString("019846dc-7c00-7000-8000-000000001023");
+	private static final UUID PARENT_B =
+		UUID.fromString("019846dc-7c00-7000-8000-000000001024");
+	private static final UUID PARENT_TEACHER_A =
+		UUID.fromString("019846dc-7c00-7000-8000-000000001025");
+	private static final UUID PARENT_TEACHER_B =
+		UUID.fromString("019846dc-7c00-7000-8000-000000001026");
+	private static final UUID PARENT_STUDENT_A =
+		UUID.fromString("019846dc-7c00-7000-8000-000000001027");
+	private static final UUID PARENT_STUDENT_B =
+		UUID.fromString("019846dc-7c00-7000-8000-000000001028");
 	private static final UUID RELATIONSHIP_A =
 		UUID.fromString("019846dc-7c00-7000-8000-000000001031");
 	private static final UUID RELATIONSHIP_B =
@@ -152,7 +164,10 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			   problem_generation_slots,
 			   saved_problem_sets,
 			   saved_problem_set_items,
-			   problem_assignments
+			   problem_assignments,
+			   parent_profiles,
+			   parent_teacher_relationships,
+			   parent_student_relationships
 			TO checkon_rls_test_runtime
 			""");
 		administrator.execute("""
@@ -226,11 +241,12 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'problem_generation_consumed_events',
 				    'problem_generation_request_targets','problem_generation_items',
 				    'problem_generation_item_options','problem_generation_slots','saved_problem_sets',
-				    'saved_problem_set_items','problem_assignments'
+				    'saved_problem_set_items','problem_assignments',
+				    'parent_profiles','parent_teacher_relationships','parent_student_relationships'
 				  )
 				  AND table_metadata.relrowsecurity
 				  AND table_metadata.relforcerowsecurity
-				""")).isEqualTo(28);
+				""")).isEqualTo(31);
 			assertThat(queryInt(statement, """
 				SELECT count(*) FROM pg_policies
 				WHERE schemaname = 'public'
@@ -253,9 +269,10 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'problem_generation_consumed_events',
 				    'problem_generation_request_targets','problem_generation_items',
 				    'problem_generation_item_options','problem_generation_slots','saved_problem_sets',
-				    'saved_problem_set_items','problem_assignments'
+				    'saved_problem_set_items','problem_assignments',
+				    'parent_profiles','parent_teacher_relationships','parent_student_relationships'
 				  )
-				""")).isEqualTo(112);
+				""")).isEqualTo(121);
 			assertThat(queryInt(statement, """
 				SELECT count(*)
 				FROM pg_class table_metadata
@@ -296,6 +313,9 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThat(count(connection, "saved_problem_sets")).isZero();
 			assertThat(count(connection, "saved_problem_set_items")).isZero();
 			assertThat(count(connection, "problem_assignments")).isZero();
+			assertThat(count(connection, "parent_profiles")).isZero();
+			assertThat(count(connection, "parent_teacher_relationships")).isZero();
+			assertThat(count(connection, "parent_student_relationships")).isZero();
 			assertThat(update(connection,
 				"UPDATE class_groups SET name = 'blocked' WHERE id = ?", CLASS_A
 			)).isZero();
@@ -320,6 +340,11 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThat(ids(connection, "class_enrollments")).containsExactly(ENROLLMENT_A);
 			assertThat(ids(connection, "teacher_student_relationships"))
 				.hasSize(2).contains(RELATIONSHIP_A);
+			assertThat(ids(connection, "parent_profiles")).containsExactly(PARENT_A);
+			assertThat(ids(connection, "parent_teacher_relationships"))
+				.containsExactly(PARENT_TEACHER_A);
+			assertThat(ids(connection, "parent_student_relationships"))
+				.containsExactly(PARENT_STUDENT_A);
 			assertThat(ids(connection, "detection_runs")).containsExactly(RUN_A);
 			assertThat(ids(connection, "detection_request_attempts"))
 				.containsExactly(ATTEMPT_A);
@@ -416,6 +441,14 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				"DELETE FROM problem_generation_outbox WHERE id = ?", PROBLEM_OUTBOX_B
 			)).isZero();
 			assertThat(update(connection,
+				"UPDATE parent_teacher_relationships SET started_at = now() WHERE id = ?",
+				PARENT_TEACHER_B
+			)).isZero();
+			assertThat(update(connection,
+				"DELETE FROM parent_student_relationships WHERE id = ?",
+				PARENT_STUDENT_B
+			)).isZero();
+			assertThat(update(connection,
 				"DELETE FROM ai_class_aliases WHERE id = ?", CLASS_ALIAS_A
 			)).isZero();
 			insertLearningRecord(connection, UUID.randomUUID(), TEACHER_A, STUDENT_A);
@@ -450,6 +483,18 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			setTeacher(connection, TEACHER_A);
 			assertThatThrownBy(() -> insertEvidence(connection, SIGNAL_B))
 				.isInstanceOf(SQLException.class)
+				.hasMessageContaining("row-level security");
+			connection.rollback();
+			setTeacher(connection, TEACHER_A);
+			assertThatThrownBy(() -> insertParentTeacherRelationship(
+				connection, PARENT_B, TEACHER_B
+			)).isInstanceOf(SQLException.class)
+				.hasMessageContaining("row-level security");
+			connection.rollback();
+			setTeacher(connection, TEACHER_A);
+			assertThatThrownBy(() -> insertParentStudentRelationship(
+				connection, PARENT_B, STUDENT_A_WITHOUT_PII
+			)).isInstanceOf(SQLException.class)
 				.hasMessageContaining("row-level security");
 			connection.rollback();
 		}
@@ -539,6 +584,14 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			""",
 			ENROLLMENT_A, CLASS_A, TEACHER_A, STUDENT_A, now, now,
 			ENROLLMENT_B, CLASS_B, TEACHER_B, STUDENT_B, now, now);
+		insertParentFixture(
+			PARENT_A, PARENT_TEACHER_A, PARENT_STUDENT_A,
+			TEACHER_A, STUDENT_A, "rls-parent-a@example.com"
+		);
+		insertParentFixture(
+			PARENT_B, PARENT_TEACHER_B, PARENT_STUDENT_B,
+			TEACHER_B, STUDENT_B, "rls-parent-b@example.com"
+		);
 		administrator.update("""
 			INSERT INTO student_personal_information
 			    (student_id, real_name, updated_by_account_id, updated_by_role,
@@ -582,6 +635,35 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			CLASS_ALIAS_B, PROBLEM_REQUEST_B, PROBLEM_OUTBOX_B,
 			PROBLEM_EVENT_B, TEACHER_B, CLASS_B, TENANT_REF_B, CLASS_REF_B, "b"
 		);
+	}
+
+	private void insertParentFixture(
+		UUID parentId,
+		UUID parentTeacherRelationshipId,
+		UUID parentStudentRelationshipId,
+		UUID teacherId,
+		UUID studentId,
+		String email
+	) {
+		UUID accountId = UUID.randomUUID();
+		administrator.update("""
+			INSERT INTO accounts (id, email, role, status, created_at)
+			VALUES (?, ?, 'PARENT', 'ACTIVE', now())
+			""", accountId, email);
+		administrator.update("""
+			INSERT INTO parent_profiles (id, account_id, created_at, updated_at)
+			VALUES (?, ?, now(), now())
+			""", parentId, accountId);
+		administrator.update("""
+			INSERT INTO parent_teacher_relationships
+			    (id, parent_id, teacher_id, status, started_at, created_at)
+			VALUES (?, ?, ?, 'ACTIVE', now(), now())
+			""", parentTeacherRelationshipId, parentId, teacherId);
+		administrator.update("""
+			INSERT INTO parent_student_relationships
+			    (id, parent_id, student_id, status, started_at, created_at)
+			VALUES (?, ?, ?, 'ACTIVE', now(), now())
+			""", parentStudentRelationshipId, parentId, studentId);
 	}
 
 	private void insertProblemGenerationFixture(
@@ -824,6 +906,40 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			statement.setObject(1, evidenceId);
 			statement.setObject(2, signalId);
 			statement.setString(3, "record-" + evidenceId);
+			statement.executeUpdate();
+		}
+	}
+
+	private void insertParentTeacherRelationship(
+		Connection connection,
+		UUID parentId,
+		UUID teacherId
+	) throws SQLException {
+		try (PreparedStatement statement = connection.prepareStatement("""
+			INSERT INTO parent_teacher_relationships
+			    (id, parent_id, teacher_id, status, started_at, created_at)
+			VALUES (?, ?, ?, 'ACTIVE', now(), now())
+			""")) {
+			statement.setObject(1, UUID.randomUUID());
+			statement.setObject(2, parentId);
+			statement.setObject(3, teacherId);
+			statement.executeUpdate();
+		}
+	}
+
+	private void insertParentStudentRelationship(
+		Connection connection,
+		UUID parentId,
+		UUID studentId
+	) throws SQLException {
+		try (PreparedStatement statement = connection.prepareStatement("""
+			INSERT INTO parent_student_relationships
+			    (id, parent_id, student_id, status, started_at, created_at)
+			VALUES (?, ?, ?, 'ACTIVE', now(), now())
+			""")) {
+			statement.setObject(1, UUID.randomUUID());
+			statement.setObject(2, parentId);
+			statement.setObject(3, studentId);
 			statement.executeUpdate();
 		}
 	}
