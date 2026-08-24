@@ -48,6 +48,17 @@ springdoc:
     disable-swagger-default-url: true
     document-title: CheckOn API
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+
 checkon:
   security:
     test-authentication:

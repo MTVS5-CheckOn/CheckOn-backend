@@ -88,7 +88,9 @@ public class AccountSecurityConfiguration {
 					"/swagger-ui.html",
 					"/swagger-ui/**",
 					"/v3/api-docs/**",
-					"/openapi/**"
+					"/openapi/**",
+					"/actuator/health",
+					"/actuator/health/**"
 				).permitAll()
 				.requestMatchers("/api/v1/dashboard/**").hasRole("TEACHER")
 				.requestMatchers("/api/v1/classes/**").hasRole("TEACHER")
