@@ -59,7 +59,8 @@ fi
 current_image_line="$(
   grep '^BACKEND_IMAGE=' "$ENV_FILE"
 )"
-readonly PREVIOUS_IMAGE="${current_image_line#BACKEND_IMAGE=}"
+previous_image="${current_image_line#BACKEND_IMAGE=}"
+readonly PREVIOUS_IMAGE="${previous_image%$'\r'}"
 
 if [[ ! "$PREVIOUS_IMAGE" =~ $IMAGE_PATTERN ]]; then
   echo "Invalid previous backend image: $PREVIOUS_IMAGE" >&2
