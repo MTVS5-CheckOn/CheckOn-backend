@@ -32,6 +32,10 @@ RUN ./gradlew --no-daemon clean bootJar -x test
 
 FROM eclipse-temurin:25-jre
 
+LABEL org.opencontainers.image.source="https://github.com/MTVS5-CheckOn/CheckOn-backend" \
+      org.opencontainers.image.title="CheckOn Backend" \
+      org.opencontainers.image.description="CheckOn backend application"
+
 WORKDIR /app
 
 # 컨테이너를 root가 아닌 일반 사용자로 실행하기 위한 계정 생성

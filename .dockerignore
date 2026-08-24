@@ -1,0 +1,29 @@
+# Git과 GitHub Actions 설정
+.git
+.github
+
+# Gradle 로컬 캐시와 빌드 결과
+.gradle
+build
+**/build
+
+# 개발 도구 설정
+.idea
+.vscode
+*.iml
+*.ipr
+*.iws
+
+# 로컬 환경변수와 비밀값
+.env
+.env.*
+
+# Docker 이미지 생성에 사용하지 않는 로컬 자료
+docs
+openapi
+scripts
+
+# 로그와 운영체제 임시 파일
+*.log
+.DS_Store
+Thumbs.db
