@@ -5,6 +5,7 @@ import java.util.Comparator;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import com.checkon.member.MemberPackageMarker;
+import com.checkon.member.common.presentation.RateLimitDetails;
 
 import jakarta.validation.ConstraintViolationException;
 
@@ -30,7 +32,13 @@ public class MemberExceptionHandler {
 	@ExceptionHandler(MemberException.class)
 	public ResponseEntity<MemberErrorResponse> handleMember(MemberException exception) {
 		MemberErrorCode code = exception.errorCode();
-		return ResponseEntity.status(code.status())
+		ResponseEntity.BodyBuilder builder = ResponseEntity.status(code.status());
+		// 🔴 429 는 헤더까지가 계약이다(분기표 §0-2). 본문만 내려보내면 클라이언트가
+		//    언제 다시 시도할지 알 수 없어 즉시 재시도 루프를 돈다.
+		if (exception.details() instanceof RateLimitDetails details) {
+			builder.header(HttpHeaders.RETRY_AFTER, Long.toString(details.retryAfterSeconds()));
+		}
+		return builder
 			.body(MemberErrorResponse.of(code, exception.getMessage(), exception.details()));
 	}
 
