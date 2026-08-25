@@ -179,6 +179,78 @@
   - `src/main/resources/db/migration/V33__support_student_parent_multi_tenancy.sql`
 - 마지막 검증일: 2026-08-24
 
+### Guardian Labels
+
+#### GL-001 실제 학부모 단위 라벨 소유권과 테넌트 경계
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
+- 소유 단위: 라벨은 학생별 상담 채널이 아니라 실제 학부모를 대상으로 한다. 같은 학부모가 같은 강사 아래 여러 학생과 연결돼도 하나의 라벨 집합과 하나의 AI `guardian_ref`를 사용한다.
+- 테넌트 경계: 현재 라벨과 라벨 이력은 `(teacher_id, parent_id)` 범위로 격리한다. 다른 강사가 같은 학부모와 관계를 맺더라도 관찰 이력, 제안, 확정 라벨을 공유하지 않는다.
+- AI 식별자: `guardian_ref`는 `(teacher_id, parent_id)`별로 발급하는 안정적인 non-blank opaque alias다. 실제 학부모 UUID나 학생별 상담 채널 alias를 외부 AI에 전달하지 않는다. AI 계약은 `:`을 포함한 모든 문자를 허용하고 길이 상한을 두지 않으므로 DB에는 `TEXT`로 저장한다.
+- 관계 조건: 인증된 강사가 해당 학부모와 `ACTIVE` 관계를 가진 경우에만 제안·조회·확정할 수 있다. 없음과 다른 테넌트 접근은 동일하게 은닉한다.
+- 기존 구현과의 차이: 현재 `ai_guardian_aliases`는 `(teacher_id, student_id)` 상담 채널 단위이므로 라벨용 실제 학부모 alias로 재사용하지 않는다.
+- 영향 범위: Flyway, 학부모 alias·라벨 도메인, PostgreSQL RLS, application 조회·확정 유스케이스, OpenAPI와 통합 테스트.
+- 코드 근거:
+  - `src/main/resources/db/migration/V28__create_ai_guardian_aliases.sql`
+  - `src/main/resources/db/migration/V33__support_student_parent_multi_tenancy.sql`
+  - `src/main/resources/db/migration/V35__create_guardian_label_suggestions.sql`
+  - `src/main/java/com/checkon/counsel/application/AiParentLabelAliasService.java`
+- 마지막 검증일: 2026-08-25
+
+#### GL-002 라벨 제안 이력과 AI 호출 경계
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
+- 호출 시점: 강사가 학부모 360 화면에서 명시적으로 요청할 때만 `POST /v1/labels/suggest`를 동기 호출한다. 배치 호출이나 자동 확정은 하지 않는다.
+- 이력 범위: 해당 강사와 실제 학부모 사이에서 현재 `ACTIVE`로 함께 연결된 학생들의 상담 기록을 합친다. 다른 강사의 기록과 휴원·종료 학생의 기록은 포함하지 않는다.
+- 이력 선택: 시간순 최신 10건을 선택해 오래된 기록부터 전달한다. 유효한 기록이 5건 미만이면 AI를 호출하지 않는다.
+- 외부 전달: 각 기록은 안정적인 opaque `record_id`, `inbound|outbound` 방향, 백엔드 1차 마스킹을 통과한 본문, `Asia/Seoul`의 `+09:00` 오프셋 시각만 포함한다.
+- 응답 의미: `200`의 빈 `suggestions`는 정상적인 제안 없음이다. `400`, `500`, `503`, `504`와 네트워크 오류는 서로 구분하며 자동 재시도하지 않는다.
+- 타임아웃: 연결 타임아웃은 2초, read timeout은 30초를 기본값으로 둔다.
+- 보안 조건: AI 서버의 TLS와 인증이 보완되기 전에는 실데이터로 E2E 호출하지 않고 Stub과 계약 픽스처로 검증한다.
+- 기존 데이터 활용: `counsel_inquiries`의 수신 문의와 `counsel_draft_jobs`의 실제 발송본을 `teacher_id`·`inquiry_ref`로 연결한 조회 projection을 우선 사용한다. 별도 범용 소통 원장을 선행 조건으로 만들지 않는다.
+- 영향 범위: 상담 이력 projection, 마스킹, AI DTO·RestClient·설정, 화면 API, 오류 매핑과 BDD 계약 테스트.
+- 코드 근거:
+  - `src/main/resources/db/migration/V27__create_counsel_draft_jobs.sql`
+  - `src/main/resources/db/migration/V29__add_counsel_draft_job_sent_text.sql`
+  - `src/main/resources/db/migration/V31__create_counsel_inquiries.sql`
+  - `src/main/java/com/checkon/counsel/application/GuardianLabelSuggestionService.java`
+  - `src/main/java/com/checkon/counsel/infrastructure/persistence/GuardianCommunicationHistoryRepository.java`
+  - `src/main/java/com/checkon/counsel/integration/ai/HttpGuardianLabelClient.java`
+- 마지막 검증일: 2026-08-25
+
+#### GL-003 라벨 제안·확정·거절·캐시 이력
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
+- 제안 대상: 네 축 중 하나라도 현재 라벨이 비어 있으면 제안을 요청할 수 있다. 이미 확정된 축과 같은 축의 제안은 사용자에게 노출하지 않는다.
+- 현재 라벨: `(teacher_id, parent_id, axis)`마다 현재 값을 최대 하나만 두고 DB 제약으로 보장한다. 수정 확정은 현재 값을 교체하되 이전 값과 판단 이력을 삭제하지 않는다.
+- 사람 검토: AI 응답은 점선 제안으로만 노출하며 강사의 `confirmed`, `corrected`, `rejected` 판단 전에는 현재 라벨로 승격하지 않는다.
+- 감사 이력: AI가 제안을 저장하지 않으므로 백엔드는 원본 `suggestion_id`, 제안 axis·value·confidence, 근거 인용, 사용한 이력 버전, 강사 판단과 정정값을 보존한다.
+- 거절 억제: 같은 이력 버전에서 거절한 동일 제안은 다시 노출하지 않는다. 이력이 바뀌면 새 제안으로 다시 평가할 수 있다.
+- 캐시: `(teacher_id, parent_id, history_count, latest_record_id)`를 이력 버전으로 사용해 같은 버전의 반복 요청은 저장된 제안 결과를 반환한다. 새 상담 이력이 생기면 캐시 키가 바뀐다.
+- 이력 개수: 활성 연결 학생 전체에서 최신 10건을 모으며 5건 미만이면 AI를 호출하지 않고 화면 API가 `eligible=false`, `reason=INSUFFICIENT_HISTORY`를 반환한다. AI 계약도 요청 5~10건만 허용한다.
+- 전 이력 차단: AI의 `500 history_all_blocked`는 정상적인 제안 없음과 구분해 화면 API의 `eligible=false`, `reason=ANALYSIS_UNAVAILABLE`로 변환하고 자동 재시도하지 않는다. 다른 AI 통신 오류는 502다.
+- 라벨 계약: `comm=data|narrative`, `sensitivity=anxious|direct`, `interest=grade|attitude|admission`, `frequency=frequent|monthly`만 허용한다. 응답은 근거가 있는 축만 포함하며 같은 축은 최대 한 번만 온다.
+- 제안 식별자: `suggestion_id`는 `guardian_ref:axis:value` 합성 형식이다. 오른쪽에서 닫힌 axis·value를 검증하므로 `guardian_ref` 내부의 `:`은 허용한다. 최대 길이는 `guardian_ref` 최대 길이 + 20이며 전체 상한은 두지 않고 DB에 `TEXT`로 저장한다.
+- AI confirmations: `kind=label`은 `confirmed`, `corrected`, `rejected`를 받는다. `corrected`만 `corrected_value: {value}`를 포함하며 제안 키의 축에 속하지 않는 값은 `400 label_value_axis_mismatch`다. 그 밖의 action에 corrected_value를 보내면 400이다.
+- 정본: AI의 `accepted:true`는 집계 피드백을 받았다는 의미일 뿐 개별 확정 저장을 뜻하지 않는다. 실제 학부모의 현재 라벨, 변경·거절 이력과 suggestion 원본의 정본은 백엔드다.
+- AI feedback 전달: label confirmation은 AI 집계에서 멱등하지 않다. 백엔드의 현재 라벨과 강사 판단을 먼저 영속한 뒤 AI에는 한 번만 best-effort로 전달하고, timeout·장애 시 재시도하거나 배치 재처리하지 않는다. AI 전달 실패는 백엔드 확정 결과를 되돌리지 않는다.
+- 화면 계약: 제안은 `POST /api/v1/guardians/{parentId}/label-suggestions`, 현재값은 `GET /api/v1/guardians/{parentId}/labels`, 판단은 `POST /api/v1/guardians/{parentId}/label-decisions`로 제공한다. AI 합성 키가 이력 버전 사이에서 반복될 수 있으므로 화면 판단에는 백엔드가 발급한 UUID `suggestionRef`를 사용하고 AI에는 원본 `suggestion_id`를 그대로 전달한다.
+- 공식 픽스처: 2026-08-25 수령한 정상·blocked-history 갱신본은 `suggestion_id=guardian_ref:axis:value`를 사용하며 두 파일의 SHA-256이 동일하다. 요청·400·503 픽스처는 기존 계약을 유지한다.
+- 영향 범위: Flyway, 라벨 제안·판단·현재값 모델, 유일성·RLS, confirmations 연동, API와 동시성·멱등 테스트.
+- 현재 구현: 이력 버전별 제안 원본·빈 결과 캐시, 현재 라벨, 불변 판단 이력, 중복 판단 멱등 처리, label confirmation 단발 알림과 화면 API를 구현했다.
+- 코드 근거:
+  - `src/main/resources/db/migration/V35__create_guardian_label_suggestions.sql`
+  - `src/main/resources/db/migration/V36__store_guardian_label_decisions.sql`
+  - `src/main/java/com/checkon/counsel/presentation/GuardianLabelController.java`
+  - `src/main/java/com/checkon/counsel/integration/ai/dto/GuardianLabelConfirmationRequest.java`
+- 마지막 검증일: 2026-08-25
+
 ### Class Management
 
 #### SCREEN-CLASS-001 클래스 보관과 활성 소속 종료
@@ -772,6 +844,7 @@
 
 | 날짜 | 변경 | 검증 |
 | --- | --- | --- |
+| 2026-08-25 | GL-001~003의 실제 학부모 단위 라벨 정책과 AI 계약을 확정하고, 실제 학부모 alias·상담 이력 projection·제안 캐시·강사 판단·현재값·AI 단발 feedback 경계를 구현 | 공식 합성 ID 픽스처, Flyway V33·V35~V36, BDD 단위·PostgreSQL·RLS·OpenAPI 검증 |
 | 2026-08-23 | 문제 출제 5영역 자료 입력, 강사 node 선택, 비종단 reconciliation, terminal 참조·slot 상세 이벤트, 5영역 `ai_refine`, 학생 오답 환류 저장 경계를 PG-001~006에 확정 | AI 팀 명세 2종과 Backend 승인 결정을 정책에 반영. 코드·Flyway·BDD 테스트는 이슈 #69에서 구현 예정 |
 | 2026-08-23 | SEC-005로 브라우저 CORS exact-origin allowlist, credential preflight, Location 노출과 Refresh 쿠키 배포 조합을 확정·구현 | Origin·SameSite 설정 단위 테스트, 실제 Security filter chain CORS 통합 테스트와 인증 회귀 테스트 통과 |
 | 2026-08-21 | `snapshot_hash` canonical 시간 표기를 UTC `Z`·비UTC offset 유지·0 또는 6자리 소수 초로 확정하고 초과 정밀도·단독 surrogate를 fail-closed 처리 | canonical·AsyncAPI 집중 테스트 14건 및 전체 Gradle build 290건 통과 |
