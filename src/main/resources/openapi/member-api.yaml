@@ -1535,6 +1535,7 @@ components:
             code: { $ref: '#/components/schemas/MemberErrorCode' }
             message: { type: string }
             details:
+              type: object
               description: 필드 위반 목록 등. 구조는 code 마다 다르다.
               nullable: true
 
@@ -1635,6 +1636,7 @@ components:
           nullable: true
           description: 학생 가입일 때만. 학부모에게 알려줄 코드.
         activationStatus:
+          type: string
           allOf: [{ $ref: '#/components/schemas/StudentActivationStatus' }]
           nullable: true
 
@@ -1690,6 +1692,7 @@ components:
         studentProfileId: { type: string, format: uuid, nullable: true }
         parentProfileId: { type: string, format: uuid, nullable: true }
         activationStatus:
+          type: string
           allOf: [{ $ref: '#/components/schemas/StudentActivationStatus' }]
           nullable: true
         studentPublicId: { type: string, nullable: true }
@@ -1705,6 +1708,7 @@ components:
       properties:
         studentName: { type: string }
         continuing:
+          type: object
           allOf: [{ $ref: '#/components/schemas/WorksheetSummary' }]
           nullable: true
           description: 진행 중 attempt 가 있는 학습지. 없으면 null.
@@ -1718,9 +1722,11 @@ components:
           properties:
             status: { $ref: '#/components/schemas/ValueStatus' }
             areaTag:
+              type: string
               allOf: [{ $ref: '#/components/schemas/AreaTag' }]
               nullable: true
             typeTag:
+              type: string
               allOf: [{ $ref: '#/components/schemas/TypeTag' }]
               nullable: true
             accuracyRate: { type: number, format: double, nullable: true }
@@ -1732,6 +1738,7 @@ components:
         assignmentId: { type: string, format: uuid }
         title: { type: string }
         areaTag:
+          type: string
           allOf: [{ $ref: '#/components/schemas/AreaTag' }]
           nullable: true
         itemCount: { type: integer }
@@ -1797,9 +1804,11 @@ components:
         stem: { type: string }
         passage: { type: string, nullable: true }
         areaTag:
+          type: string
           allOf: [{ $ref: '#/components/schemas/AreaTag' }]
           nullable: true
         typeTag:
+          type: string
           allOf: [{ $ref: '#/components/schemas/TypeTag' }]
           nullable: true
         options:
@@ -1897,6 +1906,7 @@ components:
         occurredAt: { type: string, format: date-time }
         month: { type: string, pattern: '^\d{4}-\d{2}$' }
         areaTag:
+          type: string
           allOf: [{ $ref: '#/components/schemas/AreaTag' }]
           nullable: true
         itemCount: { type: integer }
@@ -1920,9 +1930,11 @@ components:
               properties:
                 status: { $ref: '#/components/schemas/ValueStatus' }
                 areaTag:
+                  type: string
                   allOf: [{ $ref: '#/components/schemas/AreaTag' }]
                   nullable: true
                 typeTag:
+                  type: string
                   allOf: [{ $ref: '#/components/schemas/TypeTag' }]
                   nullable: true
                 description: { type: string, nullable: true }
@@ -2057,6 +2069,7 @@ components:
               value: { type: number, format: double, nullable: true }
               unit: { type: string, nullable: true, enum: [RATIO, COUNT, SECONDS, PERCENTAGE_POINT, null] }
         latestReport:
+          type: object
           allOf: [{ $ref: '#/components/schemas/ReportSummary' }]
           nullable: true
         recentRecords:
@@ -2101,6 +2114,7 @@ components:
           type: array
           items: { $ref: '#/components/schemas/WeaknessCell' }
         primaryWeakness:
+          type: object
           allOf: [{ $ref: '#/components/schemas/WeaknessCell' }]
           nullable: true
 
@@ -2186,6 +2200,7 @@ components:
                   status: { $ref: '#/components/schemas/ValueStatus' }
                   body: { type: string, nullable: true }
                   data:
+                    type: object
                     nullable: true
                     description: 차트용 원시 값. 표시 스냅샷이라 발행 후 불변.
                   evidenceRefs:
