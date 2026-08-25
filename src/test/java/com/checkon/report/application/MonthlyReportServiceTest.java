@@ -2,7 +2,7 @@ package com.checkon.report.application;
 import static org.assertj.core.api.Assertions.*; import static org.mockito.ArgumentMatchers.*; import static org.mockito.Mockito.*;
 import java.time.*; import java.util.*; import org.junit.jupiter.api.*;
 import com.checkon.counsel.application.AiGuardianAliasService; import com.checkon.detection.infrastructure.kafka.AiTenantAliasService;
-import com.checkon.report.infrastructure.MonthlyReportRepository; import com.checkon.report.infrastructure.MonthlyReportRepository.*; import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.checkon.report.infrastructure.MonthlyReportRepository; import com.checkon.report.infrastructure.MonthlyReportRepository.*; import tools.jackson.databind.json.JsonMapper;
 import com.checkon.report.integration.ai.MonthlyReportRevisionClient;
 class MonthlyReportServiceTest {
 	private final MonthlyReportRepository repository=mock(MonthlyReportRepository.class); private final MonthlyReportIdGenerator ids=mock(MonthlyReportIdGenerator.class);

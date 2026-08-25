@@ -23,9 +23,9 @@ import com.checkon.detection.infrastructure.kafka.AiTenantAliasService;
 import com.checkon.report.infrastructure.MonthlyReportRepository;
 import com.checkon.report.infrastructure.MonthlyReportRepository.ReportView;
 import com.checkon.report.integration.ai.MonthlyReportRevisionClient;
-import com.fasterxml.jackson.core.JacksonException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class MonthlyReportService {

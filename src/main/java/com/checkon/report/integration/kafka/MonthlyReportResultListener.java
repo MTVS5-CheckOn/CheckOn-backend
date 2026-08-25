@@ -1,7 +1,7 @@
 package com.checkon.report.integration.kafka;
 import java.time.Clock; import java.time.Instant; import java.util.UUID;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty; import org.springframework.kafka.annotation.KafkaListener; import org.springframework.stereotype.Component; import org.springframework.transaction.annotation.Transactional;
-import com.checkon.detection.infrastructure.kafka.AiTenantAliasService; import com.checkon.report.infrastructure.MonthlyReportRepository; import com.fasterxml.jackson.databind.JsonNode; import com.fasterxml.jackson.databind.ObjectMapper;
+import com.checkon.detection.infrastructure.kafka.AiTenantAliasService; import com.checkon.report.infrastructure.MonthlyReportRepository; import tools.jackson.databind.JsonNode; import tools.jackson.databind.ObjectMapper;
 @Component @ConditionalOnProperty(prefix="checkon.ai.monthly-report.kafka",name="enabled",havingValue="true")
 public class MonthlyReportResultListener {
 	private final MonthlyReportRepository repository; private final AiTenantAliasService tenants; private final ObjectMapper json; private final Clock clock;
