@@ -593,11 +593,76 @@ CREATE FUNCTION current_checkon_parent_id()  RETURNS UUID ... 'checkon.current_p
 
 학부모는 기존 problem/learning 테이블에 정책을 **하나도 만들지 않는다.** 학부모 화면은 전부 신규 `member_*` 읽기 모델에서 읽는다.
 
-### 6-4. 🔴 불변식 3개
+### 6-4. 🔴 불변식 4개
 
 1. **학생·학부모 요청 트랜잭션에서 `checkon.current_teacher_id`를 절대 설정하지 않는다.** 이걸 쓰면 모든 정책이 무의미해진다. member 코드에서 `TeacherTenantDatabaseContext` import 자체를 금지하고, ArchUnit 또는 grep 기반 테스트로 강제한다.
 2. **`SECURITY DEFINER` 함수를 만들지 않는다.** RLS 우회 지름길이다.
 3. **권한 없음과 실제 부재를 모두 404 `RESOURCE_NOT_FOUND`로 반환한다.** 403은 역할/활성화 문제에만 쓴다(존재 여부 노출 방지).
+4. 🔴 **member 정책의 술어는 RLS 가 켜진 다른 테이블을 참조하지 않는다.** (2026-08-25 PR2 에서 실측으로 추가)
+
+### 🔴 6-4-1. 불변식 4번 — `IS NOT NULL` 가드는 재귀를 막지 못한다
+
+**설계 전제가 하나 틀렸었다.** PR2 커밋 ② 실측:
+
+```
+PSQLException: ERROR: infinite recursion detected in policy
+                      for relation "teacher_student_relationships"
+```
+
+```
+V38  teacher_student_relationships_member_parent_select
+       └─ EXISTS (SELECT ... FROM parent_student_relationships)
+V33  parent_student_relationships_teacher_select  (:138-152)
+       └─ JOIN teacher_student_relationships       ← 되돌아온다
+```
+
+🔴 **강사 테스트에서 터졌다.** member 정책은 `current_checkon_parent_id() IS NOT NULL` 로 막혀 있어
+teacher 컨텍스트에서 false 가 되지만, **Postgres 는 술어를 평가하기 전에 정책 그래프를 펼치면서
+재귀를 감지한다.** 즉:
+
+| 가드가 보장하는 것 | 보장하지 못하는 것 |
+|---|---|
+| ✅ **논리적 격리** — teacher 컨텍스트에서 member 정책이 행을 내주지 않는다 | 🔴 **재귀 회피** — 정책 그래프는 컨텍스트와 무관하게 펼쳐진다 |
+
+**그래서 규칙은 술어 내용이 아니라 참조 구조에 걸어야 한다:**
+
+> 🔴 member 정책의 `USING` / `WITH CHECK` 안에서 **RLS 가 켜진 테이블을 `EXISTS`·`IN`·`JOIN` 으로 참조하지 마라.**
+> 참조하는 순간 그 테이블의 정책이 다시 평가되고, 그 정책이 원래 테이블을 되짚으면 순환이다.
+> 자기 테이블의 컬럼과 `current_checkon_*_id()` 만으로 술어를 쓴다.
+
+교차 조회가 필요하면 **애플리케이션 계층**에서 두 번 나눠 읽는다 — 이미 §2-7 이
+「학부모 화면은 `member_learning_sessions` 에서 읽는다」로 그렇게 정해뒀다.
+
+⚠ `SECURITY DEFINER` 헬퍼로 순환을 끊는 방법은 **불변식 2번이 금지한다.** 쓰지 마라.
+
+### 🔴 6-4-2. 재귀를 피하면서 교차 조회를 하는 법 — **범위 세션 변수**
+
+불변식 4번을 지키면 「학부모가 자녀의 X 를 본다」 같은 교차 조회를 정책만으로 열 수 없다.
+**애플리케이션에서 두 번 나눠 읽으면 된다**고만 적으면 부족하다 — 🔴 **RLS 는 애플리케이션이
+"미리 확인했다"를 모른다.** 정책이 없으면 두 번째 읽기도 **0행**이다.
+
+**해법: 확인된 대상 id 를 트랜잭션 로컬 세션 변수로 넘긴다.**
+
+```
+① 애플리케이션이 관계를 확인한다
+   parent_student_relationships 를 **학부모 컨텍스트로** 읽는다 (그 정책이 이미 격리한다)
+② 확인된 student_id 를 세션에 넣는다
+   set_config('checkon.scope_student_id', <id>, true)     ← 🔴 트랜잭션 로컬
+③ 대상 테이블 정책이 그 값만 허용한다
+   USING (current_checkon_parent_id() IS NOT NULL
+          AND student_id = current_checkon_scope_student_id())
+```
+
+| 왜 이게 되나 | |
+|---|---|
+| 재귀 | ✅ **0** — 정책이 RLS 테이블을 참조하지 않는다 |
+| 격리 | ✅ 유지 — ①을 통과한 id 만 세션에 들어간다 |
+| 신뢰 경계 | `current_checkon_parent_id` 와 **같은 수준**이다. 애플리케이션이 세션 변수를 올바로 채운다는 신뢰는 이미 이 설계의 전제다 |
+
+🔴 **`scope_*` 는 주체가 아니라 "이번 트랜잭션이 열람하려는 대상"이다.** 이름을 `current_checkon_*_id`(주체)와
+구분해서 짓고, **①을 건너뛰고 세션에 값을 넣는 코드 경로가 없는지** 통합 테스트로 막는다.
+
+⚠ `SECURITY DEFINER` 로 푸는 건 불변식 2번이 금지한다.
 
 ### 6-5. 신규 member 테이블
 

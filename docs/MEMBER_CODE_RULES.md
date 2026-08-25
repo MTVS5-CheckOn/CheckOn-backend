@@ -290,6 +290,22 @@ class MemberCodeRuleTest {
         assertThat(offenders).isEmpty();
     }
 
+    // G14. 🔴 코드의 TODO(MB-xx) 번호가 실제로 등록된 안건인가
+    //      G9 는 TODO 의 **형식**만 본다 — 번호가 붙어 있으면 통과하고, 그 번호가
+    //      실재하는지는 안 본다. PR1 에서 TODO(MB-29) 가 안건 없이 들어갔다.
+    @Test void todoIssueNumbersAreRegistered() throws IOException {
+        var registered = Pattern.compile("MB-(\\d+)")
+            .matcher(Files.readString(Path.of("docs/MEMBER_OPEN_ITEMS.md")))
+            .results().map(r -> r.group()).collect(Collectors.toSet());
+        var referenced = memberSources().stream()
+            .flatMap(p -> Pattern.compile("TODO\\((MB-\\d+)\\)").matcher(readString(p))
+                .results().map(r -> r.group(1)))
+            .collect(Collectors.toCollection(TreeSet::new));
+        // 🔴 PR 번호 TODO(PR3) 는 대상이 아니다 — 안건이 아니라 일정이다
+        assertThat(referenced).allSatisfy(n ->
+            assertThat(registered).as("TODO(%s) 가 MEMBER_OPEN_ITEMS.md 에 없다", n).contains(n));
+    }
+
     // G13. 🔴 enum 이 docs/MEMBER_ERROR_CODES.md 와 같은 집합인가
     //      이 드리프트로 이미 두 번 당했다 — 설계 18 / 계약 21 / PR1 지시서 17.
     //      사람이 표를 고치고 enum 을 안 고치는 걸(반대도) 여기서 막는다.
@@ -338,7 +354,7 @@ class MemberCodeRuleTest {
 
 리뷰어가 이 순서로 본다. 🔴 는 **하나라도 걸리면 즉시 반려**.
 
-- [ ] 🔴 `MemberCodeRuleTest` 전부 green (G1~G13)
+- [ ] 🔴 `MemberCodeRuleTest` 전부 green (G1~G14)
 - [ ] 🔴 `scripts/member-no-regression.sh` PASS (R1~R8)
 - [ ] 🔴 `01_endpoint_branch_matrix.md` 표 행 수 = 테스트 수
 - [ ] 🔴 기존 패키지 파일 변경 0건 (`git diff --name-only`)
@@ -364,6 +380,7 @@ class MemberCodeRuleTest {
 |---|---|---|---|
 | 2026-08-25 | **G8** | 금지 코드 6개 → **21개 전량** · `MemberErrorCode.java` 제외 · 따옴표 포함 매치 | 6개만 막으면 나머지 15개가 리터럴로 샌다. PR1 전수에서 나옴 |
 | 2026-08-25 | **G13 신설** | enum 집합 == `docs/MEMBER_ERROR_CODES.md` 집합 | 같은 목록이 세 곳에서 **18 / 21 / 17** 로 갈렸다. 사람 눈으로는 두 번 다 못 잡았다 |
+| 2026-08-25 | **G14 신설** | 코드의 `TODO(MB-xx)` 번호가 `MEMBER_OPEN_ITEMS.md` 에 실재하는가 | PR1 이 `TODO(MB-29)` 를 안건 등록 없이 넣었다. **G9 는 형식만 보고 실재는 안 본다** — 죽은 참조가 조용히 생긴다 |
 
 🔴 **G13 이 이 문서에서 제일 중요한 게이트일 수 있다.** 지금까지 나온 반증 중 가장 자주 반복된 게 "같은 표가 문서마다 다르다"였다.
 
