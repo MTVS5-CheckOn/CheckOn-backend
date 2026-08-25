@@ -25,8 +25,20 @@ import jakarta.servlet.http.HttpServletResponse;
  * <p>판정은 Controller 가 아니라 여기 한 곳에서 한다(설계 §4-4). 컨트롤러마다 분기하면
  * 새 엔드포인트가 생길 때 빠뜨린다.</p>
  *
- * <p>🔴 fail-closed 다. 활성화 행이 없으면({@code null}) 통과가 아니라 403 이다 —
- * 가입 트랜잭션이 깨진 계정에 학습 기능을 열어주지 않는다.</p>
+ * <p>판정은 <b>넷</b>이다(설계 §4-4-1 · 분기표 {@code :144}):</p>
+ * <pre>
+ * ACTIVE               전부 통과
+ * PENDING_PARENT_LINK  허용 2개만, 나머지 403
+ * DEACTIVATED          🔴 PENDING 과 같다 — 허용 2개만, 나머지 403
+ * null                 🔴 전부 403 (fail-closed)
+ * </pre>
+ *
+ * <p>🔴 {@code DEACTIVATED} 를 「허용 목록 무관 403」으로 두면 <b>비활성화된 학생이 자기 상태를
+ * 볼 수 없다.</b> 허용 목록의 두 경로는 <b>상태를 알려주는 것이 일 자체</b>인 엔드포인트다.</p>
+ *
+ * <p>🔴 {@code null} 은 다르다. {@code DEACTIVATED} 는 <b>보고할 수 있는 상태</b>이고
+ * {@code null} 은 <b>설명할 수 없는 깨진 상태</b>다. 분기표는 깨진 상태를 401({@code :132})로
+ * 본다 — 설명 못 하는 것을 보고하지 않는다. fail-closed 로 전부 403 이다.</p>
  *
  * <p>🔴 예외를 던지지 않고 <b>응답을 직접 쓴다.</b> 인터셉터에서 던진 예외는
  * {@code @RestControllerAdvice} 가 항상 잡아주지 않는다 — 대상 경로에 컨트롤러가 없으면
@@ -42,6 +54,9 @@ public class StudentActivationGuard implements HandlerInterceptor {
 	 * 대기({@code PENDING_PARENT_LINK}) 학생에게 열어 두는 경로.
 	 *
 	 * <p>MB-02 CONFIRMED 2026-08-25 — 허용 3개(세션·활성화상태·로그아웃). 초대는 활성화 후.</p>
+	 *
+	 * <p>🔴 {@code DEACTIVATED} 도 이 목록을 탄다. 이름이 {@code PENDING_STUDENT_ALLOWED} 지만
+	 * 「대기 학생만」이라는 뜻이 아니라 <b>「ACTIVE 가 아닌 학생에게 남겨 두는 경로」</b>다.</p>
 	 *
 	 * <p>🔴 {@code POST /api/v1/auth/logout} 은 3번째 허용 API 지만 {@code /api/v1/member/**}
 	 * matcher 밖이라 이 guard 가 아예 보지 않는다. 그래서 이 배열에는 <b>2개</b>만 있다.</p>
@@ -79,7 +94,10 @@ public class StudentActivationGuard implements HandlerInterceptor {
 		if (status == MemberActivationStatus.ACTIVE) {
 			return true;
 		}
-		if (status == MemberActivationStatus.PENDING_PARENT_LINK && isAllowed(request)) {
+		// 🔴 DEACTIVATED 도 PENDING 과 같이 허용 목록을 탄다. 상태를 알려주는 두 경로를
+		//    막으면 비활성화된 학생이 자기가 왜 못 쓰는지 볼 방법이 없다(분기표 :144).
+		//    null 만 fail-closed 다 — 그건 보고할 수 있는 상태가 아니라 깨진 상태다.
+		if (status != null && isAllowed(request)) {
 			return true;
 		}
 		// 🔴 로그에는 accountId 만. 상태·경로를 함께 남기면 열거 단서가 된다.

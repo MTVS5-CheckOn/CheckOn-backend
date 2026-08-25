@@ -220,8 +220,8 @@ class MemberSessionIntegrationTest extends MemberPostgresSupport {
 	}
 
 	@Test
-	@DisplayName("🔴 fail-closed — 활성화 행이 아예 없으면 허용 목록 밖은 403 이다")
-	void missingActivationRowIsForbidden() throws Exception {
+	@DisplayName("🔴 fail-closed — 활성화 행이 없으면 허용 목록까지 포함해 전부 403 이다")
+	void missingActivationRowIsForbiddenEverywhere() throws Exception {
 		jdbcTemplate.update("DELETE FROM member_student_activation WHERE student_id = ?",
 			studentProfileId);
 
@@ -230,20 +230,40 @@ class MemberSessionIntegrationTest extends MemberPostgresSupport {
 				.content("{\"code\":\"ABC123\"}"))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.error.code").value("STUDENT_ACTIVATION_REQUIRED"));
+
+		// 🔴 DEACTIVATED 와 갈리는 지점이다. null 은 보고할 수 있는 상태가 아니다 —
+		//    허용 목록의 두 경로도 막는다.
+		mockMvc.perform(get(ACTIVATION).with(student()))
+			.andExpect(status().isForbidden());
+		mockMvc.perform(get(SESSION).with(student()))
+			.andExpect(status().isForbidden());
 	}
 
 	@Test
-	@DisplayName("🔴 DEACTIVATED 는 허용 목록과 무관하게 403 이다")
-	void deactivatedStudentIsBlockedEvenOnAllowedPaths() throws Exception {
-		jdbcTemplate.update(
-			"UPDATE member_student_activation SET status = 'DEACTIVATED' WHERE student_id = ?",
-			studentProfileId);
+	@DisplayName("🔴 DEACTIVATED 학생은 활성화 상태를 200 으로 볼 수 있다 (분기표 :144)")
+	void deactivatedStudentCanStillReadItsOwnStatus() throws Exception {
+		deactivate();
 
+		// 🔴 여기서 403 을 내면 비활성화된 학생이 자기가 왜 못 쓰는지 볼 방법이 없다.
+		//    이 엔드포인트는 상태를 알려주는 것이 일 자체다.
+		mockMvc.perform(get(ACTIVATION).with(student()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("DEACTIVATED"));
 		mockMvc.perform(get(SESSION).with(student()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.activationStatus").value("DEACTIVATED"));
+	}
+
+	@Test
+	@DisplayName("🔴 DEACTIVATED 학생은 그 밖의 member 경로에서는 403 이다")
+	void deactivatedStudentIsBlockedElsewhere() throws Exception {
+		deactivate();
+
+		mockMvc.perform(post(INVITATIONS).with(student())
+				.contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+				.content("{\"code\":\"ABC123\"}"))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.error.code").value("STUDENT_ACTIVATION_REQUIRED"));
-		mockMvc.perform(get(ACTIVATION).with(student()))
-			.andExpect(status().isForbidden());
 	}
 
 	@Test
@@ -270,6 +290,12 @@ class MemberSessionIntegrationTest extends MemberPostgresSupport {
 
 		assertThat(statusCode).as("기존 API 가 member guard 로 403 이 되면 무접촉 위반이다")
 			.isNotEqualTo(403);
+	}
+
+	private void deactivate() {
+		jdbcTemplate.update(
+			"UPDATE member_student_activation SET status = 'DEACTIVATED' WHERE student_id = ?",
+			studentProfileId);
 	}
 
 	private void activate() {
