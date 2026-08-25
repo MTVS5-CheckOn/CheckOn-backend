@@ -372,6 +372,30 @@ class MemberCodeRuleTest {
 
 ---
 
+## §11-3. 🔴 「키가 없다」와 「키는 있고 값이 null」을 구분하는 법
+
+member 계약에는 두 종류가 섞여 있다. **응답 조립이 정반대**다.
+
+| 계약 | 응답 | 예 |
+|---|---|---|
+| `nullable: true` | 🔴 **키를 두고 값을 `null`** | `grade` · `activationStatus` · `studentPublicId` |
+| `nullable` 없음 + `required` 아님 | 🔴 **키를 뺀다** | `teachers` · `notificationsEnabled` |
+
+🔴 **`nullable` 이 아닌 필드에 `null` 을 넣으면 계약 위반이고, 빈 배열/기본값으로 채우면 위조다.**
+못 채우면 키를 뺀다. 그게 유일한 비위조 선택지다.
+
+### 🔴 `jsonPath(...).doesNotExist()` 로 단언하지 마라 — 둘을 구분하지 못한다
+
+Spring 의 `JsonPathExpectationsHelper#doesNotExist` 는 정해진(definite) 경로에서
+**값이 `null` 이어도 통과**한다. 즉 `{"teachers": null}` 도 초록불이다.
+**그 구분이 이 단언의 전부인데, 그 도구는 구분을 못 한다.**
+
+→ **응답 본문 문자열에서 키 이름의 부재를 본다.** (PR4 실측으로 확인된 함정)
+
+🔴 그리고 **반대 방향 단언을 같이 둔다** — `nullable` 인 필드는 **키가 남고 값이 `null`** 인지.
+없으면 누군가 「`null` 이면 키를 뺀다」를 레코드 전체에 걸고(`@JsonInclude(NON_NULL)`),
+그 순간 `nullable` 필드 쪽이 계약 위반이 된다. PR4 가 `grade` 로 그 자물쇠를 걸었다.
+
 ## §12. 리뷰 반려 체크리스트
 
 리뷰어가 이 순서로 본다. 🔴 는 **하나라도 걸리면 즉시 반려**.
