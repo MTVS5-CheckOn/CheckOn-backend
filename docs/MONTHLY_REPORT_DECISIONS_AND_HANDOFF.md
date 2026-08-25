@@ -44,3 +44,9 @@
 - 실제 PDF 렌더링/업로드 provider
 - 학부모 앱 push 또는 외부 메시지 provider
 - 운영 Kafka topic 생성·ACL·retention과 실제 AI E2E
+
+## 7. Flyway 병합·배포 순서
+
+- `V35__create_guardian_label_suggestions.sql`과 `V36__store_guardian_label_decisions.sql`이 먼저 병합·배포되어야 한다.
+- 월간 리포트는 그 다음 번호인 `V37__create_monthly_report_studio.sql`을 사용한다.
+- V37을 먼저 적용한 운영 DB에 V35·V36을 나중에 추가하지 않는다. 기본 Flyway 설정에서는 이미 적용된 최고 버전보다 낮은 마이그레이션이 뒤늦게 실행되지 않으므로, PR 병합뿐 아니라 배포 순서도 V35 → V36 → V37을 지킨다.
