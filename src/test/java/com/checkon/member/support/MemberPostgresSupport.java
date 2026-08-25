@@ -1,6 +1,8 @@
 package com.checkon.member.support;
 
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
@@ -25,11 +27,88 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  */
 public abstract class MemberPostgresSupport {
 
+	private static final String RESTRICTED_ROLE = "member_rls_probe";
+	private static final String RESTRICTED_PASSWORD = "member_rls_probe_pw";
+
 	@ServiceConnection
 	public static final PostgreSQLContainer POSTGRES =
 		new PostgreSQLContainer("postgres:18.4");
 
 	static {
 		POSTGRES.start();
+	}
+
+	/**
+	 * 🔴 RLS 가 <b>실제로 걸리는</b> 커넥션. 컨테이너 기본 사용자는
+	 * {@code super=true bypassrls=true} 라 정책이 통째로 우회된다(MB-34).
+	 * 그 역할로 쓴 RLS 단언은 아무것도 증명하지 않는다.
+	 *
+	 * <p>🔴 이 커넥션을 쓰는 테스트는 <b>「전제」 단언을 먼저 둔다</b> —
+	 * {@code rolsuper/rolbypassrls} 가 {@code false/false} 인지. 그 단언이 없으면
+	 * 나중에 역할 설정이 깨져도 테스트는 계속 초록불이다.
+	 *
+	 * @param admin 관리자 커넥션. 역할 생성·GRANT 에만 쓴다
+	 */
+	protected static JdbcTemplate restrictedJdbcTemplate(JdbcTemplate admin) {
+		Integer exists = admin.queryForObject(
+			"SELECT count(*) FROM pg_roles WHERE rolname = ?", Integer.class, RESTRICTED_ROLE);
+		if (exists == null || exists == 0) {
+			admin.execute("CREATE ROLE " + RESTRICTED_ROLE
+				+ " LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
+				+ " PASSWORD '" + RESTRICTED_PASSWORD + "'");
+		}
+		admin.execute("GRANT USAGE ON SCHEMA public TO " + RESTRICTED_ROLE);
+		admin.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "
+			+ RESTRICTED_ROLE);
+		admin.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO " + RESTRICTED_ROLE);
+
+		DriverManagerDataSource dataSource = new DriverManagerDataSource();
+		dataSource.setUrl(POSTGRES.getJdbcUrl());
+		dataSource.setUsername(RESTRICTED_ROLE);
+		dataSource.setPassword(RESTRICTED_PASSWORD);
+		return new JdbcTemplate(dataSource);
+	}
+
+	/**
+	 * 🔴 member 픽스처 정리. <b>자식 → 부모 순서가 고정</b>이라 각 클래스가 따로 적으면 갈린다.
+	 *
+	 * <p>실제로 세 번 깨졌다 — {@code member_student_public_ids} 누락 ·
+	 * {@code problem_generation_items} 누락 · {@code parent_profiles} 누락.
+	 * 전부 「내 클래스 단독으로는 통과하는데 전체 실행에서 죽는다」로 나타났다.
+	 * 컨테이너를 공유하므로 <b>앞 클래스가 남긴 행까지</b> 지워야 하고, 그러려면 목록이
+	 * 한 곳에 있어야 한다.</p>
+	 *
+	 * <p>🔴 FK 가 {@code RESTRICT} 라 순서를 어기면 조용히 넘어가지 않고 정리 자체가 실패한다.</p>
+	 */
+	public static void clearMemberFixtures(JdbcTemplate admin) {
+		String[] ordered = {
+			"authentication_sessions",
+			"problem_assignments",
+			"saved_problem_set_items",
+			"saved_problem_sets",
+			"problem_generation_items",
+			"problem_generation_requests",
+			"member_student_activation",
+			"member_display_names",
+			"member_student_public_ids",
+			"teacher_student_relationships",
+			"parent_student_relationships",
+			"parent_teacher_relationships",
+			"student_profiles",
+			"parent_profiles",
+			"teacher_profiles",
+			"account_password_credentials",
+			"accounts",
+		};
+		for (String table : ordered) {
+			admin.update("DELETE FROM " + table);
+		}
+	}
+
+	/** 🔴 {@code false/false} 여야 한다. 아니면 그 클래스의 RLS 단언은 전부 무의미하다. */
+	protected static String privilegeFlags(JdbcTemplate restricted) {
+		return restricted.queryForObject(
+			"SELECT rolsuper||'/'||rolbypassrls FROM pg_roles WHERE rolname = current_user",
+			String.class);
 	}
 }

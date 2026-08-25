@@ -55,16 +55,7 @@ class MemberSessionIntegrationTest extends MemberPostgresSupport {
 
 	@BeforeEach
 	void setUp() {
-		jdbcTemplate.update("DELETE FROM authentication_sessions");
-		jdbcTemplate.update("DELETE FROM member_student_activation");
-		jdbcTemplate.update("DELETE FROM member_display_names");
-		jdbcTemplate.update("DELETE FROM member_student_public_ids");
-		jdbcTemplate.update("DELETE FROM teacher_student_relationships");
-		jdbcTemplate.update("DELETE FROM parent_teacher_relationships");
-		jdbcTemplate.update("DELETE FROM student_profiles");
-		jdbcTemplate.update("DELETE FROM parent_profiles");
-		jdbcTemplate.update("DELETE FROM teacher_profiles");
-		jdbcTemplate.update("DELETE FROM accounts");
+		clearMemberFixtures(jdbcTemplate);
 
 		OffsetDateTime now = OffsetDateTime.now();
 		studentAccountId = insertAccount("student@example.com", "STUDENT", now);

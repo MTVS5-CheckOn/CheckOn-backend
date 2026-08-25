@@ -49,16 +49,7 @@ class MemberAuthIntegrationTest extends MemberPostgresSupport {
 
 	@BeforeEach
 	void setUp() {
-		// 🔴 로그인 테스트가 authentication_sessions 를 남긴다. FK 가 RESTRICT 라
-		//    이걸 먼저 지우지 않으면 다음 테스트의 정리가 통째로 실패한다.
-		jdbcTemplate.update("DELETE FROM authentication_sessions");
-		jdbcTemplate.update("DELETE FROM member_student_activation");
-		jdbcTemplate.update("DELETE FROM member_display_names");
-		jdbcTemplate.update("DELETE FROM member_student_public_ids");
-		jdbcTemplate.update("DELETE FROM student_profiles");
-		jdbcTemplate.update("DELETE FROM parent_profiles");
-		jdbcTemplate.update("DELETE FROM account_password_credentials");
-		jdbcTemplate.update("DELETE FROM accounts WHERE role <> 'TEACHER'");
+		clearMemberFixtures(jdbcTemplate);
 	}
 
 	@Test

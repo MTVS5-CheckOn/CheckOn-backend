@@ -34,6 +34,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import com.checkon.account.domain.AccountRole;
+import com.checkon.member.support.MemberPostgresSupport;
 import com.checkon.account.infrastructure.security.AuthenticatedAccount;
 
 /**
@@ -126,16 +127,7 @@ class MemberRlsEnforcedApplicationIntegrationTest {
 		adminDataSource.setPassword(POSTGRESQL.getPassword());
 		admin = new JdbcTemplate(adminDataSource);
 
-		admin.update("DELETE FROM authentication_sessions");
-		admin.update("DELETE FROM member_student_activation");
-		admin.update("DELETE FROM member_display_names");
-		admin.update("DELETE FROM member_student_public_ids");
-		admin.update("DELETE FROM teacher_student_relationships");
-		admin.update("DELETE FROM parent_teacher_relationships");
-		admin.update("DELETE FROM student_profiles");
-		admin.update("DELETE FROM parent_profiles");
-		admin.update("DELETE FROM teacher_profiles");
-		admin.update("DELETE FROM accounts");
+		MemberPostgresSupport.clearMemberFixtures(admin);
 
 		OffsetDateTime now = OffsetDateTime.now();
 		studentAccountId = insertAccount("student@example.com", "STUDENT", now);

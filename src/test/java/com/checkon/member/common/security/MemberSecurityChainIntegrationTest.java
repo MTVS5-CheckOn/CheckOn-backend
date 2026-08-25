@@ -56,17 +56,7 @@ class MemberSecurityChainIntegrationTest extends MemberPostgresSupport {
 
 	@BeforeEach
 	void setUp() {
-		// 🔴 컨테이너를 공유하므로 앞 클래스가 남긴 행까지 지운다. FK 가 RESTRICT 라
-		//    자식 테이블을 먼저 지우지 않으면 정리 자체가 실패한다(실측).
-		jdbcTemplate.update("DELETE FROM authentication_sessions");
-		jdbcTemplate.update("DELETE FROM member_student_activation");
-		jdbcTemplate.update("DELETE FROM member_display_names");
-		jdbcTemplate.update("DELETE FROM member_student_public_ids");
-		jdbcTemplate.update("DELETE FROM teacher_student_relationships");
-		jdbcTemplate.update("DELETE FROM parent_teacher_relationships");
-		jdbcTemplate.update("DELETE FROM student_profiles");
-		jdbcTemplate.update("DELETE FROM parent_profiles");
-		jdbcTemplate.update("DELETE FROM accounts WHERE role <> 'TEACHER'");
+		clearMemberFixtures(jdbcTemplate);
 		studentAccountId = insertStudentWithProfile("student@example.com");
 	}
 
