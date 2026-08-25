@@ -55,6 +55,7 @@ out/
 !/docs/PROBLEM_STUDIO_FRONTEND_ALIGNMENT.md
 !/docs/PROBLEM_STUDIO_AI_TEAM_HANDOFF.md
 !/docs/PROBLEM_GENERATION_BACKEND_STATUS_FOR_AI_TEAM.md
+!/docs/MEMBER_*.md
 /default.conf
 
 ### Local frontend API handoff artifacts ###
@@ -62,3 +63,8 @@ out/
 /openapi/checkon-apidog-openapi-import.zip
 /openapi/communication-split/
 /scripts/export-frontend-apidog-openapi.ps1
+
+
+## mac os
+.DS_Store
+CLAUDE.md
