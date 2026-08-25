@@ -839,7 +839,11 @@ paths:
         - {$ref: '#/components/parameters/IdempotencyKey'}
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProblemStudioRevisionRequest'}}}}
       responses:
-        '202': {description: 수정 요청 접수, content: {application/json: {schema: {$ref: '#/components/schemas/ProblemStudioRevisionResponse'}}}}
+        '202':
+          description: 수정 요청 접수
+          headers:
+            Location: {description: 수정 결과가 반영되는 문제 검토 조회 경로, schema: {type: string, format: uri-reference}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/ProblemStudioRevisionResponse'}}}
         '400': {$ref: '#/components/responses/InvalidRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}

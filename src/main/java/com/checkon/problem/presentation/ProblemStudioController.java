@@ -158,7 +158,9 @@ public class ProblemStudioController {
 	) {
 		RevisionView result=revisions.refine(teacherProfileId(principal),requestId,executionId,slotIndex,
 			request.baseRevisionNo(),request.revisionKind(),request.instruction(),idempotencyKey);
-		return ResponseEntity.accepted().body(result);
+		return ResponseEntity.accepted()
+			.location(URI.create("/api/v1/problem-studio/requests/" + requestId + "/review"))
+			.body(result);
 	}
 
 	public record Passage(
