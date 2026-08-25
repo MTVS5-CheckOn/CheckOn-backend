@@ -45,10 +45,6 @@ class MemberImplementedApiOpenApiContractTest {
 	/** PR0 가 확정한 member 계약의 오퍼레이션 수(경로 44 · 오퍼레이션 46). */
 	private static final int CONTRACT_OPERATION_COUNT = 46;
 
-	// TODO(MB-29): MemberPingController 는 보안 체인 증명용 임시 엔드포인트다.
-	//              PR3 이 실제 member 엔드포인트를 넣을 때 컨트롤러와 이 예외를 함께 지운다.
-	private static final Set<String> TEMPORARY_OPERATIONS = Set.of("GET /member/ping");
-
 	@Test
 	@DisplayName("🔴 구현된 member 오퍼레이션은 전부 member-api.yaml 에 있다")
 	void everyImplementedMemberOperationIsDocumented() {
@@ -56,7 +52,6 @@ class MemberImplementedApiOpenApiContractTest {
 
 		Set<String> undocumented = new TreeSet<>(implementedMemberOperations());
 		undocumented.removeAll(documented);
-		undocumented.removeAll(TEMPORARY_OPERATIONS);
 
 		assertThat(undocumented)
 			.as("계약에 없는 member 경로가 생겼다. member-api.yaml 을 먼저 고쳐라")
@@ -72,14 +67,6 @@ class MemberImplementedApiOpenApiContractTest {
 		assertThat(documentedOperations())
 			.as("member-api.yaml 을 못 읽거나 경로가 사라지면 대조가 헛돈다")
 			.hasSize(CONTRACT_OPERATION_COUNT);
-	}
-
-	@Test
-	@DisplayName("임시 예외는 계약에 없을 때만 의미가 있다")
-	void temporaryOperationsAreNotInContract() {
-		assertThat(documentedOperations())
-			.as("계약에 들어온 경로는 예외 목록에서 빼야 한다")
-			.doesNotContainAnyElementsOf(TEMPORARY_OPERATIONS);
 	}
 
 	private Set<String> implementedMemberOperations() {
