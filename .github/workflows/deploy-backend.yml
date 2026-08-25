@@ -8,6 +8,12 @@ on:
         required: true
         type: string
 
+  workflow_call:
+    inputs:
+      commit_sha:
+        required: true
+        type: string
+
   workflow_run:
     workflows:
       - Backend Image Publish
@@ -31,11 +37,6 @@ concurrency:
 jobs:
   deploy-backend:
     name: 서울 운영 백엔드 배포
-    if: >-
-      ${{
-        github.event_name == 'workflow_dispatch' ||
-        github.event.workflow_run.conclusion == 'success'
-      }}
     runs-on:
       - self-hosted
       - Linux
@@ -44,16 +45,8 @@ jobs:
     timeout-minutes: 20
 
     env:
-      COMMIT_SHA: >-
-        ${{
-          github.event.workflow_run.head_sha ||
-          inputs.commit_sha
-        }}
-      TARGET_IMAGE: >-
-        ghcr.io/mtvs5-checkon/checkon-backend:sha-${{
-          github.event.workflow_run.head_sha ||
-          inputs.commit_sha
-        }}
+      COMMIT_SHA: ${{ inputs.commit_sha }}
+      TARGET_IMAGE: ghcr.io/mtvs5-checkon/checkon-backend:sha-${{ inputs.commit_sha }}
 
     steps:
       - name: 배포 대상 SHA 검증
@@ -72,11 +65,7 @@ jobs:
       - name: 배포 코드 가져오기
         uses: actions/checkout@v7
         with:
-          ref: >-
-            ${{
-              github.event.workflow_run.head_sha ||
-              github.sha
-            }}
+          ref: ${{ inputs.commit_sha }}
           persist-credentials: false
           fetch-depth: 1
 
