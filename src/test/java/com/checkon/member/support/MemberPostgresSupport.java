@@ -91,6 +91,10 @@ public abstract class MemberPostgresSupport {
 			"member_student_activation",
 			"member_display_names",
 			"member_student_public_ids",
+			// 🔴 PR4 가 추가했다. claims 가 codes 를 참조하므로 자식이 먼저다.
+			"member_idempotency_records",
+			"member_invitation_claims",
+			"member_invitation_codes",
 			"teacher_student_relationships",
 			"parent_student_relationships",
 			"parent_teacher_relationships",
