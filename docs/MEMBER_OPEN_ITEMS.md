@@ -26,6 +26,8 @@
 | MB-13 | member 경계 Flyway 번호 범위 | **CONFIRMED** — **V38 ~ V44** (2026-08-25 승우님 회신). V35~V37 선행 머지 확인(`595f3d3`), V38 미점유 실측. 🔴 배포 순서도 V37 → V38 (`docs/MONTHLY_REPORT_DECISIONS_AND_HANDOFF.md` §7 과 같은 규칙) | A | ✅ 2026-08-25 |
 | MB-28 | `learning_records`(detection 용)와 `problem_assignment_responses`(diagnosis 용) 둘 다 써야 하나 | **OPEN** — 지금은 둘 다 쓴다로 가되(기존 강사 위험탐지가 `learning_records` 에 의존) 팀원 확정이 필요하다 | A | PR5 착수 전 |
 | MB-29 | 임시 `MemberPingController` 제거 시점 | **OPEN** — PR1 이 보안 체인 증명용으로 `GET /api/v1/member/ping` 을 두었다. 계약(`member-api.yaml` 46개)에는 넣지 않았고 `MemberImplementedApiOpenApiContractTest` 의 `TEMPORARY_OPERATIONS` 로 예외 처리했다. 🔴 PR3 에서 컨트롤러와 그 예외를 **함께** 지운다 — 하나만 지우면 계약 대조가 red 가 되거나(컨트롤러만 남김) 죽은 예외가 남는다(예외만 남김) | A | PR3 착수 시 |
+| MB-30 | `member_student_public_ids` · `member_invitation_codes` 의 RLS 미적용 근거와 대안 | **OPEN** — 두 테이블은 **조회 주체가 소유자가 아니다.** 학부모가 자녀의 공개 ID 를 찾고, 학생·학부모가 강사의 초대 코드를 찾는다. 소유자 기준 정책으로는 그 조회가 물리적으로 불가능하고 정의자 권한 함수로 우회하면 RLS 설계 전체가 무의미해진다. 지금은 애플리케이션 rate limit + 정규화 비교(공개 ID)와 평문 미저장(초대 코드)으로 막는다. 🔴 누가 RLS 를 켜면 자녀 등록과 초대 검증이 죽으므로 `MemberDatabaseRoleSafetyVerifier` 가 기동 시 실패시킨다 | A | PR3 착수 전 |
+| MB-31 | `member_student_activation` 의 학부모·강사 교차 조회 경로 | **OPEN** — 🔴 **PR3 착수 전 차단 요소.** 불변식 4번 때문에 학부모의 자녀 활성화 조회·해제와 강사의 담당 학생 활성화 조회를 정책으로 열지 못했다(관계 테이블이 RLS 라 참조 시 재귀). 🔴 정책이 없으면 **SELECT 가 0행**이다 — 애플리케이션이 미리 확인해도 RLS 는 그걸 모른다. 해법은 설계 §6-4-2 **범위 세션 변수**(관계를 각자 컨텍스트로 확인 → 확인된 student_id 를 `checkon.scope_student_id` 에 넣기 → 정책이 그 값만 허용). `member_student_activation` 은 member 소유라 예약표 규칙 1 밖이므로 **V39(PR3)에서 정책을 붙일 수 있다** | A | PR3 착수 전 |
 
 ## PR3 착수 전 반드시 확정해야 하는 것
 
@@ -49,6 +51,9 @@
 - MB-13 은 이 문서에서 신규 부여했다(Flyway 번호 예약).
 - MB-28 은 설계 §1-4 ⑤ 에서 부여된 번호를 그대로 쓴다.
 - MB-29 는 PR1 에서 신규 부여했다(임시 ping 제거).
+- MB-30 은 PR2 에서 신규 부여했다(RLS 미적용 두 테이블).
+- MB-31 은 PR2 에서 신규 부여했다(`member_student_activation` 의 교차 조회).
+  🔴 승우님 테이블(`saved_problem_sets` · `saved_problem_set_items`)은 여기서 **뺐다** — 예약표 규칙 1 상 V38 이 아니면 정책을 못 넣으므로 미루지 않고 §6-4-2 방식으로 V38 에 넣었다.
 - MB-14 ~ MB-27 은 **아직 비어 있다** — 결번이며 재사용하지 않는다.
 - 🔴 코드에 `TODO(MB-nn)` 을 쓰면 **이 표에 그 번호가 있어야 한다.** 코드 규칙 G9 는 TODO 의
   형식만 보고 번호가 실재하는지는 보지 않는다. MB-29 가 그 구멍으로 등재를 빠뜨린 사례다.
