@@ -318,12 +318,12 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | 정상 | | `201` `TeacherSummary` | 강사 목록 갱신 |
 | 이미 같은 강사와 연결 (내 계정) | 관계가 이미 ACTIVE | 🔴 **`200`** + 기존 `TeacherSummary` | 오류 아님. 완료 화면 (MB-04 멱등) |
 | 같은 코드를 내가 다시 제출 | `member_invitation_claims` 에 내 기록 존재 | 🔴 **`200`** + 기존 `TeacherSummary` | 동일 |
-| 🔴 **다른 계정이 이미 쓴 코드** | `max_claims=1` 소진 | `409 INVITE_ALREADY_CLAIMED` | 새 코드 요청 안내 |
+| 🔴 **다른 계정이 이미 쓴 코드** | `max_claims=1` 소진 | `409 INVITE_ALREADY_CLAIMED` — 🔴 **판정 불가 · PR4 미구현.** `member_invitation_claims` 가 계정 소유 정책으로 격리돼 남의 claim 이 0으로 보이고, 총 claim 수를 막는 DB 제약이 없다. **MB-38** | 새 코드 요청 안내 |
 | 대기 학생 | `PENDING_PARENT_LINK` | `403 STUDENT_ACTIVATION_REQUIRED` | 활성화 대기 화면 (MB-02) |
 | 만료·폐기 | | `410 INVITE_EXPIRED` | |
 | 없는 코드 | | `404 RESOURCE_NOT_FOUND` | |
 
-🔴 **"코드 1회 사용"(`member_invitation_claims`)과 "관계 중복"(`teacher_student_relationships`)은 다른 제약**이다. 둘 다 `INVITE_ALREADY_CLAIMED` 로 매핑하되, `details.reason` 으로 구분해 로그에 남긴다. 23505 는 **constraint 이름으로만** 분기한다.
+🔴 **"코드 1회 사용"(`member_invitation_claims`)과 "관계 중복"(`teacher_student_relationships`)은 다른 제약**이다. 23505 는 **constraint 이름으로만** 분기한다. 🔴 MB-04 확정 이후 **둘 다 `200`** 이다 — 위 표가 정본이다. (옛 판은 둘 다 `INVITE_ALREADY_CLAIMED` 로 매핑했다. MB-04 가 동일 강사 재등록을 200 멱등으로 확정하면서 바뀌었다.)
 
 ---
 
@@ -342,7 +342,8 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | 분기 | 조건 | 응답 |
 |---|---|---|
 | 등록 가능 | | `200` `{registrable:true, name:"김*수", grade}` — 🔴 **부분 마스킹 이름만** |
-| 이미 다른 학부모 연결 | | `200` `{registrable:false, reason:"ALREADY_LINKED", name:null}` |
+| 이미 **내가** 연결 | 호출자 자신의 활성 관계 | `200` `{registrable:false, reason:"ALREADY_LINKED", name:null}` |
+| 이미 **다른 학부모** 연결 | | 🔴 **관측 불가 → `200` `{registrable:true}`** 로 보이고 등록에서 `409` 로 갈린다. `parent_student_relationships` 의 학부모 정책이 남의 행을 가린다(V38:107-112). **MB-37** |
 | 없는 공개 ID | | `404 RESOURCE_NOT_FOUND` |
 | 형식 오류 | 정규화 후에도 `^STU-[A-Z0-9]{6,12}$` 불일치 | `400 INVALID_REQUEST` |
 | 열거 시도 | 분당 상한 초과 | `429` + `Retry-After` |
@@ -516,7 +517,7 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | 분기 | 조건 | 응답 |
 |---|---|---|
 | 대상 역할 불일치 | `target_role='STUDENT'` 인데 학부모가 호출 | `404 RESOURCE_NOT_FOUND` |
-| 이미 같은 강사와 연결 | `uq_parent_teacher_relationships_active_pair` 위반 (`V33:61`) | `409 INVITE_ALREADY_CLAIMED` → 성공처럼 처리 |
+| 이미 같은 강사와 연결 | `uq_parent_teacher_relationships_active_pair` 위반 (`V33:61`) | 🔴 **`200`** + 기존 `TeacherSummary` (MB-04 멱등) |
 
 ---
 
@@ -561,8 +562,8 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | §1 | `GET` | `/member/students/me/worksheets/{assignmentId}` | 학습지 상세 (문항 본문 없음) |
 | §1 | `POST` | `/member/students/me/worksheets/{assignmentId}/attempts` | 풀이 시작 또는 재개 |
 | §2 | `GET` | `/member/students/me/home` | 학생 홈 |
-| §2 | `POST` | `/member/students/me/invitations` | 강사 초대 등록 (대기 학생도 호출 가능) |
-| §2 | `POST` | `/member/students/me/invitations/verification` | 강사 초대코드 검증 (대기 학생도 호출 가능) |
+| §2 | `POST` | `/member/students/me/invitations` | 강사 초대 등록 (🔴 활성화 이후에만 — MB-02) |
+| §2 | `POST` | `/member/students/me/invitations/verification` | 강사 초대코드 검증 (🔴 활성화 이후에만 — MB-02) |
 | §2 | `GET` | `/member/students/me/learning-records` | 학습기록 목록 |
 | §2 | `GET` | `/member/students/me/learning-records/{recordId}` | 학습기록 상세 |
 | §2 | `GET` | `/member/students/me/profile` | 학생 내 정보 |
