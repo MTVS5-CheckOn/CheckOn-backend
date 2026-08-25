@@ -15,18 +15,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
+
+import com.checkon.member.support.MemberPostgresSupport;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import com.checkon.account.domain.AccountRole;
 import com.checkon.account.infrastructure.security.AuthenticatedAccount;
@@ -39,21 +37,17 @@ import com.checkon.account.infrastructure.security.AuthenticatedAccount;
  */
 @SpringBootTest(properties = {
 	"checkon.security.test-authentication.enabled=true",
-	"checkon.auth.allowed-origins=http://localhost:3000"
+	"checkon.auth.allowed-origins=http://localhost:3000",
+	"spring.datasource.hikari.maximum-pool-size=4"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")
-@Testcontainers
-class MemberSecurityChainIntegrationTest {
+class MemberSecurityChainIntegrationTest extends MemberPostgresSupport {
 
-	private static final String PING = "/api/v1/member/ping";
+	private static final String SESSION = "/api/v1/member/auth/session";
 	private static final String PARENT_PATH = "/api/v1/member/parents/me/profile";
 	private static final String STUDENT_PATH = "/api/v1/member/students/me/home";
 	private static final String TEACHER_API = "/api/v1/dashboard/briefing";
-
-	@Container
-	@ServiceConnection
-	static final PostgreSQLContainer POSTGRESQL = new PostgreSQLContainer("postgres:18.4");
 
 	@Autowired MockMvc mockMvc;
 	@Autowired JdbcTemplate jdbcTemplate;
@@ -62,6 +56,14 @@ class MemberSecurityChainIntegrationTest {
 
 	@BeforeEach
 	void setUp() {
+		// 🔴 컨테이너를 공유하므로 앞 클래스가 남긴 행까지 지운다. FK 가 RESTRICT 라
+		//    자식 테이블을 먼저 지우지 않으면 정리 자체가 실패한다(실측).
+		jdbcTemplate.update("DELETE FROM authentication_sessions");
+		jdbcTemplate.update("DELETE FROM member_student_activation");
+		jdbcTemplate.update("DELETE FROM member_display_names");
+		jdbcTemplate.update("DELETE FROM member_student_public_ids");
+		jdbcTemplate.update("DELETE FROM teacher_student_relationships");
+		jdbcTemplate.update("DELETE FROM parent_teacher_relationships");
 		jdbcTemplate.update("DELETE FROM student_profiles");
 		jdbcTemplate.update("DELETE FROM parent_profiles");
 		jdbcTemplate.update("DELETE FROM accounts WHERE role <> 'TEACHER'");
@@ -69,9 +71,9 @@ class MemberSecurityChainIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("토큰 없이 ping 을 부르면 401 과 member 오류 봉투가 온다")
-	void pingRequiresAuthentication() throws Exception {
-		mockMvc.perform(get(PING))
+	@DisplayName("토큰 없이 session 을 부르면 401 과 member 오류 봉투가 온다")
+	void sessionRequiresAuthentication() throws Exception {
+		mockMvc.perform(get(SESSION))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.error.code").value("AUTHENTICATION_REQUIRED"))
 			.andExpect(jsonPath("$.error.message").exists());
@@ -87,7 +89,7 @@ class MemberSecurityChainIntegrationTest {
 			.isNotIn(401, 403);
 
 		// member 경로는 같은 조건에서도 인증을 요구해야 한다. 200 이면 필터가 샌 것이다.
-		mockMvc.perform(get(PING)).andExpect(status().isUnauthorized());
+		mockMvc.perform(get(SESSION)).andExpect(status().isUnauthorized());
 	}
 
 	@Test
@@ -109,9 +111,9 @@ class MemberSecurityChainIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("학생 주체로 ping 을 부르면 주체 해석이 학생 프로필까지 푼다")
-	void pingResolvesMemberSubject() throws Exception {
-		mockMvc.perform(get(PING).with(authentication(principal(
+	@DisplayName("학생 주체로 session 을 부르면 주체 해석이 학생 프로필까지 푼다")
+	void sessionResolvesMemberSubject() throws Exception {
+		mockMvc.perform(get(SESSION).with(authentication(principal(
 				studentAccountId, AccountRole.STUDENT))))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.role").value("STUDENT"))
@@ -139,10 +141,20 @@ class MemberSecurityChainIntegrationTest {
 		jdbcTemplate.update(
 			"INSERT INTO accounts (id, email, role, status, created_at) VALUES (?, ?, ?, ?, ?)",
 			accountId, email, "STUDENT", "ACTIVE", now);
+		UUID studentProfileId = UUID.randomUUID();
 		jdbcTemplate.update(
 			"INSERT INTO student_profiles (id, account_id, alias, account_linked_at, "
 				+ "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-			UUID.randomUUID(), accountId, "학생", now, now, now);
+			studentProfileId, accountId, "학생", now, now, now);
+		// 🔴 표시 이름과 활성화 행이 없으면 세션은 500·403 이다. 「주체 해석이 된다」를 보려면
+		//    가입이 만들어 두는 행을 픽스처도 만들어야 한다 — 없는 상태는 별도 테스트가 본다.
+		jdbcTemplate.update(
+			"INSERT INTO member_display_names (account_id, display_name, created_at, updated_at)"
+				+ " VALUES (?, ?, ?, ?)", accountId, "학생", now, now);
+		jdbcTemplate.update(
+			"INSERT INTO member_student_activation (student_id, status, activated_at,"
+				+ " created_at, updated_at) VALUES (?, 'PENDING_PARENT_LINK', NULL, ?, ?)",
+			studentProfileId, now, now);
 		return accountId;
 	}
 }

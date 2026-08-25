@@ -1,15 +1,17 @@
 package com.checkon.member.common.security;
 
-import java.util.UUID;
+import java.util.Optional;
 
 import org.springframework.core.MethodParameter;
 import org.springframework.stereotype.Component;
 import org.springframework.web.bind.support.WebDataBinderFactory;
 import org.springframework.web.context.request.NativeWebRequest;
 import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
 
+import com.checkon.member.auth.application.MemberSubjectLoader;
 import com.checkon.member.common.error.MemberErrorCode;
 import com.checkon.member.common.error.MemberException;
 
@@ -18,6 +20,10 @@ import com.checkon.member.common.error.MemberException;
  *
  * <p>계정만 있고 프로필이 없는 상태는 인증 불가로 본다(설계 §5-2) — 404 로 존재를 노출하지 않고
  * {@code 401 AUTHENTICATION_REQUIRED} 를 낸다.</p>
+ *
+ * <p>🔴 캐시를 {@code RequestContextHolder} 로 읽는다. {@code NativeWebRequest} 로만 캐싱하면
+ * 인터셉터({@code StudentActivationGuard})가 캐시를 못 봐서 <b>같은 요청에 조회가 두 번</b> 돈다.
+ * 두 번째 조회가 첫 번째와 다른 값을 볼 여지도 생긴다.</p>
  */
 @Component
 public class MemberSubjectResolver implements HandlerMethodArgumentResolver {
@@ -25,14 +31,27 @@ public class MemberSubjectResolver implements HandlerMethodArgumentResolver {
 	private static final String CACHE_KEY = MemberSubjectResolver.class.getName() + ".subject";
 
 	private final MemberPrincipalProvider principalProvider;
-	private final MemberProfileDirectory profileDirectory;
+	private final MemberSubjectLoader subjectLoader;
 
 	public MemberSubjectResolver(
 		MemberPrincipalProvider principalProvider,
-		MemberProfileDirectory profileDirectory
+		MemberSubjectLoader subjectLoader
 	) {
 		this.principalProvider = principalProvider;
-		this.profileDirectory = profileDirectory;
+		this.subjectLoader = subjectLoader;
+	}
+
+	/**
+	 * 인터셉터 등 컨트롤러 인자 밖에서 주체가 필요할 때 쓴다.
+	 *
+	 * <p>인증되지 않았거나 member 역할이 아니면 비어 있다 — 예외를 던지지 않는다.
+	 * 인증 판정은 보안 체인이 이미 했고, 여기서 다시 401 을 내면 판정이 두 곳으로 갈린다.</p>
+	 */
+	public Optional<MemberSubject> currentSubject() {
+		if (principalProvider.currentPrincipal().isEmpty()) {
+			return Optional.empty();
+		}
+		return Optional.of(resolveCached());
 	}
 
 	@Override
@@ -48,12 +67,21 @@ public class MemberSubjectResolver implements HandlerMethodArgumentResolver {
 		NativeWebRequest webRequest,
 		WebDataBinderFactory binderFactory
 	) {
-		Object cached = webRequest.getAttribute(CACHE_KEY, RequestAttributes.SCOPE_REQUEST);
+		return resolveCached();
+	}
+
+	private MemberSubject resolveCached() {
+		RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+		if (attributes == null) {
+			// 요청 밖에서 불릴 일은 없지만, 캐시가 없다고 조용히 통과시키지 않는다.
+			return resolve();
+		}
+		Object cached = attributes.getAttribute(CACHE_KEY, RequestAttributes.SCOPE_REQUEST);
 		if (cached instanceof MemberSubject subject) {
 			return subject;
 		}
 		MemberSubject resolved = resolve();
-		webRequest.setAttribute(CACHE_KEY, resolved, RequestAttributes.SCOPE_REQUEST);
+		attributes.setAttribute(CACHE_KEY, resolved, RequestAttributes.SCOPE_REQUEST);
 		return resolved;
 	}
 
@@ -62,27 +90,7 @@ public class MemberSubjectResolver implements HandlerMethodArgumentResolver {
 			.orElseThrow(() -> new MemberException(
 				MemberErrorCode.AUTHENTICATION_REQUIRED,
 				"no member principal in security context"));
-
-		UUID studentProfileId = null;
-		UUID parentProfileId = null;
-		if (principal.role() == MemberRole.STUDENT) {
-			studentProfileId = profileDirectory.findStudentProfileId(principal.accountId())
-				.orElseThrow(() -> new MemberException(
-					MemberErrorCode.AUTHENTICATION_REQUIRED, "student profile is missing"));
-		} else {
-			parentProfileId = profileDirectory.findParentProfileId(principal.accountId())
-				.orElseThrow(() -> new MemberException(
-					MemberErrorCode.AUTHENTICATION_REQUIRED, "parent profile is missing"));
-		}
-
-		// 🔴 활성화 상태 테이블은 PR2 가 만든다. 그전에는 모르는 값이므로 null 을 그대로 둔다.
-		return new MemberSubject(
-			principal.accountId(),
-			principal.role(),
-			principal.sessionId(),
-			studentProfileId,
-			parentProfileId,
-			null
-		);
+		// 🔴 조회는 반드시 RLS 컨텍스트가 열린 트랜잭션 안이어야 한다. MemberSubjectLoader 참조.
+		return subjectLoader.load(principal);
 	}
 }

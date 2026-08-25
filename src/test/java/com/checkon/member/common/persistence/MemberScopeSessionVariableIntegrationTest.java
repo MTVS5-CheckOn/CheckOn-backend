@@ -11,13 +11,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+
+import com.checkon.member.support.MemberPostgresSupport;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * 범위 세션 변수(설계 §6-4-2)가 우회로가 아니라는 것을 증명한다.
@@ -32,15 +30,11 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  */
 @SpringBootTest(properties = {
 	"checkon.security.test-authentication.enabled=true",
-	"checkon.auth.allowed-origins=http://localhost:3000"
+	"checkon.auth.allowed-origins=http://localhost:3000",
+	"spring.datasource.hikari.maximum-pool-size=4"
 })
 @ActiveProfiles("dev")
-@Testcontainers
-class MemberScopeSessionVariableIntegrationTest {
-
-	@Container
-	@ServiceConnection
-	static final PostgreSQLContainer POSTGRESQL = new PostgreSQLContainer("postgres:18.4");
+class MemberScopeSessionVariableIntegrationTest extends MemberPostgresSupport {
 
 	@Autowired JdbcTemplate jdbcTemplate;
 	@Autowired TransactionTemplate transactionTemplate;
