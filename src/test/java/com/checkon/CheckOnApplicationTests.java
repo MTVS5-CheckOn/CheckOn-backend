@@ -197,6 +197,21 @@ class CheckOnApplicationTests {
 			"SELECT to_regclass('public.parent_student_relationships')::text",
 			String.class
 		);
+		String aiParentLabelAliases = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.ai_parent_label_aliases')::text", String.class
+		);
+		String guardianLabelRequests = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.guardian_label_suggestion_requests')::text", String.class
+		);
+		String guardianLabelSuggestions = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.guardian_label_suggestions')::text", String.class
+		);
+		String guardianLabels = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.guardian_labels')::text", String.class
+		);
+		String guardianLabelDecisions = jdbcTemplate.queryForObject(
+			"SELECT to_regclass('public.guardian_label_decisions')::text", String.class
+		);
 		Integer classManagementColumns = jdbcTemplate.queryForObject("""
 			SELECT count(*)
 			FROM information_schema.columns
@@ -255,6 +270,11 @@ class CheckOnApplicationTests {
 		assertThat(parentProfiles).isEqualTo("parent_profiles");
 		assertThat(parentTeacherRelationships).isEqualTo("parent_teacher_relationships");
 		assertThat(parentStudentRelationships).isEqualTo("parent_student_relationships");
+		assertThat(aiParentLabelAliases).isEqualTo("ai_parent_label_aliases");
+		assertThat(guardianLabelRequests).isEqualTo("guardian_label_suggestion_requests");
+		assertThat(guardianLabelSuggestions).isEqualTo("guardian_label_suggestions");
+		assertThat(guardianLabels).isEqualTo("guardian_labels");
+		assertThat(guardianLabelDecisions).isEqualTo("guardian_label_decisions");
 		assertThat(classManagementColumns).isEqualTo(2);
 		assertThat(advisoryColumns).isEqualTo(1);
 		assertThat(structuredSignalColumns).isEqualTo(4);

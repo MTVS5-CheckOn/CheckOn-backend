@@ -40,6 +40,8 @@ tags:
     description: apidog_counsel_3endpoints_20260819.md 기준 학부모 상담 초안 흐름. 백엔드가 AI 서버를 직접 동기 호출한다.
   - name: Monthly Report
     description: 월간 리포트 생성 원장, 스튜디오 조회, PDF artifact와 학부모 앱 발송 대기열
+  - name: Guardian Labels
+    description: 실제 학부모 단위 소통 성향 라벨의 AI 제안, 강사 판단과 현재값 조회
   - name: Roster Support
     description: 대시보드 학생 실명 표시를 지원하지만 대시보드 자체 API는 아니다.
 paths:
@@ -1191,6 +1193,57 @@ paths:
         '401': {description: 인증 필요}
         '403': {description: 강사 권한 필요}
 
+  /guardians/{parentId}/label-suggestions:
+    post:
+      tags: [Guardian Labels]
+      operationId: suggestGuardianLabels
+      summary: 실제 학부모의 소통 성향 라벨 제안
+      description: |
+        활성 연결 학생 전체의 상담 이력을 합쳐 최신 10건을 사용한다. 5건 미만이면 AI를 호출하지 않고
+        eligible=false, reason=INSUFFICIENT_HISTORY를 반환한다. AI 내부에서 전 이력이 차단되면
+        reason=ANALYSIS_UNAVAILABLE로 반환하며 자동 재시도하지 않는다.
+      parameters:
+        - $ref: '#/components/parameters/GuardianParentId'
+      responses:
+        '200': {description: 제안 가능 여부·현재 라벨·점선 제안, content: {application/json: {schema: {$ref: '#/components/schemas/GuardianLabelSuggestionResponse'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 없거나 다른 테넌트의 학부모, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '502': {description: 전 이력 차단 이외의 AI 통신 오류, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /guardians/{parentId}/labels:
+    get:
+      tags: [Guardian Labels]
+      operationId: getGuardianLabels
+      summary: 실제 학부모의 현재 확정 라벨 조회
+      parameters:
+        - $ref: '#/components/parameters/GuardianParentId'
+      responses:
+        '200': {description: 축별 현재 라벨, content: {application/json: {schema: {$ref: '#/components/schemas/GuardianLabelsResponse'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 없거나 다른 테넌트의 학부모, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /guardians/{parentId}/label-decisions:
+    post:
+      tags: [Guardian Labels]
+      operationId: decideGuardianLabelSuggestion
+      summary: 라벨 제안 확정·정정·거절
+      description: |
+        백엔드 정본과 감사 이력을 먼저 원자적으로 저장한다. 동일 판단 재제출은 백엔드에서 멱등 처리한다.
+        AI 품질 집계에는 최초 판단만 한 번 전송하며 timeout·장애 시 재시도나 배치 재처리를 하지 않는다.
+      parameters:
+        - $ref: '#/components/parameters/GuardianParentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/GuardianLabelDecisionRequest'}
+      responses:
+        '200': {description: 저장된 판단과 현재값, content: {application/json: {schema: {$ref: '#/components/schemas/GuardianLabelDecisionResponse'}}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 학부모 또는 해당 제안을 찾을 수 없음, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '409': {description: 같은 제안에 다른 판단이 이미 저장됨, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
 components:
   securitySchemes:
     bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
@@ -1238,6 +1291,11 @@ components:
       required: true
       description: 문의 논리 참조. classify 응답이 그대로 에코하며 confirmations의 suggestion_id로도 쓰인다.
       schema: {type: string, maxLength: 200}
+    GuardianParentId:
+      name: parentId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
     Page: {name: page, in: query, required: false, description: 0부터 시작, schema: {type: integer, format: int32, minimum: 0, default: 0}}
     Size: {name: size, in: query, required: false, schema: {type: integer, format: int32, minimum: 1, maximum: 100, default: 20}}
   responses:
@@ -1327,6 +1385,68 @@ components:
       description: Reminder 상태 변경 성공
       content: {application/json: {schema: {$ref: '#/components/schemas/ReminderView'}}}
   schemas:
+    GuardianLabelAxis: {type: string, enum: [comm, sensitivity, interest, frequency]}
+    GuardianLabelValue: {type: string, enum: [data, narrative, anxious, direct, grade, attitude, admission, frequent, monthly]}
+    GuardianLabelEligibilityReason: {type: string, nullable: true, enum: [INSUFFICIENT_HISTORY, ALL_LABELS_SET, ANALYSIS_UNAVAILABLE]}
+    GuardianCurrentLabel:
+      type: object
+      required: [axis, value, updatedAt]
+      properties:
+        axis: {$ref: '#/components/schemas/GuardianLabelAxis'}
+        value: {$ref: '#/components/schemas/GuardianLabelValue'}
+        updatedAt: {type: string, format: date-time}
+    GuardianLabelSuggestion:
+      type: object
+      required: [suggestionRef, suggestionId, label, confidence, evidenceQuotes]
+      properties:
+        suggestionRef: {type: string, format: uuid, description: BE 판단 요청용 식별자}
+        suggestionId: {type: string, description: 'AI 합성 키 guardian_ref:axis:value. 길이 상한 없음.'}
+        label:
+          type: object
+          required: [axis, value]
+          properties:
+            axis: {$ref: '#/components/schemas/GuardianLabelAxis'}
+            value: {$ref: '#/components/schemas/GuardianLabelValue'}
+        confidence: {type: number, minimum: 0, maximum: 1}
+        evidenceQuotes:
+          type: array
+          items:
+            type: object
+            required: [record_id, quote]
+            properties:
+              record_id: {type: string}
+              quote: {type: string}
+    GuardianLabelSuggestionResponse:
+      type: object
+      required: [eligible, cacheHit, historyCount, currentLabels, suggestions]
+      properties:
+        eligible: {type: boolean}
+        reason: {$ref: '#/components/schemas/GuardianLabelEligibilityReason'}
+        cacheHit: {type: boolean}
+        historyCount: {type: integer, minimum: 0, maximum: 10}
+        currentLabels: {type: array, items: {$ref: '#/components/schemas/GuardianCurrentLabel'}}
+        suggestions: {type: array, items: {$ref: '#/components/schemas/GuardianLabelSuggestion'}}
+    GuardianLabelsResponse:
+      type: object
+      required: [labels]
+      properties:
+        labels: {type: array, items: {$ref: '#/components/schemas/GuardianCurrentLabel'}}
+    GuardianLabelDecisionRequest:
+      type: object
+      required: [suggestionRef, action]
+      properties:
+        suggestionRef: {type: string, format: uuid}
+        action: {type: string, enum: [confirmed, corrected, rejected]}
+        correctedValue: {$ref: '#/components/schemas/GuardianLabelValue'}
+      description: corrected일 때만 correctedValue가 필수이며, 제안 axis에 속한 값이어야 한다.
+    GuardianLabelDecisionResponse:
+      type: object
+      required: [suggestionRef, action, axis]
+      properties:
+        suggestionRef: {type: string, format: uuid}
+        action: {type: string, enum: [confirmed, corrected, rejected]}
+        axis: {$ref: '#/components/schemas/GuardianLabelAxis'}
+        value: {allOf: [{$ref: '#/components/schemas/GuardianLabelValue'}], nullable: true, description: rejected면 null}
     AccountRole: {type: string, enum: [TEACHER, PARENT, STUDENT]}
     TeacherSignUpRequest:
       type: object
