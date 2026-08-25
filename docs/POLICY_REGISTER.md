@@ -884,7 +884,7 @@
 
 | 날짜 | 변경 | 검증 |
 | --- | --- | --- |
-| 2026-08-25 | REP-001~004 월간 리포트 Kafka 실행, 월 정본, PDF artifact·발송 대기열, Backend source 조립 권장 정책 등록 | AI팀 MD와 와이어프레임 대조, Backend·Adapter 집중 BDD 테스트 통과. 전체 빌드 및 실제 Broker→AI E2E는 최종 검증 예정 |
+| 2026-08-25 | REP-001~004 월간 리포트 Kafka 실행, 월 정본, PDF artifact·발송 대기열, Backend source 조립 권장 정책 등록 | AI팀 MD와 와이어프레임 대조, Backend·Adapter 집중 BDD 및 라벨 V35·V36 병합 후 Backend 전체 428건 테스트 통과. 실제 Broker→AI E2E는 미검증 |
 | 2026-08-25 | GL-001~003의 실제 학부모 단위 라벨 정책과 AI 계약을 확정하고, 실제 학부모 alias·상담 이력 projection·제안 캐시·강사 판단·현재값·AI 단발 feedback 경계를 구현 | 공식 합성 ID 픽스처, Flyway V33·V35~V36, BDD 단위·PostgreSQL·RLS·OpenAPI 검증 |
 | 2026-08-23 | 문제 출제 5영역 자료 입력, 강사 node 선택, 비종단 reconciliation, terminal 참조·slot 상세 이벤트, 5영역 `ai_refine`, 학생 오답 환류 저장 경계를 PG-001~006에 확정 | AI 팀 명세 2종과 Backend 승인 결정을 정책에 반영. 코드·Flyway·BDD 테스트는 이슈 #69에서 구현 예정 |
 | 2026-08-23 | SEC-005로 브라우저 CORS exact-origin allowlist, credential preflight, Location 노출과 Refresh 쿠키 배포 조합을 확정·구현 | Origin·SameSite 설정 단위 테스트, 실제 Security filter chain CORS 통합 테스트와 인증 회귀 테스트 통과 |
