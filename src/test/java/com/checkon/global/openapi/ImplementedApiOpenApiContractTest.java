@@ -36,6 +36,11 @@ class ImplementedApiOpenApiContractTest {
 
 		scanner.findCandidateComponents("com.checkon").forEach(candidate -> {
 			Class<?> controller = loadClass(candidate.getBeanClassName());
+			// member 경계는 별도 계약(openapi/member-api.yaml)을 가진다.
+			// 그쪽 「구현 ↔ 계약」 대조는 MemberImplementedApiOpenApiContractTest 가 한다.
+			if (controller.getPackageName().startsWith("com.checkon.member")) {
+				return;
+			}
 			RequestMapping classMapping = AnnotatedElementUtils.findMergedAnnotation(
 				controller, RequestMapping.class
 			);

@@ -269,10 +269,38 @@ class MemberCodeRuleTest {
     }
     @Test void linesStayUnder100Chars() { ... }
 
-    // G8. 🔴 오류 코드 문자열 리터럴 금지 — enum 만
+    // G8. 🔴 오류 코드 문자열 리터럴 금지 — enum 만. 🔴 21개 전량이다(2026-08-25 확대).
+    //     이전 판은 6개만 막았다. 나머지 15개는 리터럴로 새어도 안 잡혔다.
+    private static final String ERROR_CODES = String.join("|",
+        "INVALID_REQUEST", "AUTHENTICATION_REQUIRED", "INVALID_CREDENTIALS", "ACCOUNT_NOT_ACTIVE",
+        "ROLE_FORBIDDEN", "STUDENT_ACTIVATION_REQUIRED", "RESOURCE_NOT_FOUND", "EMAIL_ALREADY_EXISTS",
+        "IDEMPOTENCY_CONFLICT", "REVISION_CONFLICT", "CHILD_ALREADY_LINKED", "ATTEMPT_ALREADY_SUBMITTED",
+        "INVITE_ALREADY_CLAIMED", "INVITE_EXPIRED", "SUBMISSION_INCOMPLETE", "RELATIONSHIP_REQUIRED",
+        "WORKSHEET_NOT_GRADABLE", "RATE_LIMITED", "INTERNAL", "DEPENDENCY_UNAVAILABLE", "DEPENDENCY_TIMEOUT");
+
     @Test void errorCodesComeFromEnum() throws IOException {
-        assertThat(grepFiles("\"(INVALID_REQUEST|RESOURCE_NOT_FOUND|CHILD_ALREADY_LINKED|"
-            + "IDEMPOTENCY_CONFLICT|REVISION_CONFLICT|ATTEMPT_ALREADY_SUBMITTED)\"")).isEmpty();
+        // 🔴 따옴표를 포함해서 찾는다. 따옴표 없이 INTERNAL 을 찾으면
+        //    HttpStatus.INTERNAL_SERVER_ERROR 가 걸려서 게이트가 못 쓰게 된다.
+        var pattern = Pattern.compile("\"(" + ERROR_CODES + ")\"");
+        var offenders = memberSources().stream()
+            // 🔴 enum 선언 자체는 제외한다. 여기 말고는 리터럴이 있을 곳이 없다.
+            .filter(p -> !p.getFileName().toString().equals("MemberErrorCode.java"))
+            .filter(p -> pattern.matcher(readString(p)).find())
+            .toList();
+        assertThat(offenders).isEmpty();
+    }
+
+    // G13. 🔴 enum 이 docs/MEMBER_ERROR_CODES.md 와 같은 집합인가
+    //      이 드리프트로 이미 두 번 당했다 — 설계 18 / 계약 21 / PR1 지시서 17.
+    //      사람이 표를 고치고 enum 을 안 고치는 걸(반대도) 여기서 막는다.
+    @Test void errorCodeEnumMatchesDocument() throws IOException {
+        var documented = Pattern.compile("`([A-Z][A-Z_]{3,})`")
+            .matcher(Files.readString(Path.of("docs/MEMBER_ERROR_CODES.md")))
+            .results().map(r -> r.group(1)).collect(Collectors.toCollection(TreeSet::new));
+        var declared = Pattern.compile("^\\s*([A-Z][A-Z_]{3,})\\(", Pattern.MULTILINE)
+            .matcher(Files.readString(MEMBER.resolve("common/error/MemberErrorCode.java")))
+            .results().map(r -> r.group(1)).collect(Collectors.toCollection(TreeSet::new));
+        assertThat(declared).isEqualTo(documented);   // 실패 시 양쪽 차집합이 그대로 보인다
     }
 
     // G9. 안건 번호 없는 TODO 금지
@@ -310,7 +338,7 @@ class MemberCodeRuleTest {
 
 리뷰어가 이 순서로 본다. 🔴 는 **하나라도 걸리면 즉시 반려**.
 
-- [ ] 🔴 `MemberCodeRuleTest` 전부 green (G1~G12)
+- [ ] 🔴 `MemberCodeRuleTest` 전부 green (G1~G13)
 - [ ] 🔴 `scripts/member-no-regression.sh` PASS (R1~R8)
 - [ ] 🔴 `01_endpoint_branch_matrix.md` 표 행 수 = 테스트 수
 - [ ] 🔴 기존 패키지 파일 변경 0건 (`git diff --name-only`)
@@ -329,6 +357,15 @@ class MemberCodeRuleTest {
 - [ ] PR 본문에 실행 OS·pass/skip·CI 차이 기록 (§10)
 
 ---
+
+### 🔴 게이트를 넓힌 기록
+
+| 날짜 | 게이트 | 무엇 | 왜 |
+|---|---|---|---|
+| 2026-08-25 | **G8** | 금지 코드 6개 → **21개 전량** · `MemberErrorCode.java` 제외 · 따옴표 포함 매치 | 6개만 막으면 나머지 15개가 리터럴로 샌다. PR1 전수에서 나옴 |
+| 2026-08-25 | **G13 신설** | enum 집합 == `docs/MEMBER_ERROR_CODES.md` 집합 | 같은 목록이 세 곳에서 **18 / 21 / 17** 로 갈렸다. 사람 눈으로는 두 번 다 못 잡았다 |
+
+🔴 **G13 이 이 문서에서 제일 중요한 게이트일 수 있다.** 지금까지 나온 반증 중 가장 자주 반복된 게 "같은 표가 문서마다 다르다"였다.
 
 ## §13. 이 문서를 바꾸는 절차
 

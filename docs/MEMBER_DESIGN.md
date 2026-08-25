@@ -56,7 +56,7 @@
 
 `student_profiles`(`V6:4-32`)에 `name` 이 없다(`alias` 뿐). `parent_profiles`(`V33_support:17-31`)는 `id, account_id, account_role, created_at, updated_at` 이 전부다.
 
-→ member 소유 `member_display_names`(PR3/V35). `student_profiles.alias` 를 덮어쓰지 않는다.
+→ member 소유 `member_display_names`(PR3/V39). `student_profiles.alias` 를 덮어쓰지 않는다.
 
 #### ② 강사의 `subject`·`academyName` 원본이 없다 — **여전히 유효**
 
@@ -126,11 +126,11 @@ CREATE INDEX idx_problem_response_diagnosis
 
 | 무엇 | 어디에 |
 |---|---|
-| **진행 중** 임시 답안·타이머 (미제출) | `member_attempt_answers` (member 소유, PR5/V36) |
+| **진행 중** 임시 답안·타이머 (미제출) | `member_attempt_answers` (member 소유, PR5/V40) |
 | **최종 제출 결과** (문항별 정오) | 🔴 **`problem_assignment_responses`** (승우님 소유). member 는 INSERT 만 |
 | ~~`member_attempt_item_results`~~ | 🔴 **만들지 않는다.** 중복이다 |
 
-→ V34 에 **9번째 테이블** 로 `problem_assignment_responses` 학생 INSERT 정책을 추가한다(§6-3).
+→ V38 에 **9번째 테이블** 로 `problem_assignment_responses` 학생 INSERT 정책을 추가한다(§6-3).
 
 이득: 강사 대시보드·진단이 학생 제출을 **바로** 본다. 데이터가 두 벌로 갈리지 않는다.
 
@@ -385,7 +385,7 @@ src/main/java/com/checkon/counsel/**
 src/main/java/com/checkon/engagement/**
 src/main/java/com/checkon/dashboard/**
 src/main/java/com/checkon/global/**          ← AccountSecurityConfiguration 포함
-src/main/resources/db/migration/V1..V33      ← 기존 마이그레이션 전부
+src/main/resources/db/migration/V1..V37      ← 기존 마이그레이션 전부 (V35~V37 은 승우님 · 595f3d3)
 src/main/resources/openapi/dashboard-api.yaml
 ```
 
@@ -395,8 +395,8 @@ src/main/resources/openapi/dashboard-api.yaml
 
 | 무엇 | 왜 | 처리 |
 |---|---|---|
-| 신규 Flyway 번호 **V34(잠정)** | 번호는 전역 자원 | 🔴 **V33 중복 복구가 V34 를 쓸 예정이다** — 그러면 member 는 V35 부터다. 예약은 복구 알림과 **한 메시지로** 보낸다(`NOTICE_TO_SEUNGWOO.md`). 응답 후 `_MIGRATION_RESERVATION.md` **표 전체**를 다시 매기고 지시서를 갱신한다. 번호 하나만 밀지 마라 |
-| V34 안의 `CREATE POLICY` 9개 테이블 | §6-3 참조. 정책 없이는 기능 자체가 불가능 | PR 본문 첫 줄 `⚠ 승인 필요: db/migration/V34__*.sql (기존 9테이블 정책 추가)`. **기존 정책 DROP/ALTER 금지, ADD만** |
+| 신규 Flyway 번호 **V38(잠정)** | 번호는 전역 자원 | 🔴 **V33 중복 복구가 V38 를 쓸 예정이다** — 그러면 member 는 V39 부터다. 예약은 복구 알림과 **한 메시지로** 보낸다(`NOTICE_TO_SEUNGWOO.md`). 응답 후 `_MIGRATION_RESERVATION.md` **표 전체**를 다시 매기고 지시서를 갱신한다. 번호 하나만 밀지 마라 |
+| V38 안의 `CREATE POLICY` 9개 테이블 | §6-3 참조. 정책 없이는 기능 자체가 불가능 | PR 본문 첫 줄 `⚠ 승인 필요 2건: ① db/migration/V35__*.sql (기존 9테이블 정책 ADD) ② CheckOnApplicationTests.java:266 기대값 34→35`. **기존 정책 DROP/ALTER 금지, ADD만** |
 
 CODEOWNERS 권장: `member/**` → 박진희 단독, `db/migration/**` → 공동 리뷰.
 
@@ -562,7 +562,7 @@ RLS 적용 테이블(15개, `TenantDatabaseRoleSafetyVerifier.java:49-72` 하드
 
 **따라서 teacher 컨텍스트가 없는 학생/학부모 요청은 이 테이블들에서 0건을 본다.**
 
-### 6-2. 신규 주체 함수 (V34)
+### 6-2. 신규 주체 함수 (V38)
 
 ```sql
 CREATE FUNCTION current_checkon_account_id() RETURNS UUID LANGUAGE SQL STABLE PARALLEL SAFE AS $$
@@ -573,7 +573,7 @@ CREATE FUNCTION current_checkon_parent_id()  RETURNS UUID ... 'checkon.current_p
 
 `MemberDatabaseContext`(신규)가 `@Transactional` 진입 직후 `set_config(name, value, true)`로 설정한다. `TeacherTenantDatabaseContext`와 **다른 setting 이름**을 쓰므로 서로 간섭하지 않는다.
 
-### 6-3. 기존 테이블에 **추가만** 하는 정책 (V34)
+### 6-3. 기존 테이블에 **추가만** 하는 정책 (V38)
 
 기존 정책은 **DROP/ALTER 하지 않는다**. PostgreSQL RLS 정책은 기본 PERMISSIVE라 OR로 합쳐진다.
 
@@ -675,6 +675,25 @@ CREATE FUNCTION current_checkon_parent_id()  RETURNS UUID ... 'checkon.current_p
 🔴 **21개다.** 이전 판은 18개였고 `INVALID_CREDENTIALS`·`ACCOUNT_NOT_ACTIVE`·`INTERNAL` 셋이 빠져 있었다 — 계약(`member-api.yaml`)에는 처음부터 있었다. PR0 완료 보고 반증 ②에서 잡혔다. 이 표와 `member-api.yaml` 의 `MemberErrorCode` enum 은 **항상 같은 개수**여야 한다(PR0 검사 #3 이 diff 로 강제한다).
 
 🔴 AI의 `template_only` · `rejected_insufficient` · `no_data`는 **5xx가 아니다**. `CheckOn-AI` `CLAUDE.md:15` 불변식 4번("게이트 반려는 오류가 아니다")과 일치시킨다. 백엔드는 정상 도메인 상태로 저장하고 사용자 문구로 매핑한다.
+
+---
+
+## 7-3. 🔴 PR1 에서 확정된 3가지 (2026-08-25 · 설계 §5-2 정정)
+
+구현 중 코드 규칙 게이트와 부딪혀서 **게이트를 느슨하게 하는 대신 코드를 규칙에 맞춘** 결정 셋이다. PR3~PR9 에서 되돌리지 마라.
+
+| 설계 원안 | 확정 | 왜 |
+|---|---|---|
+| `MemberSubject.role` 은 `AccountRole` | 🔴 **신규 `MemberRole`** + `integration/account` 에 변환 어댑터 | 원안대로면 `common/` 이 `com.checkon.account` 를 import 해서 **G2 위반**. 남의 패키지는 `integration/` 만 건넌다 |
+| `MemberPingController` 반환은 `MemberResponse<Map<String,Object>>` | 🔴 **`MemberPingResult` record** | 원안대로면 **G12 위반**(`Map<String,Object>` 반환 금지) |
+| `MemberSubjectResolver` 에 `@Transactional(readOnly = true)` | 🔴 **없음** | `common/security` 에 붙이면 **G5 위반**. 단일 조회라 트랜잭션이 필요 없다 |
+
+🔴 셋 다 **게이트가 옳고 설계가 틀렸던 경우**다. 반대로 간 적은 없다.
+
+### 부수 — 라이브러리 실측 정정 2건
+
+- `HttpStatus.UNPROCESSABLE_ENTITY` 는 Spring 7 에서 deprecated → **`UNPROCESSABLE_CONTENT`**(같은 422)
+- `ObjectMapper` 는 `com.fasterxml` 이 아니라 🔴 **`tools.jackson`** — 저장소가 Jackson 3 을 쓰고(23곳) Boot 4 가 주입하는 빈도 그쪽이다
 
 ---
 
@@ -1044,7 +1063,7 @@ at-least-once. consumer는 `event_id`로 dedupe하고 **업무 상태 변경과 
 |---|---|---|---|
 | 0 | 계약 | `member-api.yaml`, 오류 코드 enum, 상태 머신 문서 | 공동 확인 |
 | 1 | member 기반 | 패키지 골격, `@Order(0)` 보안 체인, `MemberSubject` resolver, envelope, `RequestIdFilter`, `MemberDatabaseContext` | 보안 설정 리뷰 |
-| 2 | 🔴 V34 마이그레이션 | 주체 함수 3개, 기존 9테이블 정책 **추가**, member 기본 테이블 | **DB/Flyway 공동 승인** |
+| 2 | 🔴 V38 마이그레이션 | 주체 함수 3개, 기존 9테이블 정책 **추가**, member 기본 테이블 | **DB/Flyway 공동 승인** |
 | 3 | 가입·세션·활성화 | 학생/학부모 sign-up, `GET /auth/session`, activation guard | account 계약 리뷰 |
 | 4 | 관계 | 자녀 등록(동시성), 초대 검증/등록, 자녀 목록 | roster 계약 리뷰 |
 | 5 | 학습지·attempt | 조회, attempt 시작/재개, autosave, 제출, 결정론 채점, 결과 | problem/learning 계약 리뷰 |
@@ -1066,7 +1085,7 @@ at-least-once. consumer는 `event_id`로 dedupe하고 **업무 상태 변경과 
 - 🔴 CI 가 15분 타임아웃이다. member 통합테스트를 무한정 늘리면 CI 가 죽는다. PR11 에서 `member_pre_pr_verify.sh` 소요 시간을 측정하고 상한을 관리한다.
 - CI 워크플로 파일은 **무접촉**이다. 손봐야 할 이유가 생기면 별도 공통 PR.
 
-🔴 번호 예약은 `instructions/_MIGRATION_RESERVATION.md` 가 정본이다. V34~V40 을 PR0 에서 **한 번에** 예약한다.
+🔴 번호 예약은 `instructions/_MIGRATION_RESERVATION.md` 가 정본이다. V38~V44 을 PR0 에서 **한 번에** 예약한다.
 
 ---
 
@@ -1100,7 +1119,7 @@ at-least-once. consumer는 `event_id`로 dedupe하고 **업무 상태 변경과 
 - **Security** — IDOR, 다른 자녀/강사 접근, pending 학생 제한, 토큰 회전, dev filter 미적용 확인.
 - **AI fake** — generated / template_only / rejected_insufficient / timeout / 5xx / invalid schema. 🔴 **실 LLM 호출 0회**.
 - **Kafka Testcontainers** — duplicate event, payload conflict, outbox 재발행, stale claim.
-- **Regression** — 🔴 **기존 강사 통합테스트 전량 green**. V34 정책 추가가 강사 동작을 바꾸지 않았음을 이걸로 증명한다.
+- **Regression** — 🔴 **기존 강사 통합테스트 전량 green**. V38 정책 추가가 강사 동작을 바꾸지 않았음을 이걸로 증명한다.
 
 ### 🔴 고의 파괴 (2단계로)
 
@@ -1111,7 +1130,7 @@ at-least-once. consumer는 `event_id`로 dedupe하고 **업무 상태 변경과 
 | `IN_PROGRESS` DTO에 `correctAnswer` 필드 추가 | 정답 비노출 계약 테스트 실패 |
 | `uq_parent_student_relationships_active_student` 드롭 | 자녀 동시 등록 테스트 실패 |
 | member context setter 호출 제거 | RLS 전면 거절로 조회 테스트 실패 |
-| V34 정책 술어에서 `current_checkon_student_id()` 제거 | 학생 A→B IDOR 테스트 실패 |
+| V38 정책 술어에서 `current_checkon_student_id()` 제거 | 학생 A→B IDOR 테스트 실패 |
 | 제출 트랜잭션에서 `FOR UPDATE` 제거 | 이중 제출 테스트 실패 |
 
 ### Frontend
@@ -1129,7 +1148,7 @@ at-least-once. consumer는 `event_id`로 dedupe하고 **업무 상태 변경과 
 
 - [ ] `member-api.yaml`과 프론트 DTO/Zod schema가 일치한다
 - [ ] 학생/학부모 self-RLS 및 IDOR 테스트가 **제한 DB role**에서 통과한다
-- [ ] 🔴 **기존 강사 API regression suite 전량 통과** (V34 정책 추가 후)
+- [ ] 🔴 **기존 강사 API regression suite 전량 통과** (V38 정책 추가 후)
 - [ ] 자녀 등록·초대·attempt 제출의 동시성/멱등 테스트 통과
 - [ ] 제출 전 정답·해설 비노출 계약 테스트 통과
 - [ ] 전국 백분위 필드가 API·화면에서 없고, 약점 개선도가 근거와 함께 제공된다
