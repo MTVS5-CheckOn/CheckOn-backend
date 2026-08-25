@@ -1,0 +1,174 @@
+name: Backend Production Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 배포할 main 커밋 SHA 40자리
+        required: true
+        type: string
+
+  workflow_run:
+    workflows:
+      - Backend Image Publish
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: mtvs5-checkon/checkon-backend
+
+concurrency:
+  group: production-backend-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-backend:
+    name: 서울 운영 백엔드 배포
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        github.event.workflow_run.conclusion == 'success'
+      }}
+    runs-on:
+      - self-hosted
+      - Linux
+      - X64
+      - checkon-production
+    timeout-minutes: 20
+
+    env:
+      COMMIT_SHA: >-
+        ${{
+          github.event.workflow_run.head_sha ||
+          inputs.commit_sha
+        }}
+      TARGET_IMAGE: >-
+        ghcr.io/mtvs5-checkon/checkon-backend:sha-${{
+          github.event.workflow_run.head_sha ||
+          inputs.commit_sha
+        }}
+
+    steps:
+      - name: 배포 대상 SHA 검증
+        shell: bash
+        run: |
+          if [[ ! "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "commit_sha must be a lowercase 40-character Git SHA." >&2
+            exit 2
+          fi
+
+          printf 'target_image=%s/%s:sha-%s\n' \
+            "$REGISTRY" \
+            "$IMAGE_NAME" \
+            "$COMMIT_SHA"
+
+      - name: 배포 코드 가져오기
+        uses: actions/checkout@v7
+        with:
+          ref: >-
+            ${{
+              github.event.workflow_run.head_sha ||
+              github.sha
+            }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: 배포 스크립트와 Runner 환경 검증
+        shell: bash
+        run: |
+          test -f scripts/deploy/deploy-backend.sh
+          bash -n scripts/deploy/deploy-backend.sh
+
+          test -d /home/ubuntu/deployment
+          test -f /home/ubuntu/deployment/.env
+          test -f /home/ubuntu/deployment/compose.yaml
+
+          sudo -n docker version --format 'docker-server={{.Server.Version}}'
+          sudo -n docker compose version
+
+
+      - name: GHCR 인증 후 백엔드 배포
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker_config_dir="$(
+            sudo -n mktemp -d \
+              "${RUNNER_TEMP}/checkon-docker-config.XXXXXX"
+          )"
+
+          cleanup_docker_credentials() {
+            sudo -n env \
+              DOCKER_CONFIG="$docker_config_dir" \
+              docker logout "$REGISTRY" \
+              >/dev/null 2>&1 || true
+
+            sudo -n rm -f -- "$docker_config_dir/config.json"
+            sudo -n rmdir -- "$docker_config_dir" 2>/dev/null || true
+          }
+
+          trap cleanup_docker_credentials EXIT
+
+          printf '%s' "$GHCR_TOKEN" |
+            sudo -n env \
+              DOCKER_CONFIG="$docker_config_dir" \
+              docker login "$REGISTRY" \
+                --username "$GITHUB_ACTOR" \
+                --password-stdin
+
+          sudo -n env \
+            DOCKER_CONFIG="$docker_config_dir" \
+            bash scripts/deploy/deploy-backend.sh \
+              "$TARGET_IMAGE"
+
+
+      - name: 배포 결과 최종 검증
+        shell: bash
+        working-directory: /home/ubuntu/deployment
+        run: |
+          backend_container_id="$(
+            sudo -n docker compose ps -q back
+          )"
+
+          if [[ -z "$backend_container_id" ]]; then
+            echo "Backend container was not found." >&2
+            exit 5
+          fi
+
+          running_image="$(
+            sudo -n docker inspect \
+              --format '{{.Config.Image}}' \
+              "$backend_container_id"
+          )"
+
+          if [[ "$running_image" != "$TARGET_IMAGE" ]]; then
+            echo "Deployed image does not match the requested image." >&2
+            echo "Expected: $TARGET_IMAGE" >&2
+            echo "Actual:   $running_image" >&2
+            exit 5
+          fi
+
+          readiness_response="$(
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              http://127.0.0.1/actuator/health/readiness
+          )"
+
+          if [[ "$readiness_response" != '{"status":"UP"}' ]]; then
+            echo "Unexpected readiness response: $readiness_response" >&2
+            exit 5
+          fi
+
+          sudo -n docker compose ps back web
+
+          printf 'deployed_image=%s\n' "$running_image"
+          printf 'readiness=%s\n' "$readiness_response"
