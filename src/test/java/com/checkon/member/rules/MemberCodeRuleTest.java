@@ -7,6 +7,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
@@ -28,8 +29,25 @@ class MemberCodeRuleTest {
 
 	private static final Path MEMBER = Path.of("src/main/java/com/checkon/member");
 	private static final Path ERROR_CODE_DOCUMENT = Path.of("docs/MEMBER_ERROR_CODES.md");
+	private static final Path OPEN_ITEM_DOCUMENT = Path.of("docs/MEMBER_OPEN_ITEMS.md");
+	private static final Path MIGRATIONS = Path.of("src/main/resources/db/migration");
 	private static final Path ERROR_CODE_SOURCE =
 		MEMBER.resolve("common/error/MemberErrorCode.java");
+
+	/** G15 가 「컨텍스트를 열었다」로 인정하는 호출. 셋 다 MemberDatabaseContext 를 거친다. */
+	private static final Pattern CONTEXT_OPENERS =
+		Pattern.compile("openSubjectContext|setCurrent[A-Z]|withVerified[A-Z]");
+
+	/**
+	 * G15 면제 선언. 🔴 이름만 적는 예외 목록이 아니라 <b>읽는 테이블을 열거</b>하게 만든다 —
+	 * 게이트가 그 테이블들이 정말 RLS 밖인지 마이그레이션에서 확인한다. 거짓 면제는 red 다.
+	 */
+	private static final Pattern RLS_WAIVER =
+		Pattern.compile("G15-EXEMPT\\(([a-z0-9_,\\s]+)\\)");
+
+	private static final Pattern RLS_ENABLED =
+		Pattern.compile("ALTER\\s+TABLE\\s+(\\w+)\\s+ENABLE\\s+ROW\\s+LEVEL\\s+SECURITY",
+			Pattern.CASE_INSENSITIVE);
 
 	private static final int MAX_LINES = 400;
 	private static final int MAX_LINE_LENGTH = 100;
@@ -208,6 +226,74 @@ class MemberCodeRuleTest {
 		assertThat(declared)
 			.as("문서와 enum 이 갈리면 계약·프론트 분기가 조용히 어긋난다")
 			.isEqualTo(documented);
+	}
+
+	@Test
+	@DisplayName("G14. 코드의 TODO(MB-nn) 번호가 MEMBER_OPEN_ITEMS.md 에 실재한다")
+	void todoIssueNumbersAreRegistered() throws IOException {
+		// 🔴 G9 는 TODO 의 **형식**만 본다 — 번호가 붙어 있으면 통과하고 실재는 안 본다.
+		//    PR1 에서 TODO(MB-29) 가 안건 등록 없이 들어간 게 그 구멍이다.
+		Set<String> registered = Pattern.compile("MB-\\d+")
+			.matcher(Files.readString(OPEN_ITEM_DOCUMENT))
+			.results().map(java.util.regex.MatchResult::group)
+			.collect(Collectors.toCollection(TreeSet::new));
+		Set<String> referenced = memberSources().stream()
+			.flatMap(path -> Pattern.compile("TODO\\((MB-\\d+)\\)")
+				.matcher(readString(path)).results().map(result -> result.group(1)))
+			.collect(Collectors.toCollection(TreeSet::new));
+		// 🔴 TODO(PR3) 는 대상이 아니다 — 안건이 아니라 일정이다.
+		assertThat(referenced)
+			.as("코드가 참조하는 안건 번호는 전부 등재돼 있어야 한다")
+			.allSatisfy(number -> assertThat(registered)
+				.as("TODO(%s) 가 MEMBER_OPEN_ITEMS.md 에 없다", number)
+				.contains(number));
+	}
+
+	@Test
+	@DisplayName("G15. RLS 테이블을 읽는 application 서비스는 자기 트랜잭션에서 컨텍스트를 연다")
+	void memberServicesOpenTheirOwnRlsContext() throws IOException {
+		// 🔴 set_config(..., true) 는 트랜잭션 로컬이다(설계 §6-4-4). 리졸버 → 인터셉터 →
+		//    서비스가 각각 다른 트랜잭션이라 "앞에서 열었으니 됐다"가 성립하지 않는다.
+		//    빠뜨리면 예외가 아니라 **0행**이라 조용하다 — PR3 에서 결함 3건이 여기서 나왔다.
+		List<String> offenders = memberSources().stream()
+			.filter(path -> path.toString().contains("/application/"))
+			.filter(path -> path.getFileName().toString().endsWith("Service.java"))
+			.filter(path -> readString(path).contains("Repository"))
+			.filter(path -> !CONTEXT_OPENERS.matcher(readString(path)).find())
+			.filter(path -> !RLS_WAIVER.matcher(readString(path)).find())
+			.map(Path::toString)
+			.toList();
+		assertThat(offenders)
+			.as("Repository 를 쓰는 서비스가 RLS 컨텍스트를 열지 않는다 (설계 §6-4-3·§6-4-4)")
+			.isEmpty();
+	}
+
+	@Test
+	@DisplayName("G15-b. G15 면제가 열거한 테이블은 정말 RLS 밖이다")
+	void rlsWaiversNameOnlyUnprotectedTables() throws IOException {
+		// 🔴 면제를 "이름 목록"으로 두면 아무나 이름을 넣어 게이트를 무력화한다.
+		//    그래서 면제는 **읽는 테이블을 열거**하게 하고, 그 주장을 마이그레이션으로 반증한다.
+		Set<String> rlsTables = new TreeSet<>();
+		try (Stream<Path> walk = Files.walk(MIGRATIONS)) {
+			walk.filter(path -> path.toString().endsWith(".sql"))
+				.map(MemberCodeRuleTest::readString)
+				.forEach(sql -> RLS_ENABLED.matcher(sql).results()
+					.forEach(result -> rlsTables.add(result.group(1).toLowerCase(Locale.ROOT))));
+		}
+		assertThat(rlsTables).as("마이그레이션에서 RLS 테이블을 하나도 못 찾았다면 정규식이 죽은 것이다")
+			.isNotEmpty();
+
+		for (Path path : memberSources()) {
+			java.util.regex.Matcher waiver = RLS_WAIVER.matcher(readString(path));
+			while (waiver.find()) {
+				List<String> claimed = Stream.of(waiver.group(1).split("[,\\s]+"))
+					.filter(name -> !name.isBlank()).toList();
+				assertThat(claimed).as("%s 의 G15-EXEMPT 가 테이블을 하나도 안 적었다", path).isNotEmpty();
+				assertThat(claimed)
+					.as("%s 의 G15-EXEMPT 가 RLS 켜진 테이블을 'RLS 밖'이라고 주장한다", path)
+					.doesNotContainAnyElementsOf(rlsTables);
+			}
+		}
 	}
 
 	private static long countLines(Path path) {

@@ -306,6 +306,28 @@ class MemberCodeRuleTest {
             assertThat(registered).as("TODO(%s) 가 MEMBER_OPEN_ITEMS.md 에 없다", n).contains(n));
     }
 
+    // G15. 🔴 RLS 테이블을 읽는 application 서비스가 자기 트랜잭션에서 컨텍스트를 여는가
+    //      set_config(..., true) 는 트랜잭션 로컬이다(설계 §6-4-4). 리졸버 → 인터셉터 →
+    //      서비스가 각각 다른 트랜잭션이라 "앞에서 열었으니 됐다"가 성립하지 않는다.
+    //      🔴 빠뜨리면 예외가 아니라 **0행**이라 조용하다. 그래서 규칙이 아니라 게이트다.
+    @Test void memberServicesOpenTheirOwnRlsContext() throws IOException {
+        var offenders = memberSources().stream()
+            .filter(p -> p.toString().contains("/application/"))
+            .filter(p -> p.getFileName().toString().endsWith("Service.java"))
+            .filter(p -> readString(p).contains("Repository"))
+            .filter(p -> !CONTEXT_OPENERS.matcher(readString(p)).find())
+            .filter(p -> !RLS_WAIVER.matcher(readString(p)).find())
+            .toList();
+        assertThat(offenders).isEmpty();
+    }
+
+    // G15-b. 🔴 면제가 열거한 테이블이 정말 RLS 밖인가
+    //      면제를 "파일 이름 목록"으로 두면 아무나 이름을 넣어 게이트를 무력화한다.
+    //      그래서 면제는 **읽는 테이블을 열거**하게 하고 — G15-EXEMPT(t1, t2) —
+    //      그 주장을 마이그레이션의 ENABLE ROW LEVEL SECURITY 로 반증한다.
+    //      거짓 면제는 red 다.
+    @Test void rlsWaiversNameOnlyUnprotectedTables() throws IOException { ... }
+
     // G13. 🔴 enum 이 docs/MEMBER_ERROR_CODES.md 와 같은 집합인가
     //      이 드리프트로 이미 두 번 당했다 — 설계 18 / 계약 21 / PR1 지시서 17.
     //      사람이 표를 고치고 enum 을 안 고치는 걸(반대도) 여기서 막는다.
@@ -354,7 +376,7 @@ class MemberCodeRuleTest {
 
 리뷰어가 이 순서로 본다. 🔴 는 **하나라도 걸리면 즉시 반려**.
 
-- [ ] 🔴 `MemberCodeRuleTest` 전부 green (G1~G14)
+- [ ] 🔴 `MemberCodeRuleTest` 전부 green (G1~G15, G7·G15 는 -a/-b 포함 **17개**)
 - [ ] 🔴 `scripts/member-no-regression.sh` PASS (R1~R8)
 - [ ] 🔴 `01_endpoint_branch_matrix.md` 표 행 수 = 테스트 수
 - [ ] 🔴 기존 패키지 파일 변경 0건 (`git diff --name-only`)
@@ -381,6 +403,9 @@ class MemberCodeRuleTest {
 | 2026-08-25 | **G8** | 금지 코드 6개 → **21개 전량** · `MemberErrorCode.java` 제외 · 따옴표 포함 매치 | 6개만 막으면 나머지 15개가 리터럴로 샌다. PR1 전수에서 나옴 |
 | 2026-08-25 | **G13 신설** | enum 집합 == `docs/MEMBER_ERROR_CODES.md` 집합 | 같은 목록이 세 곳에서 **18 / 21 / 17** 로 갈렸다. 사람 눈으로는 두 번 다 못 잡았다 |
 | 2026-08-25 | **G14 신설** | 코드의 `TODO(MB-xx)` 번호가 `MEMBER_OPEN_ITEMS.md` 에 실재하는가 | PR1 이 `TODO(MB-29)` 를 안건 등록 없이 넣었다. **G9 는 형식만 보고 실재는 안 본다** — 죽은 참조가 조용히 생긴다 |
+| 2026-08-26 | **G14 구현** | 문서에는 있는데 **테스트에 없었다** | PR3 에서 실측 — 문서가 「G1~G14 green」을 요구하는데 G14 테스트가 존재하지 않았다. §13 이 금지하는 「문서만 고치고 게이트를 안 둔」 상태였다 |
+| 2026-08-26 | **G15 신설** | RLS 테이블을 읽는 서비스가 자기 트랜잭션에서 컨텍스트를 여는가 | PR3 에서 결함 3건이 여기서 나왔다. 컨텍스트를 안 열면 **예외가 아니라 0행**이라 조용하다 — 규칙으로는 못 막는다 |
+| 2026-08-26 | **G15-b 신설** | G15 면제가 열거한 테이블이 정말 RLS 밖인가 | 면제를 이름 목록으로 두면 게이트가 무력해진다. 면제자가 **읽는 테이블을 적게** 하고 마이그레이션으로 반증한다 |
 
 🔴 **G13 이 이 문서에서 제일 중요한 게이트일 수 있다.** 지금까지 나온 반증 중 가장 자주 반복된 게 "같은 표가 문서마다 다르다"였다.
 

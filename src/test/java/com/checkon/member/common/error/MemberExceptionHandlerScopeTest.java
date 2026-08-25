@@ -86,7 +86,7 @@ class MemberExceptionHandlerScopeTest {
 	@Test
 	@DisplayName("member 경로의 오류는 member 봉투를 쓴다")
 	void memberPathUsesMemberEnvelope() throws Exception {
-		mockMvc.perform(get("/api/v1/member/ping"))
+		mockMvc.perform(get("/api/v1/member/auth/session"))
 			.andExpect(status().isUnauthorized())
 			.andExpect(jsonPath("$.error.code").value("AUTHENTICATION_REQUIRED"))
 			.andExpect(jsonPath("$.code").doesNotExist());

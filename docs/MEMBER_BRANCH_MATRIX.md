@@ -87,8 +87,8 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | 약관 미동의 | `termsAgreed=false` | `400 INVALID_REQUEST` | 체크박스 focus |
 | 학년 범위 밖 | `grade` ∉ 1..3 (`V6:23-29` CHECK) | `400 INVALID_REQUEST` | — |
 | 비밀번호 정책 | 8자 미만 / 200자 초과 | `400 INVALID_REQUEST` | — |
-| 공개 ID 발급 충돌 | unique 위반이 **5회 연속** | `500 INTERNAL` + 알람 | 잠시 후 재시도 안내 |
-| 가입 폭주 | IP·이메일 단위 | `429` | `Retry-After` |
+| 공개 ID 발급 충돌 | unique 위반이 **5회 연속** | `500 INTERNAL` + 알람 | 잠시 후 재시도 안내 · ⚠ **PR3 범위 아님 — 테스트 없음**(재현에 난수 고정이 필요하다) |
+| 가입 폭주 | IP·이메일 단위 | `429` | `Retry-After` · ⚠ **PR3 범위 아님 — rate limit 미구현, 테스트 없음** |
 
 🔴 `accounts` INSERT 성공 후 `student_profiles`·`member_student_public_ids`·`member_student_activation`·`member_display_names` 중 하나라도 실패하면 **전부 롤백**한다. 계정만 남은 상태를 만들지 않는다.
 
@@ -115,7 +115,7 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | 계정 비활성 | `accounts.status ∈ {SUSPENDED, WITHDRAWN}` | `401 ACCOUNT_NOT_ACTIVE` | 문의 안내 |
 | 형식 오류 | 정규화 후 `^STU-[A-Z0-9]{6,12}$` 불일치 · 비밀번호 8자 미만 | `400 INVALID_REQUEST` | 필드 오류 |
 | 대기 학생(`PENDING_PARENT_LINK`) | | 🔴 **`200` 로그인 성공** | 활성화 대기 화면으로. 로그인 자체는 막지 않는다 |
-| 로그인 폭주 | 공개 ID·IP 단위 | `429` | `Retry-After` |
+| 로그인 폭주 | 공개 ID·IP 단위 | `429` | `Retry-After` · ⚠ **PR3 범위 아님 — rate limit 미구현, 테스트 없음** |
 
 🔴 **위 3개 실패(ID 없음·계정 미연결·비밀번호 불일치)를 구분하지 않는다.** 그리고 조회 실패 시에도 **더미 해시로 BCrypt 시간을 태운 뒤** 응답한다 — 안 그러면 응답 시간으로 공개 ID 존재 여부가 새어나간다(기존 `LoginService.java:31-32` 의 dummy-hash 와 같은 이유).
 
@@ -143,6 +143,9 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | 활성 | | `200` `{status:"ACTIVE", …, activatedAt}` |
 | 비활성화 | | `200` `{status:"DEACTIVATED", …}` |
 | 학부모 토큰 | | `403 ROLE_FORBIDDEN` |
+
+⚠ **PR3 범위 아님 표시에 대하여** — 위 3행은 rate limit 이 PR3 범위 밖이라 구현도 테스트도 없다.
+「테스트가 빠졌다」가 아니라 **기능이 아직 없다**는 뜻이다. 없는 기능을 테스트로 위장하지 않는다.
 
 🔴 프론트는 API 모드에서 5초 간격 폴링한다(`useStudentActivationQuery`). **폴링 총 시간 상한**을 두고, 초과 시 폴링을 멈추고 수동 새로고침 버튼으로 전환한다. 무한 폴링 금지.
 

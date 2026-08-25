@@ -664,6 +664,81 @@ teacher 컨텍스트에서 false 가 되지만, **Postgres 는 술어를 평가�
 
 ⚠ `SECURITY DEFINER` 로 푸는 건 불변식 2번이 금지한다.
 
+### 🔴 4-4-1. `DEACTIVATED` 는 차단이 아니라 **보고할 수 있는 상태**다
+
+`StudentActivationGuard` 의 판정은 셋이 아니라 **넷**이다:
+
+| 상태 | 판정 |
+|---|---|
+| `ACTIVE` | 전부 통과 |
+| `PENDING_PARENT_LINK` | 허용 2개만 통과, 나머지 `403` |
+| 🔴 `DEACTIVATED` | **`PENDING` 과 같다** — 허용 2개만 통과, 나머지 `403` |
+| `null` | 🔴 **전부 `403`** (fail-closed) |
+
+🔴 `DEACTIVATED` 를 「허용 목록 무관 403」으로 두면 **비활성화된 학생이 자기 상태를 볼 수 없다.**
+`GET /member/auth/students/activation-status` 는 **상태를 알려주는 것이 일 자체**인 엔드포인트다.
+분기표 `01_endpoint_branch_matrix.md:144` 가 `200 {status:"DEACTIVATED"}` 로 못 박았고,
+`:335`(학부모가 보는 DEACTIVATED 자녀 → `200`)도 같은 취지다.
+
+🔴 `null` 은 다르다. **`DEACTIVATED` 는 보고할 수 있는 상태이고 `null` 은 설명할 수 없는 깨진 상태다.**
+분기표는 깨진 상태를 `401`(`:132`)로 본다. 설명 못 하는 것을 보고하지 않는다.
+
+🔴 **이 충돌이 왜 생겼나** — 지시서 §11 이 분기표가 이미 소유한 규칙을 **다시 적었다.**
+정본이 둘이 되면 반드시 갈린다(§3-13 「요약표는 색인이지 정본이 아니다」와 같은 병).
+→ 엔드포인트별 분기·응답코드의 정본은 **`01_endpoint_branch_matrix.md` 하나다.**
+   설계·지시서는 **참조만** 하고 값을 복제하지 않는다.
+
+### 🔴 6-4-3. 테이블마다 **다른** 컨텍스트를 요구한다 — 「열었다」가 아니라 「무엇을 열었나」
+
+PR3 에서 결함 3건이 여기서 나왔다. `setCurrentAccount()` 하나만 열고 다른 테이블을 읽으면
+**예외가 아니라 0행**이 온다. 조용하다.
+
+| 테이블 | 정책이 요구하는 함수 | 근거 |
+|---|---|---|
+| `parent_profiles` | `current_checkon_parent_id()` **또는** `current_checkon_account_id()` | V38:72-77 |
+| `member_display_names` (본인) | `current_checkon_account_id()` | V39 `_self_*` |
+| `member_display_names` (자녀 이름) | `current_checkon_scope_account_id()` | V39 `_scope_select` |
+| `member_student_activation` (본인) | `current_checkon_student_id()` | V38:349-364 |
+| `member_student_activation` (학부모) | `current_checkon_parent_id()` **+** `current_checkon_scope_student_id()` | V39 `_parent_scope_*` |
+| `member_student_activation` (강사) | `current_checkon_teacher_id()` **+** `current_checkon_scope_student_id()` | V39 `_teacher_scope_select` |
+| `teacher_student_relationships` | `current_checkon_student_id()` | V38:125-130 |
+| `parent_teacher_relationships` | `current_checkon_parent_id()` | V38:85-90 |
+| `member_invitation_claims` | `current_checkon_account_id()` | V38 |
+
+🔴 **역할 주체를 함께 연다.** 계정만 열면 아래 넷은 전부 빈 결과다.
+
+### 🔴 6-4-4. 컨텍스트는 **트랜잭션을 넘지 않는다**
+
+`set_config(name, value, true)` 는 트랜잭션 로컬이다. 그래서:
+
+```
+① 인자 리졸버가 주체를 읽는다      ← 트랜잭션 A. 여기서 연 컨텍스트는 A 와 함께 사라진다
+② 인터셉터가 activation 을 본다    ← 또 다른 트랜잭션
+③ 서비스가 본 작업을 한다          ← 트랜잭션 B. 🔴 A 의 컨텍스트가 없다
+```
+
+🔴 **RLS 테이블을 읽는 트랜잭션은 저마다 자기 컨텍스트를 연다.** 앞에서 열었으니 됐다고
+생각하면 ③에서 0행이 온다 — 그리고 **예외가 아니라 빈 결과**라 테스트가 없으면 안 잡힌다.
+
+🔴 증상이 조용하므로 **규칙이 아니라 게이트로** 잡는다 → 코드 규칙 **G15**.
+
+### ⚠ 6-4-5. `_teacher_scope_select` 는 지금 **아무도 못 쓴다** (MB-33)
+
+`member_student_activation_teacher_scope_select` 는 두 값을 **동시에** 요구한다:
+
+| 값 | 누가 넣나 |
+|---|---|
+| `checkon.current_teacher_id` | 🔴 **승우님 코드만.** member 는 절대 규칙 3 으로 **설정 금지**다 |
+| `checkon.scope_student_id` | 🔴 **member 가 만든 변수.** 승우님 코드는 존재를 모른다 |
+
+즉 이 정책이 켜지려면 **승우님 쪽 트랜잭션이 member 의 세션 변수를 설정**해야 한다.
+지금 그런 코드도, 그런 계획도 어디에도 없다.
+
+🔴 **정책이 틀린 게 아니다** — 미리 깔아둔 것이고, V39 를 놓치면 다음 기회가 V40 이라 지금 넣는 게 맞다.
+다만 **켜는 방법이 팀 간 합의 사항**이라는 사실이 어디에도 없었다. MB-33 으로 등재한다.
+강사 기능을 만들 때 승우님께 전달할 내용이지, 지금 고칠 것은 아니다.
+
+
 ### 6-5. 신규 member 테이블
 
 전부 `ENABLE` + `FORCE ROW LEVEL SECURITY`. 정책은 처음부터 student/parent/teacher 3주체를 명시한다. 기동 검증은 신규 파일:
@@ -751,7 +826,7 @@ teacher 컨텍스트에서 false 가 되지만, **Postgres 는 술어를 평가�
 |---|---|---|
 | `MemberSubject.role` 은 `AccountRole` | 🔴 **신규 `MemberRole`** + `integration/account` 에 변환 어댑터 | 원안대로면 `common/` 이 `com.checkon.account` 를 import 해서 **G2 위반**. 남의 패키지는 `integration/` 만 건넌다 |
 | `MemberPingController` 반환은 `MemberResponse<Map<String,Object>>` | 🔴 **`MemberPingResult` record** | 원안대로면 **G12 위반**(`Map<String,Object>` 반환 금지) |
-| `MemberSubjectResolver` 에 `@Transactional(readOnly = true)` | 🔴 **없음** | `common/security` 에 붙이면 **G5 위반**. 단일 조회라 트랜잭션이 필요 없다 |
+| `MemberSubjectResolver` 에 `@Transactional(readOnly = true)` | 🔴 **별도 빈** `auth/application/MemberSubjectLoader` | ~~단일 조회라 트랜잭션이 필요 없다~~ 🔴 **이 전제는 거짓이었다(PR3 실측)** — 조회가 2회 이상이고 그 사이 RLS 컨텍스트가 유지돼야 하는데 `set_config(..., true)` 는 트랜잭션 로컬이다. 트랜잭션이 없으면 JdbcTemplate 호출마다 auto-commit 트랜잭션이 새로 열려 컨텍스트가 증발하고, `parent_profiles`(FORCE RLS)가 **조용히 0행**이 되어 학부모 전 요청이 401 이 된다. 경계를 application 계층 별도 빈으로 옮겨 G5 를 지키면서 트랜잭션을 확보한다 |
 
 🔴 셋 다 **게이트가 옳고 설계가 틀렸던 경우**다. 반대로 간 적은 없다.
 

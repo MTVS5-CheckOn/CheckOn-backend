@@ -32,6 +32,8 @@ public class MemberSecurityConfiguration {
 	private static final String STUDENT_SIGN_UP = "/api/v1/member/auth/students/sign-up";
 	private static final String PARENT_SIGN_UP = "/api/v1/member/auth/parents/sign-up";
 	private static final String STUDENT_LOGIN = "/api/v1/member/auth/students/login";
+	private static final String ACTIVATION_STATUS =
+		"/api/v1/member/auth/students/activation-status";
 
 	@Bean
 	@Order(0)
@@ -52,6 +54,10 @@ public class MemberSecurityConfiguration {
 			.authorizeHttpRequests(auth -> auth
 				.requestMatchers(HttpMethod.POST, STUDENT_SIGN_UP, PARENT_SIGN_UP, STUDENT_LOGIN)
 				.permitAll()
+				// 🔴 STUDENT_PATHS(/member/students/**) 밖이라 별도 한 줄이 필요하다.
+				//    이 줄이 없으면 anyRequest().authenticated() 로 떨어져 학부모도 통과한다.
+				.requestMatchers(HttpMethod.GET, ACTIVATION_STATUS)
+				.hasRole(MemberRole.STUDENT.name())
 				.requestMatchers(STUDENT_PATHS).hasRole(MemberRole.STUDENT.name())
 				.requestMatchers(PARENT_PATHS).hasRole(MemberRole.PARENT.name())
 				.anyRequest().authenticated())
