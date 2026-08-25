@@ -297,7 +297,7 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'ai_parent_label_aliases','guardian_label_suggestion_requests','guardian_label_suggestions',
 				    'guardian_labels','guardian_label_decisions'
 				  )
-				""")).isEqualTo(141);
+				""")).isEqualTo(154);
 			assertThat(queryInt(statement, """
 				SELECT count(*)
 				FROM pg_class table_metadata
