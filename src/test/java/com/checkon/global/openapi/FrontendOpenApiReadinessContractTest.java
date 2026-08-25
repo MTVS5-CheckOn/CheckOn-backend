@@ -55,7 +55,7 @@ class FrontendOpenApiReadinessContractTest {
 			}
 		}));
 
-		assertThat(operationCount[0]).isEqualTo(48);
+		assertThat(operationCount[0]).isEqualTo(55);
 	}
 
 	private Map<String, Object> loadDocument() {
