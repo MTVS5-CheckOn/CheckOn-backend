@@ -43,7 +43,10 @@ spring:
     password: ${FLYWAY_DB_PASSWORD}
 
 springdoc:
+  api-docs:
+    enabled: ${OPENAPI_ENABLED:false}
   swagger-ui:
+    enabled: ${OPENAPI_ENABLED:false}
     url: /openapi/dashboard-api.yaml
     disable-swagger-default-url: true
     document-title: CheckOn API
@@ -60,6 +63,8 @@ management:
         enabled: true
 
 checkon:
+  openapi:
+    enabled: ${OPENAPI_ENABLED:false}
   security:
     test-authentication:
       enabled: false

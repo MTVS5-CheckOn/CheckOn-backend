@@ -9,7 +9,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -20,13 +19,13 @@ import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 import com.checkon.account.infrastructure.security.AuthenticatedAccountService;
 import com.checkon.account.infrastructure.security.AuthenticationProperties;
 import com.checkon.account.infrastructure.security.JwtAuthenticationFilter;
 import com.checkon.account.infrastructure.security.RefreshRequestOriginFilter;
+import com.checkon.account.infrastructure.security.SecurityErrorResponseWriter;
 
 /**
  * 인증 API의 공개 범위, JWT 검증 필터, 비밀번호 인코더와 서명 키를 구성한다.
@@ -92,23 +91,20 @@ public class AccountSecurityConfiguration {
 					"/actuator/health",
 					"/actuator/health/**"
 				).permitAll()
-				.requestMatchers("/api/v1/dashboard/**").hasRole("TEACHER")
-				.requestMatchers("/api/v1/classes/**").hasRole("TEACHER")
-				.requestMatchers("/api/v1/students/**").hasRole("TEACHER")
-				.requestMatchers("/api/v1/learning-records/**").hasRole("TEACHER")
-				.requestMatchers("/api/v1/detection-runs/**").hasRole("TEACHER")
-				.requestMatchers("/api/v1/problem-requests/**").hasRole("TEACHER")
-				.requestMatchers("/api/v1/problem-studio/**").hasRole("TEACHER")
-				.requestMatchers("/api/v1/engagement/**").hasRole("TEACHER")
-				.requestMatchers("/api/v1/todos/**").hasRole("TEACHER")
+				// 공개 인증 진입점은 1번 체인이 처리한다. 그 외 현재 운영 API는
+				// 새 Controller가 추가돼도 명시적으로 열기 전까지 TEACHER로 닫는다.
+				.requestMatchers("/api/v1/**").hasRole("TEACHER")
 				.requestMatchers("/api/dev/**").hasRole("TEACHER")
 				.anyRequest().authenticated()
 			)
 			.cors(Customizer.withDefaults())
 			.csrf(csrf -> csrf.disable())
-			.exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(
-				new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)
-			))
+			.exceptionHandling(exceptions -> exceptions
+				.authenticationEntryPoint((request, response, exception) ->
+					SecurityErrorResponseWriter.unauthorized(response))
+				.accessDeniedHandler((request, response, exception) ->
+					SecurityErrorResponseWriter.forbidden(response))
+			)
 			.addFilterBefore(
 				new JwtAuthenticationFilter(jwtDecoder, authenticatedAccountService),
 				UsernamePasswordAuthenticationFilter.class
