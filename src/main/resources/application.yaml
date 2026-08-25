@@ -107,6 +107,16 @@ checkon:
         outbox-publish-timeout: ${AI_PROBLEM_OUTBOX_PUBLISH_TIMEOUT:10s}
         stale-claim-after: ${AI_PROBLEM_STALE_CLAIM_AFTER:1m}
         outbox-poll-delay: ${AI_PROBLEM_OUTBOX_POLL_DELAY:1s}
+    monthly-report:
+      kafka:
+        enabled: ${AI_MONTHLY_REPORT_KAFKA_ENABLED:false}
+        request-topic: ${AI_MONTHLY_REPORT_REQUEST_TOPIC:checkon.ai.monthly-report.requests.v1}
+        result-topic: ${AI_MONTHLY_REPORT_RESULT_TOPIC:checkon.ai.monthly-report.results.v1}
+        consumer-group: ${AI_MONTHLY_REPORT_CONSUMER_GROUP:checkon-backend-monthly-report-v1}
+        batch-size: ${AI_MONTHLY_REPORT_OUTBOX_BATCH_SIZE:20}
+        max-attempts: ${AI_MONTHLY_REPORT_OUTBOX_MAX_ATTEMPTS:5}
+        publish-timeout: ${AI_MONTHLY_REPORT_PUBLISH_TIMEOUT:10s}
+        publisher-delay: ${AI_MONTHLY_REPORT_PUBLISHER_DELAY:1000}
     counsel:
       adapter-base-url: ${AI_COUNSEL_ADAPTER_BASE_URL:http://localhost:8081}
       drafts-path: ${AI_COUNSEL_DRAFTS_PATH:/v1/counsel/drafts}
