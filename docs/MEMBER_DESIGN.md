@@ -385,7 +385,7 @@ src/main/java/com/checkon/counsel/**
 src/main/java/com/checkon/engagement/**
 src/main/java/com/checkon/dashboard/**
 src/main/java/com/checkon/global/**          ← AccountSecurityConfiguration 포함
-src/main/resources/db/migration/V1..V33      ← 기존 마이그레이션 전부
+src/main/resources/db/migration/V1..V37      ← 기존 마이그레이션 전부 (V35~V37 은 승우님 · 595f3d3)
 src/main/resources/openapi/dashboard-api.yaml
 ```
 
