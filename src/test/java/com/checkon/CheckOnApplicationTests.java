@@ -1,9 +1,11 @@
 package com.checkon;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Collections;
 import java.util.UUID;
 
 import org.junit.jupiter.api.DisplayName;
@@ -112,7 +114,7 @@ class CheckOnApplicationTests {
 
 	@Test
 	@DisplayName("Given Flyway가 실행되면 When 현재 스키마를 조회할 때 Then 학생·학부모 테넌트 관계까지 생성한다")
-	void flywayCreatesCurrentApplicationTables() {
+	void flywayCreatesCurrentApplicationTables() throws IOException {
 		String detectionRuns = jdbcTemplate.queryForObject(
 			"SELECT to_regclass('public.detection_runs')::text",
 			String.class
@@ -280,10 +282,27 @@ class CheckOnApplicationTests {
 		assertThat(structuredSignalColumns).isEqualTo(4);
 		assertThat(structuredEvidenceColumns).isEqualTo(4);
 		assertThat(evidenceRoleNullable).isEqualTo("NO");
-		assertThat(jdbcTemplate.queryForObject(
-			"SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1",
-			String.class
-		)).isEqualTo("37");
+		assertThat(appliedFlywayVersion()).isEqualTo(highestMigrationVersion());
+	}
+
+	/**
+	 * 리소스 최고 버전. 스캔 로직은 {@link MigrationVersionUniquenessTest} 가 소유한다 —
+	 * 같은 로직을 두 파일에 두지 않는다.
+	 *
+	 * <p>🔴 버전 중복 검증은 여기 두지 않는다. 겹치면 Flyway 가 컨텍스트를 먼저 죽여서
+	 * 이 클래스의 단언은 실행조차 되지 않는다. 그 검증은 Spring 없이 도는
+	 * {@link MigrationVersionUniquenessTest} 가 한다.</p>
+	 */
+	private int highestMigrationVersion() throws IOException {
+		return Collections.max(MigrationVersionUniquenessTest.migrationVersions());
+	}
+
+	private Integer appliedFlywayVersion() {
+		return jdbcTemplate.queryForObject(
+			"SELECT MAX(CAST(version AS INTEGER)) FROM flyway_schema_history "
+				+ "WHERE success = true AND version IS NOT NULL",
+			Integer.class
+		);
 	}
 
 	@Test
