@@ -9,8 +9,11 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.checkon.counsel.application.CounselException;
+import com.checkon.counsel.application.GuardianLabelSuggestionException;
 
-@RestControllerAdvice(assignableTypes = {CounselDraftController.class, InquiryClassificationController.class})
+@RestControllerAdvice(assignableTypes = {
+	CounselDraftController.class, InquiryClassificationController.class, GuardianLabelController.class
+})
 public class CounselDraftExceptionHandler {
 
 	@ExceptionHandler({
@@ -51,6 +54,30 @@ public class CounselDraftExceptionHandler {
 			);
 			case DRAFT_NOT_READY -> response(
 				HttpStatus.CONFLICT, "COUNSEL_DRAFT_NOT_READY", "초안이 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요."
+			);
+		};
+	}
+
+	@ExceptionHandler(GuardianLabelSuggestionException.class)
+	ResponseEntity<ErrorResponse> guardianLabelFailure(GuardianLabelSuggestionException exception) {
+		return switch (exception.reason()) {
+			case INVALID_PRINCIPAL -> response(
+				HttpStatus.UNAUTHORIZED, "INVALID_TEACHER_PRINCIPAL", "유효한 강사 인증 정보가 필요합니다."
+			);
+			case TARGET_NOT_FOUND -> response(
+				HttpStatus.NOT_FOUND, "GUARDIAN_NOT_FOUND", "학부모를 찾을 수 없습니다."
+			);
+			case SUGGESTION_NOT_FOUND -> response(
+				HttpStatus.NOT_FOUND, "GUARDIAN_LABEL_SUGGESTION_NOT_FOUND", "라벨 제안을 찾을 수 없습니다."
+			);
+			case INVALID_DECISION -> response(
+				HttpStatus.BAD_REQUEST, "INVALID_GUARDIAN_LABEL_DECISION", "라벨 판단 값을 확인해 주세요."
+			);
+			case DECISION_CONFLICT -> response(
+				HttpStatus.CONFLICT, "GUARDIAN_LABEL_DECISION_CONFLICT", "이미 다른 판단으로 처리된 라벨 제안입니다."
+			);
+			case UPSTREAM_FAILURE -> response(
+				HttpStatus.BAD_GATEWAY, "GUARDIAN_LABEL_AI_UNAVAILABLE", "현재 라벨을 분석할 수 없습니다."
 			);
 		};
 	}

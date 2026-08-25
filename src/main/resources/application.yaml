@@ -107,6 +107,16 @@ checkon:
         outbox-publish-timeout: ${AI_PROBLEM_OUTBOX_PUBLISH_TIMEOUT:10s}
         stale-claim-after: ${AI_PROBLEM_STALE_CLAIM_AFTER:1m}
         outbox-poll-delay: ${AI_PROBLEM_OUTBOX_POLL_DELAY:1s}
+    monthly-report:
+      kafka:
+        enabled: ${AI_MONTHLY_REPORT_KAFKA_ENABLED:false}
+        request-topic: ${AI_MONTHLY_REPORT_REQUEST_TOPIC:checkon.ai.monthly-report.requests.v1}
+        result-topic: ${AI_MONTHLY_REPORT_RESULT_TOPIC:checkon.ai.monthly-report.results.v1}
+        consumer-group: ${AI_MONTHLY_REPORT_CONSUMER_GROUP:checkon-backend-monthly-report-v1}
+        batch-size: ${AI_MONTHLY_REPORT_OUTBOX_BATCH_SIZE:20}
+        max-attempts: ${AI_MONTHLY_REPORT_OUTBOX_MAX_ATTEMPTS:5}
+        publish-timeout: ${AI_MONTHLY_REPORT_PUBLISH_TIMEOUT:10s}
+        publisher-delay: ${AI_MONTHLY_REPORT_PUBLISHER_DELAY:1000}
     counsel:
       adapter-base-url: ${AI_COUNSEL_ADAPTER_BASE_URL:http://localhost:8081}
       drafts-path: ${AI_COUNSEL_DRAFTS_PATH:/v1/counsel/drafts}
@@ -127,6 +137,14 @@ checkon:
       # classify/confirmations는 counsel과 달리 잡 폴링이 없는 단발 동기 호출이라
       # 짧은 타임아웃으로 충분하다.
       read-timeout: ${AI_CLASSIFY_READ_TIMEOUT:30s}
+    labels:
+      adapter-base-url: ${AI_LABELS_ADAPTER_BASE_URL:http://localhost:8081}
+      suggest-path: ${AI_LABELS_SUGGEST_PATH:/v1/labels/suggest}
+      confirmations-path: ${AI_LABELS_CONFIRMATIONS_PATH:/v1/confirmations}
+      connect-timeout: ${AI_LABELS_CONNECT_TIMEOUT:2s}
+      # AI LLM 상한 20초보다 늦게 끊어 AI의 504 응답을 받을 수 있게 한다.
+      # 동일 이력도 제안이 달라질 수 있으므로 호출부에서 자동 재시도하지 않는다.
+      read-timeout: ${AI_LABELS_READ_TIMEOUT:30s}
   counsel:
     polling:
       # GET은 잡을 돌리지 않으므로(§0-3) 이 폴링은 queued를 풀지 않는다 — 로컬
