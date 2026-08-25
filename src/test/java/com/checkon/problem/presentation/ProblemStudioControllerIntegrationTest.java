@@ -399,7 +399,9 @@ class ProblemStudioControllerIntegrationTest {
 					.content("""
 						{"baseRevisionNo":0,"revisionKind":"ai_refine","instruction":"문두를 더 명확하게 수정"}
 						"""))
-				.andExpect(status().isAccepted()).andExpect(jsonPath("$.replayed").value(false)).andReturn();
+				.andExpect(status().isAccepted())
+				.andExpect(header().string("Location", "/api/v1/problem-studio/requests/" + requestId + "/review"))
+				.andExpect(jsonPath("$.replayed").value(false)).andReturn();
 			UUID revisionId=UUID.fromString(objectMapper.readTree(
 				revision.getResponse().getContentAsString()).get("revisionRequestId").asText());
 			mvc.perform(post("/api/v1/problem-studio/requests/{requestId}/executions/{executionId}/slots/0/revisions",
@@ -409,7 +411,9 @@ class ProblemStudioControllerIntegrationTest {
 					.content("""
 						{"baseRevisionNo":0,"revisionKind":"ai_refine","instruction":"문두를 더 명확하게 수정"}
 						"""))
-				.andExpect(status().isAccepted()).andExpect(jsonPath("$.replayed").value(true));
+				.andExpect(status().isAccepted())
+				.andExpect(header().string("Location", "/api/v1/problem-studio/requests/" + requestId + "/review"))
+				.andExpect(jsonPath("$.replayed").value(true));
 			assertThat(jdbc.queryForObject("""
 				SELECT count(*) FROM problem_generation_outbox WHERE revision_request_id=?
 				""",Integer.class,revisionId)).isOne();
