@@ -759,6 +759,46 @@
   - 배포 화면이 존재한다는 사실을 해당 기능의 백엔드 연동 또는 End-to-End 검증 완료 근거로 사용하지 않는다.
 - 마지막 검증일: 2026-08-04
 
+### 월간 리포트 스튜디오
+
+#### REP-001 AI 생성과 Backend 실행 경계
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `DOCUMENT_CONFIRMED`, `CODE_CONFIRMED`
+- 정책: AI의 `POST /v1/reports`는 동기 200 계약을 유지한다. 다만 최악 1,350초가 걸릴 수 있으므로 브라우저 요청이나 Backend HTTP 스레드가 직접 기다리지 않는다. Backend는 요청 원장과 Outbox를 원자 저장하고 202를 반환하며, 독립 Adapter가 Inbox 저장 후 AI 동기 HTTP를 실행하고 결과 Outbox를 발행한다.
+- 상태: Adapter transport 결과와 AI `ready | rejected_insufficient | template_only`를 분리한다. `rejected_insufficient`와 `template_only`는 정상 성공 응답이며 자동 재요청하지 않는다.
+- 마지막 검증일: 2026-08-25
+
+#### REP-002 월 정본과 수시 리포트
+
+- 결정 상태: `PROPOSED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_ONLY`, `CODE_CONFIRMED`
+- 권장 기본값: 정기 `MONTHLY` 리포트는 `(teacher, student, report_month)`당 하나만 허용한다. 와이어프레임의 단건 수시는 `ON_DEMAND` 이력으로 별도 생성할 수 있다.
+- 변경 가능성: 제품이 월별 재생성을 요구하면 기존 행 덮어쓰기 대신 generation/revision 모델을 추가한다. 현재 정본 유일 제약을 제거하기 전에 목록·발송 잠금 계약도 함께 개정해야 한다.
+- 마지막 검증일: 2026-08-25
+
+#### REP-003 PDF artifact와 발송
+
+- 결정 상태: `PROPOSED`
+- 구현 상태: `PARTIAL`
+- 근거 수준: `CONVERSATION_ONLY`, `CODE_CONFIRMED`
+- 권장 기본값: PDF 바이트 생성은 프론트/렌더러 소유로 두고 Backend는 opaque `storage_key`, SHA-256, page count, revision만 저장한다. 새 artifact 등록 시 이전 artifact는 `SUPERSEDED`가 된다. 발송 채널 v1은 현재 실제 학부모 계정 모델과 맞는 `PARENT_APP`만 허용한다.
+- 발송 조건: AI `ready`, 활성 학부모-학생-강사 관계, READY artifact를 서버가 다시 확인한다. 다건 요청은 각 report별 `QUEUED | REJECTED`를 반환한다. 실제 push/SMS 전송 worker는 채널 제공자가 확정되지 않아 구현하지 않고 대기열까지만 구현한다.
+- 변경 가능성: S3 bucket·URL·보존 기간·전자문서 전달 채널은 미확정이다. 외부 저장소 경로를 DB 계약에 하드코딩하지 않는다.
+- 마지막 검증일: 2026-08-25
+
+#### REP-004 리포트 입력 source 보완 판단
+
+- 결정 상태: `PROPOSED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_ONLY`, `CODE_CONFIRMED`
+- 권장 기본값: AI 문서에 `source` 하위 필드의 완전한 타입이 없으므로 프론트가 AI payload를 제출하게 하지 않는다. Backend가 최신 `GENERATED` 진단의 `weakness_map`·`misconceptions`와 대상 월의 `problem_assignment_responses`를 결합하고, `total_items`, `correct_items`, `accuracy`, `cell_min_items=1`을 결정론적으로 만든다.
+- 안전장치: 생성 진단 또는 채점 결과가 없으면 AI 호출 전에 400으로 거절한다. `time_series`는 산출 근거가 확정되지 않아 만들지 않으며, 반 평균·석차·실명·연락처를 AI/guardian payload에 넣지 않는다.
+- 변경 가능성: AI팀이 named OpenAPI schema와 cell 표본 정책을 제공하면 `cell_min_items`와 metrics를 계약 우선으로 교체하고 고정 fixture hash를 양쪽에서 독립 검증한다.
+- 마지막 검증일: 2026-08-25
+
 ## 5. 기존 기획서 대조 대기 목록
 
 이 절은 기존 기획서를 직접 수정하기 전에 사용할 작업 큐다.
@@ -772,6 +812,7 @@
 
 | 날짜 | 변경 | 검증 |
 | --- | --- | --- |
+| 2026-08-25 | REP-001~004 월간 리포트 Kafka 실행, 월 정본, PDF artifact·발송 대기열, Backend source 조립 권장 정책 등록 | AI팀 MD와 와이어프레임 대조, Backend·Adapter 집중 BDD 테스트 통과. 전체 빌드 및 실제 Broker→AI E2E는 최종 검증 예정 |
 | 2026-08-23 | 문제 출제 5영역 자료 입력, 강사 node 선택, 비종단 reconciliation, terminal 참조·slot 상세 이벤트, 5영역 `ai_refine`, 학생 오답 환류 저장 경계를 PG-001~006에 확정 | AI 팀 명세 2종과 Backend 승인 결정을 정책에 반영. 코드·Flyway·BDD 테스트는 이슈 #69에서 구현 예정 |
 | 2026-08-23 | SEC-005로 브라우저 CORS exact-origin allowlist, credential preflight, Location 노출과 Refresh 쿠키 배포 조합을 확정·구현 | Origin·SameSite 설정 단위 테스트, 실제 Security filter chain CORS 통합 테스트와 인증 회귀 테스트 통과 |
 | 2026-08-21 | `snapshot_hash` canonical 시간 표기를 UTC `Z`·비UTC offset 유지·0 또는 6자리 소수 초로 확정하고 초과 정밀도·단독 surrogate를 fail-closed 처리 | canonical·AsyncAPI 집중 테스트 14건 및 전체 Gradle build 290건 통과 |
