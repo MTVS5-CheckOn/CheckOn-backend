@@ -1,0 +1,44 @@
+# MEMBER 미확정 안건 (Open Items)
+
+작성 2026-08-25 14:10 KST · 대상 `com.checkon.member` 경계
+정본 설계: `docs/MEMBER_DESIGN.md` §17 · 확정 내역은 이 문서가 정본이다.
+
+🔴 상태 값은 `PROPOSED` · `OPEN` · `CONFIRMED` · `SUPERSEDED` 넷만 쓴다
+(기존 `docs/POLICY_REGISTER.md` 어휘와 맞춘다).
+🔴 코드에서 미확정 안건을 참조할 때는 `// TODO(MB-05):` 형식으로 **번호를 붙인다.** 번호 없는 TODO 는 금지.
+
+## 전수
+
+| ID | 제목 | 상태 | 소유 | 결정 필요 시점 |
+|---|---|---|---|---|
+| MB-01 | 학생 로그인 식별자 (이메일 vs 공개 학생 ID) | **CONFIRMED** — 학생은 공개 학생 ID + 비밀번호(`POST /api/v1/member/auth/students/login`), 학부모는 이메일 + 비밀번호(기존 `POST /api/v1/auth/login`). member 가 공개 ID→email 변환 후 기존 `LoginService` 호출 — `account` 수정 0 | A | ✅ 2026-08-25 |
+| MB-02 | 대기 학생(`PENDING_PARENT_LINK`) 허용 API 범위 | **CONFIRMED** — 세션 조회 · 활성화 상태(+공개 ID) 확인 · 로그아웃 **3개뿐**. 🔴 강사 초대 등록은 허용하지 않는다. 학습 기능은 전부 활성화 후 | A | ✅ 2026-08-25 |
+| MB-03 | 학부모 한 계정이 여러 자녀를 등록할 수 있나 | **PROPOSED** — 다자녀 허용. 실측 근거: V33 이 학생당 학부모 1명만 제한하고 학부모당 자녀 수 제한은 두지 않았다 | A | PR4 착수 전 |
+| MB-04 | 초대 코드 1회/다회 사용 · 만료 기간 | **CONFIRMED** — 역할이 지정된 한 계정만 쓰는 1회용(`max_claims=1`), 발급 후 **7일**. 학생용·학부모용 별도 발급. 동일 강사 재등록은 새 관계를 만들지 않고 기존 연결을 `200` 으로 반환(멱등) | A | ✅ 2026-08-25 |
+| MB-05 | 미응답 문항이 있어도 제출 가능한가 | **OPEN** — 금지로 정하면 `SUBMISSION_INCOMPLETE` 가 살아나고, 허용으로 정하면 그 코드는 쓰이지 않는다 | A | PR5 착수 전 |
+| MB-06 | progress autosave 주기와 시간 이상치 상한 | **PROPOSED** — 30초 주기 · 단일 delta 상한 600초 | A | PR5 착수 전 |
+| MB-07 | 월별 최소 표본 수와 월 경계 timezone | **PROPOSED** — 최소 표본 10 · 월 경계 `Asia/Seoul` | A | PR7 착수 전 |
+| MB-08 | 관계 종료 후 과거 학습기록·보고서를 학부모가 계속 볼 수 있나 | **OPEN** | A | PR7 착수 전 |
+| MB-09 | 상담 취소 가능 시점과 강사 답변 후 추가 질문 허용 횟수 | **OPEN** | A | PR8 착수 전 |
+| MB-10 | PDF 보존 기간, 공유 링크, 정정 보고서 정책 | **OPEN** | A | PR9 착수 전 |
+| MB-11 | 월별 보고서 AI 생성 transport 와 운영 영속 저장 계약 | **OPEN** — AI 의 `/v1/reports` 는 인메모리라 그대로는 운영 원장으로 쓸 수 없다 | A | PR9 착수 전 |
+| MB-12 | `member_*` 테이블을 `TenantDatabaseRoleSafetyVerifier` 목록에 합칠지, 별도 verifier 로 둘지 | **PROPOSED** — 별도 verifier. 팀원 파일 무접촉이 이유다 | A | PR2 착수 전 |
+| MB-13 | member 경계 Flyway 번호 범위 | **OPEN** — 🔴 예약 요청 **발송됨, 응답 대기.** V33 중복 복구가 어느 번호를 쓰는지에 따라 시작 번호가 달라지므로 지금 확정하지 않는다. 확정 전 PR2 착수 금지 | A | PR2 착수 전 |
+| MB-28 | `learning_records`(detection 용)와 `problem_assignment_responses`(diagnosis 용) 둘 다 써야 하나 | **OPEN** — 지금은 둘 다 쓴다로 가되(기존 강사 위험탐지가 `learning_records` 에 의존) 팀원 확정이 필요하다 | A | PR5 착수 전 |
+
+## PR3 착수 전 반드시 확정해야 하는 것
+
+**MB-01 · MB-02 · MB-04** — 셋 다 **2026-08-25 확정 완료**. PR3 착수 조건은 충족됐다.
+
+## 🔴 PR2 착수를 막고 있는 것
+
+| 안건 | 왜 막히나 |
+|---|---|
+| MB-13 | Flyway 번호가 안 정해졌다. 응답 전 표를 밀면 지시서 9개가 두 번 흔들린다 |
+| — | `dev` 가 `6dbef97` 이후 깨져 있다(V33 중복 → Flyway 예외). **green 기준선이 없어 회귀 증명이 성립하지 않는다.** 복구 머지 후 재측정해야 한다 |
+
+## 번호 규칙
+
+- MB-01 ~ MB-12 는 설계 정본 §17 의 12건과 1:1 대응한다.
+- MB-13 은 이 문서에서 신규 부여했다(Flyway 번호 예약).
+- MB-28 은 설계 §1-4 ⑤ 에서 부여된 번호를 그대로 쓴다. MB-14 ~ MB-27 은 **아직 비어 있다** — 결번이며 재사용하지 않는다.
