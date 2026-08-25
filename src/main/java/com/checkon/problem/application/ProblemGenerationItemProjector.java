@@ -62,12 +62,15 @@ public class ProblemGenerationItemProjector {
 				workflow.insertSlot(new NewSlot(teacherId,requestId,executionId,slotIndex,null,
 					firstText(wrapper,"item_id"),ProblemValidationStatus.EXCLUDED,intValue(wrapper,"current_revision_no",0),
 					firstText(wrapper,"review_reason"),firstText(wrapper,"failure_reason"),
-					firstValue(wrapper,"failure_detail"),write(wrapper),now));
+					firstValue(wrapper,"failure_detail"),wrapperStatus,
+					jsonArray(wrapper,"available_actions"),jsonArray(wrapper,"revisions"),write(wrapper),now));
 				continue;
 			}
 			String stem = firstText(item, "stem", "question", "prompt", "question_text");
-			List<String> options = options(item);
-			if (isBlank(stem) || options.size() < 2) {
+			List<ProjectedOption> options = options(item);
+			if (isBlank(stem) || options.size() != 5
+				|| options.stream().map(ProjectedOption::no).distinct().count() != 5
+				|| options.stream().anyMatch(option -> option.no() < 1 || option.no() > 5)) {
 				unsupported++;
 				continue;
 			}
@@ -76,22 +79,26 @@ public class ProblemGenerationItemProjector {
 				externalId = null;
 				unsupported++;
 			}
-			String correctAnswer = correctAnswer(item, options);
+			Integer correctNo = correctNo(item, options.size());
+			String correctAnswer = correctNo == null ? null : options.get(correctNo - 1).text();
 			Validation validation = validation(item, correctAnswer,wrapperStatus,firstText(wrapper,"review_reason"));
 			UUID itemId = workflow.insertItem(new NewItem(
 				teacherId, requestId, externalId, ordinalBase + index + 1, stem,
 				firstText(item, "passage", "context"), correctAnswer,
 				firstText(item, "explanation", "rationale", "solution"),
 				firstValue(item, "source_basis", "generation_basis", "basis", "evidence"),
-				validation.status(), validation.message(), write(item), now
+				validation.status(), validation.message(), firstText(item,"skill_node_id"),
+				firstText(item,"area_tag"),firstText(item,"type_tag"),correctNo, write(item), now
 			));
 			for (int optionIndex = 0; optionIndex < options.size(); optionIndex++) {
-				workflow.insertOption(teacherId, requestId, itemId, optionIndex + 1, options.get(optionIndex));
+				ProjectedOption option = options.get(optionIndex);
+				workflow.insertOption(teacherId, requestId, itemId, option.no(), option.text(),
+					option.whyWrong(), option.misconceptionTag());
 			}
 			if(executionId!=null) workflow.insertSlot(new NewSlot(teacherId,requestId,executionId,slotIndex,itemId,
 				firstText(wrapper,"item_id"),validation.status(),intValue(wrapper,"current_revision_no",0),
 				firstText(wrapper,"review_reason"),firstText(wrapper,"failure_reason"),firstValue(wrapper,"failure_detail"),
-				write(wrapper),now));
+				wrapperStatus,jsonArray(wrapper,"available_actions"),jsonArray(wrapper,"revisions"),write(wrapper),now));
 			projected++;
 		}
 		if(executionId!=null) {
@@ -125,55 +132,79 @@ public class ProblemGenerationItemProjector {
 		return null;
 	}
 
-	private List<String> options(JsonNode item) {
+	private List<ProjectedOption> options(JsonNode item) {
 		JsonNode array = firstNode(item, "options", "choices", "answers");
 		if (array == null || !array.isArray()) return List.of();
-		List<String> result = new ArrayList<>();
+		List<ProjectedOption> result = new ArrayList<>();
+		int fallbackNo = 1;
 		for (JsonNode option : array) {
 			String value = option.isTextual()
 				? option.asText()
 				: firstText(option, "text", "content", "value", "label");
-			if (!isBlank(value)) result.add(value.trim());
+			if (!isBlank(value)) {
+				int no = option.isObject() ? intValue(option,"no",fallbackNo) : fallbackNo;
+				result.add(new ProjectedOption(no,value.trim(),firstText(option,"why_wrong"),
+					firstText(option,"misconception_tag")));
+				fallbackNo++;
+			}
 		}
 		return List.copyOf(result);
 	}
 
-	private String correctAnswer(JsonNode item, List<String> options) {
+	public void projectSlot(UUID teacherId, UUID requestId, UUID executionId, String slotPayload) {
+		if (slotPayload == null || slotPayload.isBlank())
+			throw new IllegalArgumentException("slotPayload must not be blank");
+		project(teacherId, requestId, executionId, "{\"items\":[" + slotPayload + "]}");
+	}
+
+	public void reviseSlot(UUID teacherId, UUID requestId, UUID executionId, String slotPayload) {
+		JsonNode wrapper=read(slotPayload);
+		JsonNode item=wrapper==null?null:wrapper.get("item");
+		if(item==null||!item.isObject()) throw new IllegalArgumentException("revision result requires an item");
+		int slotIndex=intValue(wrapper,"slot_index",-1);
+		var target=workflow.findRevisionTarget(teacherId,requestId,executionId,slotIndex)
+			.orElseThrow(()->new IllegalArgumentException("revision slot was not found"));
+		if(target.itemId()==null) throw new IllegalArgumentException("dropped slot cannot be revised");
+		String stem=firstText(item,"stem"); List<ProjectedOption> options=options(item);
+		if(isBlank(stem)||options.size()!=5||options.stream().map(ProjectedOption::no).distinct().count()!=5)
+			throw new IllegalArgumentException("revision item contract is invalid");
+		Integer correctNo=correctNo(item,options.size());
+		String correctAnswer=correctNo==null?null:options.get(correctNo-1).text();
+		String aiStatus=firstText(wrapper,"status");
+		Validation validation=validation(item,correctAnswer,aiStatus,firstText(wrapper,"review_reason"));
+		Instant now=Instant.now(clock);
+		workflow.replaceItemForRevision(new NewItem(teacherId,requestId,firstText(wrapper,"item_id"),0,
+			stem,firstText(item,"passage","context"),correctAnswer,firstText(item,"rationale","explanation"),
+			firstValue(item,"source_basis","evidence"),validation.status(),validation.message(),
+			firstText(item,"skill_node_id"),firstText(item,"area_tag"),firstText(item,"type_tag"),
+			correctNo,write(item),now),target.itemId());
+		for(ProjectedOption option:options) workflow.insertOption(teacherId,requestId,target.itemId(),option.no(),
+			option.text(),option.whyWrong(),option.misconceptionTag());
+		workflow.updateSlotRevision(new NewSlot(teacherId,requestId,executionId,slotIndex,target.itemId(),
+			firstText(wrapper,"item_id"),validation.status(),intValue(wrapper,"current_revision_no",target.currentRevisionNo()+1),
+			firstText(wrapper,"review_reason"),firstText(wrapper,"failure_reason"),firstValue(wrapper,"failure_detail"),
+			aiStatus,jsonArray(wrapper,"available_actions"),jsonArray(wrapper,"revisions"),write(wrapper),now));
+	}
+
+	private Integer correctNo(JsonNode item, int optionCount) {
 		JsonNode answer = firstNode(item, "correct_answer", "answer", "correctAnswer");
 		if (answer != null && !answer.isNull()) {
 			if (answer.isObject()) {
 				JsonNode correctNo = answer.get("correct_no");
 				if (correctNo != null && correctNo.canConvertToInt()) {
 					int oneBased = correctNo.asInt();
-					return oneBased >= 1 && oneBased <= options.size() ? options.get(oneBased - 1) : null;
+					return oneBased >= 1 && oneBased <= optionCount ? oneBased : null;
 				}
 				return null;
 			}
-			String raw = answer.asText().trim();
-			String matched = matchOption(raw, options);
-			return matched == null ? raw : matched;
+			try { int value=Integer.parseInt(answer.asText().trim());
+				return value>=1&&value<=optionCount?value:null; }
+			catch(NumberFormatException ignored) { return null; }
 		}
 		JsonNode index = firstNode(item, "correct_option_index", "answer_index");
 		if (index != null && index.canConvertToInt()) {
 			int value = index.asInt();
-			if (value >= 0 && value < options.size()) return options.get(value);
-			if (value >= 1 && value <= options.size()) return options.get(value - 1);
-		}
-		return null;
-	}
-
-	private static String matchOption(String raw, List<String> options) {
-		for (String option : options) if (option.equals(raw)) return option;
-		if (raw.length() == 1 && Character.isLetter(raw.charAt(0))) {
-			int index = Character.toUpperCase(raw.charAt(0)) - 'A';
-			if (index >= 0 && index < options.size()) return options.get(index);
-		}
-		try {
-			int index = Integer.parseInt(raw);
-			if (index >= 1 && index <= options.size()) return options.get(index - 1);
-		}
-		catch (NumberFormatException ignored) {
-			// The AI may return the exact option text instead of a numeric label.
+			if (value >= 0 && value < optionCount) return value + 1;
 		}
 		return null;
 	}
@@ -254,9 +285,15 @@ public class ProblemGenerationItemProjector {
 		}
 	}
 
+	private String jsonArray(JsonNode node, String field) {
+		JsonNode value=node==null?null:node.get(field);
+		return value!=null&&value.isArray()?write(value):"[]";
+	}
+
 	private static boolean isBlank(String value) {
 		return value == null || value.isBlank();
 	}
 
 	private record Validation(ProblemValidationStatus status, String message) { }
+	private record ProjectedOption(int no,String text,String whyWrong,String misconceptionTag) { }
 }

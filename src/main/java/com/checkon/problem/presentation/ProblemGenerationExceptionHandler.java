@@ -50,6 +50,11 @@ public class ProblemGenerationExceptionHandler {
 				"IDEMPOTENCY_CONFLICT",
 				"같은 멱등 키가 다른 요청에 이미 사용되었습니다."
 			);
+			case REVISION_CONFLICT -> ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(
+				"REVISION_CONFLICT",
+				"문항 수정 상태가 변경되었습니다.",
+				new ErrorDetail(exception.detailReason(), exception.currentRevisionNo())
+			));
 			case INVALID_STATE -> response(
 				HttpStatus.CONFLICT,
 				"INVALID_PROBLEM_STATE",
@@ -63,8 +68,9 @@ public class ProblemGenerationExceptionHandler {
 		String code,
 		String message
 	) {
-		return ResponseEntity.status(status).body(new ErrorResponse(code, message));
+		return ResponseEntity.status(status).body(new ErrorResponse(code, message, null));
 	}
 
-	public record ErrorResponse(String code, String message) { }
+	public record ErrorResponse(String code, String message, ErrorDetail detail) { }
+	public record ErrorDetail(String reason, Integer currentRevisionNo) { }
 }

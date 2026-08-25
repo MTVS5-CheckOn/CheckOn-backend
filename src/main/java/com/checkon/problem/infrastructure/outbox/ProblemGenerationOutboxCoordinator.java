@@ -13,6 +13,7 @@ import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 import com.checkon.problem.infrastructure.outbox.ProblemGenerationOutboxRepository.OutboxMessage;
 import com.checkon.problem.infrastructure.persistence.ProblemGenerationRequestRepository;
 import com.checkon.problem.infrastructure.persistence.ProblemGenerationExecutionRepository;
+import com.checkon.problem.infrastructure.persistence.ProblemGenerationRevisionRepository;
 import com.checkon.problem.integration.kafka.ProblemGenerationKafkaProperties;
 import com.checkon.problem.domain.ProblemGenerationStatus;
 
@@ -21,14 +22,17 @@ public class ProblemGenerationOutboxCoordinator {
 	private final ProblemGenerationOutboxRepository outbox;
 	private final ProblemGenerationRequestRepository requests;
 	private final ProblemGenerationExecutionRepository executions;
+	private final ProblemGenerationRevisionRepository revisions;
 	private final TeacherTenantDatabaseContext tenantContext;
 	private final ProblemGenerationKafkaProperties properties;
 	private final Clock clock;
 
 	public ProblemGenerationOutboxCoordinator(ProblemGenerationOutboxRepository outbox,
-		ProblemGenerationRequestRepository requests, ProblemGenerationExecutionRepository executions, TeacherTenantDatabaseContext tenantContext,
+		ProblemGenerationRequestRepository requests, ProblemGenerationExecutionRepository executions,
+		ProblemGenerationRevisionRepository revisions, TeacherTenantDatabaseContext tenantContext,
 		ProblemGenerationKafkaProperties properties, Clock clock) {
-		this.outbox = outbox; this.requests = requests; this.executions = executions; this.tenantContext = tenantContext;
+		this.outbox = outbox; this.requests = requests; this.executions = executions; this.revisions = revisions;
+		this.tenantContext = tenantContext;
 		this.properties = properties; this.clock = clock;
 	}
 	public List<UUID> teacherIds() { return outbox.findAllTeacherIds(); }
@@ -44,6 +48,10 @@ public class ProblemGenerationOutboxCoordinator {
 		tenantContext.setCurrentTeacher(message.teacherId());
 		Instant now = Instant.now(clock);
 		outbox.markPublished(message.id(), message.teacherId(), now);
+		if (message.revisionId() != null) {
+			revisions.markDispatched(message.revisionId(),message.teacherId(),now);
+			return;
+		}
 		if (message.executionId() != null) executions.markDispatched(message.executionId(), message.teacherId(), now);
 		requests.markDispatched(message.requestId(), message.teacherId(), now);
 	}
@@ -54,6 +62,11 @@ public class ProblemGenerationOutboxCoordinator {
 		if (message.attemptCount() >= properties.outboxMaxAttempts()) {
 			outbox.markDead(message.id(), message.teacherId(), safeError);
 			Instant now = Instant.now(clock);
+			if (message.revisionId() != null) {
+				revisions.complete(message.revisionId(),message.teacherId(),"FAILED",null,
+					"KAFKA_DELIVERY_FAILED",now,now);
+				return;
+			}
 			if (message.executionId() != null) {
 				executions.markDeliveryFailed(message.executionId(), message.teacherId(), now);
 				var statuses = executions.statuses(message.teacherId(), message.requestId());

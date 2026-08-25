@@ -69,6 +69,20 @@ public class ProblemDiagnosisTransactionService {
 			event.put("occurred_at",record.occurredAt().toString()); event.put("tag_confirmed",true); event.put("skill_node_id",null);
 			events.add(event);
 		}
+		for (var response:repository.findProblemResponses(teacherId,studentId,from,asOf)) {
+			LinkedHashMap<String,Object> event=new LinkedHashMap<>();
+			event.put("event_id","problem-response_"+compact(response.id()));
+			event.put("area_tag",response.areaTag()); event.put("type_tag",response.typeTag());
+			event.put("item_format","mcq"); event.put("chosen_no",response.chosenNo());
+			event.put("correct_no",response.correctNo()); event.put("correct",response.correct());
+			event.put("skill_node_id",response.skillNodeId());
+			if(!response.correct()) event.put("misconception_tag",response.misconceptionTag());
+			event.put("occurred_at",response.occurredAt().toString()); event.put("tag_confirmed",true);
+			events.add(event);
+		}
+		events.sort(java.util.Comparator
+			.comparing((Map<String,Object> event)->String.valueOf(event.get("occurred_at")))
+			.thenComparing(event->String.valueOf(event.get("event_id"))));
 		LinkedHashMap<String,Object> payload=new LinkedHashMap<>();
 		payload.put("student_ref",studentRef);
 		payload.put("period",Map.of("from_date",localDate(from).toString(),"to_date",localDate(asOf).toString()));

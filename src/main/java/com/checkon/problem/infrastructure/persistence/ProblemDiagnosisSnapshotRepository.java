@@ -36,6 +36,22 @@ public class ProblemDiagnosisSnapshotRepository {
 				rs.getString("type_tag"),rs.getBoolean("correct"),instant(rs,"occurred_at"))).list();
 	}
 
+	public List<ProblemResponseEvent> findProblemResponses(UUID teacherId,UUID studentId,Instant from,Instant to) {
+		return jdbc.sql("""
+			SELECT id,area_tag,type_tag,chosen_no,correct_no,correct,misconception_tag,
+			       skill_node_id,responded_at
+			FROM problem_assignment_responses
+			WHERE teacher_id=:teacherId AND student_id=:studentId
+			  AND responded_at>=:from AND responded_at<:to
+			ORDER BY responded_at,id
+			""").param("teacherId",teacherId).param("studentId",studentId)
+			.param("from",time(from)).param("to",time(to))
+			.query((rs,row)->new ProblemResponseEvent(rs.getObject("id",UUID.class),rs.getString("area_tag"),
+				rs.getString("type_tag"),rs.getInt("chosen_no"),rs.getInt("correct_no"),
+				rs.getBoolean("correct"),rs.getString("misconception_tag"),rs.getString("skill_node_id"),
+				instant(rs,"responded_at"))).list();
+	}
+
 	public void insert(Snapshot value) {
 		jdbc.sql("""
 			INSERT INTO problem_diagnosis_snapshots (
@@ -75,6 +91,8 @@ public class ProblemDiagnosisSnapshotRepository {
 	private static Instant instant(ResultSet rs,String column) throws SQLException { return rs.getObject(column,OffsetDateTime.class).toInstant(); }
 
 	public record LearningEvent(UUID id,String areaTag,String typeTag,boolean correct,Instant occurredAt) { }
+	public record ProblemResponseEvent(UUID id,String areaTag,String typeTag,int chosenNo,int correctNo,
+		boolean correct,String misconceptionTag,String skillNodeId,Instant occurredAt) { }
 	public record Snapshot(UUID id,UUID teacherId,UUID studentId,String studentRef,String status,String statusReason,
 		String snapshotHash,String taxonomyVersion,String graphVersion,String configVersion,String requestPayload,
 		String responsePayload,Instant diagnosedAt,Instant createdAt) { }

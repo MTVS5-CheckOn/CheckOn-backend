@@ -38,12 +38,15 @@ public final class ProblemStudioViews {
 		int minimumSampleSize,
 		BigDecimal studentAveragePercent,
 		List<WeaknessCell> cells,
+		List<SkillNodeCandidate> skillNodes,
 		List<GenerationCapability> generationCapabilities,
 		DiagnosisProvenance diagnosis
 	) { }
 
 	public record DiagnosisProvenance(String status,String statusReason,String snapshotHash,
 		String taxonomyVersion,String graphVersion,String configVersion) { }
+
+	public record SkillNodeCandidate(String skillNodeId, String verdict, List<String> basis) { }
 
 	public record GenerationCapability(
 		String areaTag,
@@ -71,8 +74,8 @@ public final class ProblemStudioViews {
 		List<ReviewItem> items,
 		List<ReviewSlot> slots
 	) { }
-	public record ReviewSlot(int slotIndex,UUID itemId,String externalItemId,ProblemValidationStatus status,
-		int currentRevisionNo,String reviewReason,String failureReason) { }
+	public record ReviewSlot(UUID executionId,int slotIndex,UUID itemId,String externalItemId,ProblemValidationStatus status,
+		int currentRevisionNo,List<String> availableActions,String reviewReason,String failureReason) { }
 
 	public record ReviewCounts(int passed, int reviewRequired, int unverifiable, int excluded) { }
 
@@ -80,6 +83,10 @@ public final class ProblemStudioViews {
 		UUID itemId,
 		int ordinal,
 		String externalItemId,
+		String areaTag,
+		String typeTag,
+		String skillNodeId,
+		int correctNo,
 		String stem,
 		String passage,
 		List<Option> options,
@@ -91,7 +98,8 @@ public final class ProblemStudioViews {
 		boolean selected
 	) { }
 
-	public record Option(int position, String content, boolean correct) { }
+	public record Option(int position, String content, boolean correct, String whyWrong,
+		String misconceptionTag) { }
 
 	public record SavedSet(UUID problemSetId, int itemCount, String status, Instant savedAt) { }
 
