@@ -46,14 +46,6 @@ public class RosterRelationshipAdapter implements RosterRelationshipPort {
 		ORDER BY link.started_at
 		""";
 
-	private static final String FIND_TEACHERS_OF_STUDENT = """
-		SELECT teacher.id, teacher.display_name
-		FROM teacher_student_relationships link
-		JOIN teacher_profiles teacher ON teacher.id = link.teacher_id
-		WHERE link.student_id = ? AND link.status IN (?, ?)
-		ORDER BY teacher.display_name
-		""";
-
 	private static final String FIND_TEACHER = """
 		SELECT id, display_name FROM teacher_profiles WHERE id = ?
 		""";
@@ -91,14 +83,6 @@ public class RosterRelationshipAdapter implements RosterRelationshipPort {
 			rs.getString(3), grade(rs.getObject(4)), rs.getString(5),
 			instant(rs.getObject(6, OffsetDateTime.class))),
 			parentProfileId, RelationshipStatus.ACTIVE.name());
-	}
-
-	@Override
-	public List<TeacherSummaryView> findTeachersOfStudent(UUID studentProfileId) {
-		return jdbcTemplate.query(FIND_TEACHERS_OF_STUDENT,
-			(rs, rowNum) -> TeacherSummaryView.of(rs.getObject(1, UUID.class), rs.getString(2)),
-			studentProfileId,
-			RelationshipStatus.ACTIVE.name(), RelationshipStatus.PAUSED.name());
 	}
 
 	@Override

@@ -41,10 +41,10 @@ public class ChildViewAssembler {
 		MemberActivationStatus status = databaseContext.withVerifiedChildScope(
 			parentProfileId, link.studentProfileId(),
 			() -> activationRepository.findStatus(link.studentProfileId()).orElse(null));
-		// 🔴 teachers 는 null 이다 — "없음"이 아니라 "학부모 컨텍스트에서는 읽을 수 없다".
-		//    V38:126-135 가 불변식 4번(재귀) 때문에 학부모용 SELECT 정책을 의도적으로 뺐다.
-		//    빈 배열로 채우면 없는 사실을 단정하게 된다. MB-36 으로 등재했다.
+		// 🔴 teachers 키는 아예 넣지 않는다 — ChildView 주석 참조(MB-36).
+		//    학부모 컨텍스트에는 teacher_student_relationships SELECT 정책이 없어서
+		//    "없음"인지 "못 봄"인지 구분할 수 없고, 계약은 null 을 허용하지 않는다.
 		return new ChildView(link.studentProfileId(), link.publicId(), name, link.grade(),
-			status, link.linkedAt(), null);
+			status, link.linkedAt());
 	}
 }

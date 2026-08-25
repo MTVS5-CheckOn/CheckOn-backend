@@ -13,6 +13,16 @@ package com.checkon.member.common.persistence;
 public enum RelationshipStatus {
 
 	ACTIVE,
+
+	/**
+	 * 🔴 세 관계 테이블의 {@code CHECK} 는 {@code ('ACTIVE','ENDED')} 뿐이라 이 값은 <b>행에
+	 * 저장될 수 없다.</b> 그런데도 남겨 두는 이유는
+	 * {@code uq_teacher_student_relationships_current_teacher_student}(V33:5-7)의 부분 인덱스
+	 * 술어가 {@code status IN ('ACTIVE','PAUSED')} 이기 때문이다 — 그 인덱스를 지목하는
+	 * {@code ON CONFLICT} 술어는 <b>한 글자도 다르면 안 된다.</b> 값 공간을 줄이면 다음 사람이
+	 * 술어에서 PAUSED 를 빼고, 그러면 추론이 인덱스를 못 찾아 23505 가 그대로 올라온다.
+	 */
 	PAUSED,
+
 	ENDED
 }

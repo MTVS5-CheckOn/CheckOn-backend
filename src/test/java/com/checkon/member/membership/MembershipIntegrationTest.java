@@ -157,17 +157,53 @@ class MembershipIntegrationTest extends MembershipRlsEnforcedSupport {
 	}
 
 	@Test
-	@DisplayName("🔴 teachers 는 null 이다 — 빈 배열이 아니다 (MB-36)")
-	void teacherListIsUnknownForParent() throws Exception {
+	@DisplayName("🔴 teachers 키는 응답에 아예 없다 — null 도 빈 배열도 아니다 (MB-36)")
+	void teachersKeyIsAbsentFromChildResponse() throws Exception {
 		linkParentToChild(parentProfileId, childProfileId, "ACTIVE");
 		admin.update("INSERT INTO teacher_student_relationships (id, teacher_id, student_id,"
 			+ " status, started_at, created_at) VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
 			UUID.randomUUID(), teacherId, childProfileId, now, now);
 
-		// 강사가 실제로 있는데도 학부모는 못 읽는다. 빈 배열로 내리면 "강사 없음"을 단정하게 된다.
-		mockMvc.perform(get(CHILDREN).with(parent()))
+		MvcResult listed = mockMvc.perform(get(CHILDREN).with(parent()))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.data.items[0].teachers").doesNotExist());
+			.andExpect(jsonPath("$.data.items.length()").value(1))
+			.andReturn();
+
+		// 🔴 본문 문자열로 본다. jsonPath 의 doesNotExist() 는 값이 명시적 null 이어도 통과해서
+		//    "키가 없다"와 "키는 있고 값이 null"을 구분하지 못한다 — 이 단언의 전부가 그 구분이다.
+		assertThat(listed.getResponse().getContentAsString())
+			.as("계약의 teachers 는 nullable 이 아니라 null 로 내려보내면 계약 위반이다")
+			.doesNotContain("teachers");
+	}
+
+	@Test
+	@DisplayName("🔴 자녀 등록 응답에도 teachers 키가 없다 — 목록과 같은 조립기를 쓴다")
+	void teachersKeyIsAbsentFromRegistrationResponse() throws Exception {
+		MvcResult created = mockMvc.perform(
+				registrationRequest("STU-CHILD1", UUID.randomUUID().toString()))
+			.andExpect(status().isCreated())
+			.andReturn();
+
+		assertThat(created.getResponse().getContentAsString()).doesNotContain("teachers");
+	}
+
+	@Test
+	@DisplayName("🔴 grade 는 nullable 이라 키가 남고 값이 null 이다 — teachers 와 판정이 다르다")
+	void nullableGradeKeepsItsKey() throws Exception {
+		// 🔴 이 테스트가 막는 것: 「null 이면 키를 뺀다」를 레코드 전체에 거는 것(NON_NULL).
+		//    grade 는 계약이 nullable: true 라 키가 사라지면 그쪽이 계약 위반이 된다.
+		UUID noGradeAccount = insertAccount(admin, "nograde@example.com", "STUDENT", now);
+		UUID noGradeStudent = insertStudent(admin, noGradeAccount,
+			new StudentFixture("무학년", "무학년", null, "STU-NOGRD1"), now);
+		linkParentToChild(parentProfileId, noGradeStudent, "ACTIVE");
+
+		MvcResult listed = mockMvc.perform(get(CHILDREN).with(parent()))
+			.andExpect(status().isOk())
+			.andReturn();
+
+		assertThat(listed.getResponse().getContentAsString())
+			.as("nullable 필드는 키를 남기고 null 을 담는다")
+			.contains("\"grade\":null");
 	}
 
 	// ─────────────────── POST /children/verification ───────────────────
