@@ -56,6 +56,16 @@ public class RosterRelationshipAdapter implements RosterRelationshipPort {
 		LIMIT 1
 		""";
 
+	// 🔴 학부모 컨텍스트 + scope_student_id 로 열린 뒤에만 행이 보인다(V40 · MB-36).
+	//    student_id 조건은 방어가 아니라 인덱스 힌트다 — 정책이 이미 격리한다.
+	private static final String FIND_TEACHERS_OF_CHILD = """
+		SELECT teacher.id, teacher.display_name
+		FROM teacher_student_relationships link
+		JOIN teacher_profiles teacher ON teacher.id = link.teacher_id
+		WHERE link.student_id = ? AND link.status = ?
+		ORDER BY link.started_at
+		""";
+
 	private final JdbcTemplate jdbcTemplate;
 
 	public RosterRelationshipAdapter(JdbcTemplate jdbcTemplate) {
@@ -90,6 +100,13 @@ public class RosterRelationshipAdapter implements RosterRelationshipPort {
 		return jdbcTemplate.query(FIND_TEACHER, rs -> rs.next()
 			? Optional.of(TeacherSummaryView.of(rs.getObject(1, UUID.class), rs.getString(2)))
 			: Optional.<TeacherSummaryView>empty(), teacherId);
+	}
+
+	@Override
+	public List<TeacherSummaryView> findTeachersOfChild(UUID studentProfileId) {
+		return jdbcTemplate.query(FIND_TEACHERS_OF_CHILD, (rs, rowNum) ->
+			TeacherSummaryView.of(rs.getObject(1, UUID.class), rs.getString(2)),
+			studentProfileId, RelationshipStatus.ACTIVE.name());
 	}
 
 	@Override
