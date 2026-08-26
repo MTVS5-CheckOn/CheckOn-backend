@@ -10,6 +10,6 @@ import org.springframework.context.annotation.Configuration;
  * {@code MemberAuthConfiguration} 이 같은 선례다.</p>
  */
 @Configuration
-@EnableConfigurationProperties(MemberAttemptProperties.class)
+@EnableConfigurationProperties({MemberAttemptProperties.class, MemberHomeProperties.class})
 public class MemberLearningConfiguration {
 }

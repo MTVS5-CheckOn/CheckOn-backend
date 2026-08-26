@@ -2,8 +2,11 @@ package com.checkon.member.learning.application;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Clock;
+import java.time.LocalDate;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,12 +17,17 @@ import com.checkon.member.common.error.MemberException;
 import com.checkon.member.common.persistence.MemberDatabaseContext;
 import com.checkon.member.common.security.MemberSubject;
 import com.checkon.member.integration.problem.PublishedWorksheetAdapter;
+import com.checkon.member.integration.account.StudentAliasReader;
 import com.checkon.member.integration.roster.RosterRelationshipPort;
 import com.checkon.member.integration.roster.dto.TeacherSummaryView;
 import com.checkon.member.learning.application.WorksheetCursor.InvalidWorksheetCursorException;
 import com.checkon.member.learning.application.dto.WorksheetDetailResponse;
 import com.checkon.member.learning.application.dto.WorksheetDetailResponse.ItemBreakdownRow;
 import com.checkon.member.learning.application.dto.WorksheetSummaryResponse;
+import com.checkon.member.learning.application.dto.StudentHomeResponse;
+import com.checkon.member.learning.application.dto.StudentHomeResponse.StudentWeakness;
+import com.checkon.member.learning.domain.MemberAttemptStatus;
+import com.checkon.member.learning.domain.StudentAttemptSummary;
 import com.checkon.member.learning.domain.StudentAssignmentPageRow;
 import com.checkon.member.learning.domain.StudentAssignmentRow;
 import com.checkon.member.learning.infrastructure.persistence.StudentWorksheetQueryRepository;
@@ -51,17 +59,65 @@ public class StudentWorksheetService {
 	private final PublishedWorksheetAdapter publishedWorksheet;
 	private final RosterRelationshipPort roster;
 	private final MemberDatabaseContext databaseContext;
+	private final StudentAliasReader studentAliasReader;
+	private final MemberHomeProperties homeProperties;
+	private final Clock clock;
 
 	public StudentWorksheetService(
 		StudentWorksheetQueryRepository queryRepository,
 		PublishedWorksheetAdapter publishedWorksheet,
 		RosterRelationshipPort roster,
-		MemberDatabaseContext databaseContext
+		MemberDatabaseContext databaseContext,
+		StudentAliasReader studentAliasReader,
+		MemberHomeProperties homeProperties,
+		Clock clock
 	) {
 		this.queryRepository = queryRepository;
 		this.publishedWorksheet = publishedWorksheet;
 		this.roster = roster;
 		this.databaseContext = databaseContext;
+		this.studentAliasReader = studentAliasReader;
+		this.homeProperties = homeProperties;
+		this.clock = clock;
+	}
+
+	/** {@code GET /member/students/me/home}. 없음은 null/빈 배열이며 오류가 아니다. */
+	@Transactional(readOnly = true)
+	public StudentHomeResponse getHome(MemberSubject subject) {
+		UUID studentId = subject.requireStudentProfileId();
+		databaseContext.setCurrentAccount(subject.accountId());
+		databaseContext.setCurrentStudent(studentId);
+		String studentName = studentAliasReader.find(studentId).orElse("");
+		Map<UUID, StudentAttemptSummary> attempts = new java.util.LinkedHashMap<>();
+		List<StudentAttemptSummary> latestAttempts =
+			queryRepository.findLatestAttemptSummaries(studentId);
+		for (StudentAttemptSummary summary : latestAttempts) {
+			attempts.put(summary.assignmentId(), summary);
+		}
+		LocalDate today = clock.instant().atZone(homeProperties.zone()).toLocalDate();
+		WorksheetSummaryResponse continuing = null;
+		List<WorksheetSummaryResponse> todayWorksheets = new ArrayList<>();
+		List<StudentAssignmentRow> assignments =
+			queryRepository.findAssignmentsByStudent(studentId);
+		for (StudentAssignmentRow assignment : assignments) {
+			StudentAttemptSummary attempt = attempts.get(assignment.assignmentId());
+			StudentAssignmentPageRow row = new StudentAssignmentPageRow(
+				assignment.assignmentId(), assignment.problemSetId(), assignment.teacherId(),
+				assignment.publishedAt(), attempt == null ? null : attempt.attemptId(),
+				attempt == null ? null : attempt.status());
+			WorksheetSummaryResponse summary = buildSummary(studentId, row);
+			if (continuing == null && attempt != null
+				&& attempt.status() == MemberAttemptStatus.IN_PROGRESS) {
+				continuing = summary;
+			}
+			LocalDate published = assignment.publishedAt()
+				.atZone(homeProperties.zone()).toLocalDate();
+			if (today.equals(published)) {
+				todayWorksheets.add(summary);
+			}
+		}
+		return new StudentHomeResponse(
+			studentName, continuing, List.copyOf(todayWorksheets), StudentWeakness.noData());
 	}
 
 	/** {@code GET /member/students/me/worksheets}. */

@@ -134,7 +134,7 @@ CREATE INDEX idx_problem_response_diagnosis
 
 이득: 강사 대시보드·진단이 학생 제출을 **바로** 본다. 데이터가 두 벌로 갈리지 않는다.
 
-🔴 **미확정 `MB-28`**: `learning_records`(detection 이 사용)와 `problem_assignment_responses`(diagnosis 가 사용) **둘 다** 써야 하는가, 하나면 되는가. 지금은 **둘 다 쓴다**로 가되(기존 강사 위험탐지가 `learning_records` 에 의존), 승우님께 물어 확정한다.
+🔴 ✅ **CONFIRMED `MB-28` · 둘 다 쓴다** (2026-08-26). 두 테이블은 **대체 불가**다 — 스키마 실측: `learning_records`(V8) 는 **사건 단위**(`record_type ∈ {SOLVE, SUBMIT}`) 이고 `item_id`·`chosen_no` 컬럼이 아예 없다(`correct` nullable). `problem_assignment_responses`(V34) 는 **문항 단위** · `record_type` 없음 · `area_tag`·`type_tag`·`skill_node_id` 전부 NOT NULL(정규식·enum CHECK) · `correct = (chosen_no = correct_no)` CHECK · 오답이면 `misconception_tag` 필수. 한쪽만으로는 강사 위험탐지도 학생 진단도 만들 수 없다. 제출 트랜잭션은 문항당 1행씩 `problem_assignment_responses` INSERT + `learning_records` SOLVE 전량 + SUBMIT 1행을 **같은 트랜잭션**에서 한다. `LearningRecordWriter` 클래스 주석에 근거 못 박음.
 
 #### ⑥ `WORKSHEET_NOT_GRADABLE` — 조건이 바뀐다
 

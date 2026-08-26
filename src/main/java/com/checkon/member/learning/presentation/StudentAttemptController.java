@@ -23,6 +23,7 @@ import com.checkon.member.common.presentation.MemberResponse;
 import com.checkon.member.common.security.CurrentMember;
 import com.checkon.member.common.security.MemberSubject;
 import com.checkon.member.learning.application.AttemptInProgressResponse;
+import com.checkon.member.learning.application.AttemptResult;
 import com.checkon.member.learning.application.StudentAttemptService;
 import com.checkon.member.learning.application.StudentAttemptService.AttemptRaceLostException;
 import com.checkon.member.learning.application.StudentAttemptService.StartOutcome;
@@ -83,11 +84,19 @@ public class StudentAttemptController {
 	}
 
 	@GetMapping("/attempts/{attemptId}")
-	public MemberResponse<AttemptInProgressResponse> getStudentAttempt(
+	public MemberResponse<Object> getStudentAttempt(
 		@CurrentMember MemberSubject subject,
 		@PathVariable("attemptId") UUID attemptId
 	) {
 		return MemberResponse.of(attemptService.getAttempt(subject, attemptId));
+	}
+
+	@GetMapping("/attempts/{attemptId}/result")
+	public MemberResponse<AttemptResult> getStudentAttemptResult(
+		@CurrentMember MemberSubject subject,
+		@PathVariable("attemptId") UUID attemptId
+	) {
+		return MemberResponse.of(attemptService.getResult(subject, attemptId));
 	}
 
 	@PatchMapping("/attempts/{attemptId}/progress")

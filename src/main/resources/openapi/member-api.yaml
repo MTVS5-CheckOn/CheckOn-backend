@@ -347,6 +347,7 @@ paths:
         '200':
           description: |
             `status`가 `IN_PROGRESS`면 `AttemptInProgress`,
+            `SUBMITTED`면 정답·해설 없는 `AttemptSubmitted`,
             `SCORED`면 `AttemptResult`.
           content:
             application/json:
@@ -357,6 +358,7 @@ paths:
                   data:
                     oneOf:
                       - $ref: '#/components/schemas/AttemptInProgress'
+                      - $ref: '#/components/schemas/AttemptSubmitted'
                       - $ref: '#/components/schemas/AttemptResult'
                     discriminator:
                       propertyName: status
@@ -1942,6 +1944,16 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/AttemptItemResult' }
+
+    AttemptSubmitted:
+      type: object
+      required: [attemptId, assignmentId, status, version, submittedAt]
+      properties:
+        attemptId: { type: string, format: uuid }
+        assignmentId: { type: string, format: uuid }
+        status: { type: string, enum: [SUBMITTED] }
+        version: { type: integer }
+        submittedAt: { type: string, format: date-time }
 
     AttemptItemResult:
       allOf:

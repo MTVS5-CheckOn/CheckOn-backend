@@ -28,11 +28,13 @@ import com.checkon.member.learning.domain.MemberAttempt;
 import com.checkon.member.learning.domain.MemberAttemptEventType;
 import com.checkon.member.learning.domain.MemberAttemptItemRow;
 import com.checkon.member.learning.domain.MemberAttemptStatus;
+import com.checkon.member.learning.domain.MemberLearningSession;
 import com.checkon.member.learning.domain.StudentAssignmentRow;
 import com.checkon.member.learning.infrastructure.persistence.MemberAttemptAnswerRepository;
 import com.checkon.member.learning.infrastructure.persistence.MemberAttemptEventRepository;
 import com.checkon.member.learning.infrastructure.persistence.MemberAttemptItemRepository;
 import com.checkon.member.learning.infrastructure.persistence.MemberAttemptRepository;
+import com.checkon.member.learning.infrastructure.persistence.MemberLearningSessionRepository;
 import com.checkon.member.learning.infrastructure.persistence.StudentWorksheetQueryRepository;
 import tools.jackson.databind.ObjectMapper;
 
@@ -56,6 +58,7 @@ public class StudentAttemptService {
 	private final MemberAttemptItemRepository itemRepository;
 	private final MemberAttemptAnswerRepository answerRepository;
 	private final MemberAttemptEventRepository eventRepository;
+	private final MemberLearningSessionRepository sessionRepository;
 	private final PublishedWorksheetAdapter publishedWorksheet;
 	private final MemberDatabaseContext databaseContext;
 	private final AttemptProgressValidator progressValidator;
@@ -68,6 +71,7 @@ public class StudentAttemptService {
 		MemberAttemptItemRepository itemRepository,
 		MemberAttemptAnswerRepository answerRepository,
 		MemberAttemptEventRepository eventRepository,
+		MemberLearningSessionRepository sessionRepository,
 		PublishedWorksheetAdapter publishedWorksheet,
 		MemberDatabaseContext databaseContext,
 		MemberAttemptProperties properties,
@@ -79,6 +83,7 @@ public class StudentAttemptService {
 		this.itemRepository = itemRepository;
 		this.answerRepository = answerRepository;
 		this.eventRepository = eventRepository;
+		this.sessionRepository = sessionRepository;
 		this.publishedWorksheet = publishedWorksheet;
 		this.databaseContext = databaseContext;
 		this.progressValidator = new AttemptProgressValidator(properties.maxProgressDeltaSeconds());
@@ -141,19 +146,35 @@ public class StudentAttemptService {
 
 	/** {@code GET /member/students/me/attempts/{attemptId}}. */
 	@Transactional(readOnly = true)
-	public AttemptInProgressResponse getAttempt(MemberSubject subject, UUID attemptId) {
+	public Object getAttempt(MemberSubject subject, UUID attemptId) {
 		UUID studentId = subject.requireStudentProfileId();
 		databaseContext.setCurrentAccount(subject.accountId());
 		databaseContext.setCurrentStudent(studentId);
 		MemberAttempt attempt = attemptRepository.findById(attemptId)
 			.orElseThrow(() -> new MemberException(
 				MemberErrorCode.RESOURCE_NOT_FOUND, "attempt not found"));
-		if (attempt.status() != MemberAttemptStatus.IN_PROGRESS) {
-			// 🔴 SCORED 는 S4 에서 AttemptResult 로 분기한다. 이 세션은 진행 중만 조립한다.
-			throw new MemberException(MemberErrorCode.ATTEMPT_ALREADY_SUBMITTED,
-				"attempt already submitted");
+		if (attempt.status() == MemberAttemptStatus.IN_PROGRESS) {
+			return projectInProgress(attempt);
 		}
-		return projectInProgress(attempt);
+		if (attempt.status() == MemberAttemptStatus.SUBMITTED) {
+			return new AttemptSubmittedResponse(
+				attempt.id(), attempt.assignmentId(), "SUBMITTED",
+				attempt.version(), attempt.submittedAt());
+		}
+		return projectResult(attempt);
+	}
+
+	/** {@code GET /member/students/me/attempts/{attemptId}/result}. SCORED 전에는 404다. */
+	@Transactional(readOnly = true)
+	public AttemptResult getResult(MemberSubject subject, UUID attemptId) {
+		UUID studentId = subject.requireStudentProfileId();
+		databaseContext.setCurrentAccount(subject.accountId());
+		databaseContext.setCurrentStudent(studentId);
+		MemberAttempt attempt = attemptRepository.findById(attemptId)
+			.filter(found -> found.status() == MemberAttemptStatus.SCORED)
+			.orElseThrow(() -> new MemberException(
+				MemberErrorCode.RESOURCE_NOT_FOUND, "scored attempt not found"));
+		return projectResult(attempt);
 	}
 
 	/** {@code PATCH /member/students/me/attempts/{attemptId}/progress}. */
@@ -221,6 +242,31 @@ public class StudentAttemptService {
 			attempt.version(), attempt.snapshotHash(), null,
 			attempt.activeElapsedSec(), attempt.startedAt(),
 			snapshots, answers);
+	}
+
+	private AttemptResult projectResult(MemberAttempt attempt) {
+		List<MemberAttemptItemRow> rows = itemRepository.findByAttempt(attempt.id());
+		List<PublishedItemSnapshot> snapshots = rows.stream()
+			.map(row -> FrozenItemSnapshot.fromRow(row, objectMapper)).toList();
+		Map<UUID, Integer> selected = AttemptProjections.selectedByItemId(
+			answerRepository.findByAttempt(attempt.id()).stream()
+				.map(answer -> new AttemptAnswerSnapshot(
+					answer.itemId(), answer.selectedNo(), answer.activeElapsedSec(),
+					answer.revision()))
+				.toList());
+		Map<UUID, Integer> correctByItem = new LinkedHashMap<>();
+		for (PublishedItemSnapshot snapshot : snapshots) {
+			correctByItem.put(snapshot.itemId(), snapshot.correctNo());
+		}
+		AttemptScoring.ScoreResult score = AttemptScoring.score(correctByItem, selected);
+		MemberLearningSession session = sessionRepository.findByAttempt(attempt.id())
+			.orElseThrow(() -> new IllegalStateException(
+				"scored attempt has no learning session " + attempt.id()));
+		return AttemptProjections.toResult(
+			attempt.id(), attempt.assignmentId(), snapshots.size(), score.correct(),
+			score.accuracyRate(), attempt.activeElapsedSec(), attempt.startedAt(),
+			attempt.submittedAt(), attempt.scoredAt(), session.submitRecordId(),
+			snapshots, selected);
 	}
 
 	private MemberAttempt createAttempt(

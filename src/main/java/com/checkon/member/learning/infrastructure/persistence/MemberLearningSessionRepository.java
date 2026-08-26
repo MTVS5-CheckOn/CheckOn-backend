@@ -2,6 +2,8 @@ package com.checkon.member.learning.infrastructure.persistence;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Optional;
+import java.util.UUID;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -25,6 +27,13 @@ public class MemberLearningSessionRepository {
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		""";
 
+	private static final String FIND_BY_ATTEMPT = """
+		SELECT id, attempt_id, student_id, teacher_id, assignment_id, title_text,
+		       item_count, correct_count, active_elapsed_sec, submit_record_id, occurred_at
+		FROM member_learning_sessions
+		WHERE attempt_id = ?
+		""";
+
 	private final JdbcTemplate jdbcTemplate;
 
 	public MemberLearningSessionRepository(JdbcTemplate jdbcTemplate) {
@@ -44,5 +53,22 @@ public class MemberLearningSessionRepository {
 			session.activeElapsedSec(),
 			session.submitRecordId(),
 			OffsetDateTime.ofInstant(session.occurredAt(), ZoneOffset.UTC));
+	}
+
+	public Optional<MemberLearningSession> findByAttempt(UUID attemptId) {
+		return jdbcTemplate.query(FIND_BY_ATTEMPT, resultSet -> resultSet.next()
+			? Optional.of(new MemberLearningSession(
+				resultSet.getObject(1, UUID.class),
+				resultSet.getObject(2, UUID.class),
+				resultSet.getObject(3, UUID.class),
+				resultSet.getObject(4, UUID.class),
+				resultSet.getObject(5, UUID.class),
+				resultSet.getString(6),
+				resultSet.getInt(7),
+				resultSet.getInt(8),
+				resultSet.getInt(9),
+				resultSet.getObject(10, UUID.class),
+				resultSet.getObject(11, OffsetDateTime.class).toInstant()))
+			: Optional.empty(), attemptId);
 	}
 }

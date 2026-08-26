@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -12,6 +13,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +46,10 @@ class StudentSubmissionIntegrationTest extends MembershipRlsEnforcedSupport {
 		"/api/v1/member/students/me/attempts/{id}/submission";
 	private static final String PROGRESS =
 		"/api/v1/member/students/me/attempts/{id}/progress";
+	private static final String GET_ATTEMPT =
+		"/api/v1/member/students/me/attempts/{id}";
+	private static final String RESULT =
+		"/api/v1/member/students/me/attempts/{id}/result";
 
 	@Autowired MockMvc mockMvc;
 	@Autowired ObjectMapper objectMapper;
@@ -79,6 +85,12 @@ class StudentSubmissionIntegrationTest extends MembershipRlsEnforcedSupport {
 		LearningFixtures.insertGradableItem(admin, teacherId, requestId, setId, itemB, 2, 2);
 		assignmentId = LearningFixtures.insertAssignment(
 			admin, teacherId, requestId, setId, studentId, now);
+	}
+
+	@AfterEach
+	void clearWrittenLedgers() {
+		admin.update("DELETE FROM problem_assignment_responses");
+		admin.update("DELETE FROM learning_records WHERE source_type LIKE 'member_attempt%'");
 	}
 
 	@Test
@@ -164,6 +176,47 @@ class StudentSubmissionIntegrationTest extends MembershipRlsEnforcedSupport {
 				.contentType(MediaType.APPLICATION_JSON).content(progress))
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.error.code").value("ATTEMPT_ALREADY_SUBMITTED"));
+	}
+
+	@Test
+	@DisplayName("S3 이월 — SCORED attempt GET과 result는 200 + 정답·해설이다")
+	void scoredAttemptAndResultReturn200() throws Exception {
+		UUID attemptId = createAttempt();
+		submit(attemptId, UUID.randomUUID().toString(),
+			submissionBody(0, Map.of(itemA, 1, itemB, 2), Map.of())).andExpect(status().isOk());
+
+		mockMvc.perform(get(GET_ATTEMPT, attemptId).with(student()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("SCORED"))
+			.andExpect(jsonPath("$.data.items[0].correctNo").exists())
+			.andExpect(jsonPath("$.data.items[0].explanation").exists());
+		mockMvc.perform(get(RESULT, attemptId).with(student()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("SCORED"))
+			.andExpect(jsonPath("$.data.items.length()").value(2));
+	}
+
+	@Test
+	@DisplayName("S3 이월 — SUBMITTED attempt GET은 200이고 정답·해설이 없다")
+	void submittedAttemptReturns200WithoutAnswers() throws Exception {
+		UUID attemptId = createAttempt();
+		admin.update("UPDATE member_attempts SET status='SUBMITTED', version=1, submitted_at=?"
+			+ " WHERE id=?", OffsetDateTime.now(), attemptId);
+
+		String body = mockMvc.perform(get(GET_ATTEMPT, attemptId).with(student()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("SUBMITTED"))
+			.andReturn().getResponse().getContentAsString();
+		assertThat(body).doesNotContain("correctNo").doesNotContain("explanation");
+	}
+
+	@Test
+	@DisplayName("result — IN_PROGRESS attempt는 404다")
+	void resultBeforeSubmissionIs404() throws Exception {
+		UUID attemptId = createAttempt();
+		mockMvc.perform(get(RESULT, attemptId).with(student()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
 	}
 
 	private org.springframework.test.web.servlet.ResultActions submit(

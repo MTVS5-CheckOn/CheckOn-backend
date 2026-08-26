@@ -140,7 +140,9 @@ public class StudentSubmissionService {
 				MemberResponse.of(process(studentId, attemptId, request))));
 	}
 
-	private AttemptResult process(UUID studentId, UUID attemptId, AttemptSubmissionRequest request) {
+	private AttemptResult process(
+		UUID studentId, UUID attemptId, AttemptSubmissionRequest request
+	) {
 		validate(request);
 		MemberAttempt attempt = attemptRepository.lockById(attemptId)
 			.orElseThrow(() -> new MemberException(
