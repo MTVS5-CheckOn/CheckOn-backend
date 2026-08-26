@@ -60,6 +60,7 @@ class StudentSubmissionIntegrationTest extends MembershipRlsEnforcedSupport {
 
 	private JdbcTemplate admin;
 	private UUID studentAccountId;
+	private UUID studentId;
 	private UUID assignmentId;
 	private UUID itemA;
 	private UUID itemB;
@@ -75,7 +76,7 @@ class StudentSubmissionIntegrationTest extends MembershipRlsEnforcedSupport {
 		OffsetDateTime now = OffsetDateTime.now();
 		UUID teacherId = insertTeacher(admin, "teacher@example.com", "김강사", now);
 		studentAccountId = insertAccount(admin, "student@example.com", "STUDENT", now);
-		UUID studentId = MemberPostgresSupport.insertStudentProfile(
+		studentId = MemberPostgresSupport.insertStudentProfile(
 			admin, studentAccountId, "박학생", null, now);
 		LearningFixtures.activateStudent(admin, studentId, now);
 		admin.update("INSERT INTO teacher_student_relationships (id, teacher_id, student_id,"
@@ -264,6 +265,74 @@ class StudentSubmissionIntegrationTest extends MembershipRlsEnforcedSupport {
 		assertThat(admin.queryForObject(
 			"SELECT count(*) FROM learning_records WHERE external_record_ref = ?",
 			Integer.class, attemptId.toString())).isEqualTo(1);
+	}
+
+	@Test
+	@DisplayName("제출 — Idempotency-Key가 없으면 400 INVALID_REQUEST다")
+	void missingIdempotencyKeyIsRejected() throws Exception {
+		UUID attemptId = createAttempt();
+		mockMvc.perform(post(SUBMIT, attemptId).with(student())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(submissionBody(0, Map.of(itemA, 1), Map.of())))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+		assertThat(admin.queryForObject(
+			"SELECT status FROM member_attempts WHERE id = ?", String.class, attemptId))
+			.isEqualTo("IN_PROGRESS");
+	}
+
+	@Test
+	@DisplayName("제출 — baseVersion 불일치는 409 REVISION_CONFLICT고 원장을 쓰지 않는다")
+	void staleBaseVersionIsRejected() throws Exception {
+		UUID attemptId = createAttempt();
+		submit(attemptId, UUID.randomUUID().toString(),
+			submissionBody(1, Map.of(itemA, 1), Map.of()))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.error.code").value("REVISION_CONFLICT"));
+		assertThat(admin.queryForObject(
+			"SELECT count(*) FROM problem_assignment_responses WHERE assignment_id = ?",
+			Integer.class, assignmentId)).isZero();
+		assertThat(admin.queryForObject(
+			"SELECT count(*) FROM learning_records WHERE external_record_ref LIKE ?",
+			Integer.class, attemptId + "%")).isZero();
+	}
+
+	@Test
+	@DisplayName("제출 — 대기 학생은 403이고 attempt와 원장은 변하지 않는다")
+	void pendingStudentIsForbidden() throws Exception {
+		UUID attemptId = createAttempt();
+		admin.update("UPDATE member_student_activation SET status='PENDING_PARENT_LINK',"
+			+ " activated_at=NULL, updated_at=? WHERE student_id=?",
+			OffsetDateTime.now(), studentId);
+		submit(attemptId, UUID.randomUUID().toString(),
+			submissionBody(0, Map.of(itemA, 1), Map.of()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.error.code").value("STUDENT_ACTIVATION_REQUIRED"));
+		assertThat(admin.queryForObject(
+			"SELECT status FROM member_attempts WHERE id = ?", String.class, attemptId))
+			.isEqualTo("IN_PROGRESS");
+	}
+
+	@Test
+	@DisplayName("제출 — 오답 선택지의 misconceptionTag가 사라지면 422와 전체 롤백이다")
+	void corruptedMisconceptionTagRollsBack() throws Exception {
+		UUID attemptId = createAttempt();
+		admin.update("UPDATE member_attempt_items SET options ="
+			+ " jsonb_set(options, '{1,misconceptionTag}', 'null'::jsonb)"
+			+ " WHERE attempt_id=? AND item_id=?", attemptId, itemA);
+
+		submit(attemptId, UUID.randomUUID().toString(),
+			submissionBody(0, Map.of(itemA, 2), Map.of()))
+			.andExpect(status().isUnprocessableEntity())
+			.andExpect(jsonPath("$.error.code").value("WORKSHEET_NOT_GRADABLE"))
+			.andExpect(jsonPath("$.error.details.missing[0]").value("misconceptionTag"));
+		assertThat(admin.queryForObject(
+			"SELECT status FROM member_attempts WHERE id = ?", String.class, attemptId))
+			.isEqualTo("IN_PROGRESS");
+		assertThat(admin.queryForObject(
+			"SELECT count(*) FROM member_attempt_events WHERE attempt_id = ?"
+				+ " AND event_type IN ('SUBMITTED','SCORED')", Integer.class, attemptId))
+			.isZero();
 	}
 
 	private org.springframework.test.web.servlet.ResultActions submit(

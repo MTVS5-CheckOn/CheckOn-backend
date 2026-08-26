@@ -36,9 +36,16 @@ public class StudentWorksheetQueryRepository {
 		""";
 
 	private static final String FIND_ASSIGNMENT_BY_ID = """
-		SELECT id, problem_set_id, teacher_id, published_at
-		FROM problem_assignments
-		WHERE id = ? AND student_id = ?
+		SELECT a.id, a.problem_set_id, a.teacher_id, a.published_at
+		FROM problem_assignments a
+		WHERE a.id = ? AND a.student_id = ?
+		  AND EXISTS (
+		      SELECT 1
+		      FROM teacher_student_relationships relationship
+		      WHERE relationship.teacher_id = a.teacher_id
+		        AND relationship.student_id = a.student_id
+		        AND relationship.status IN ('ACTIVE', 'PAUSED')
+		  )
 		""";
 
 	private static final String FIND_ATTEMPT_SUMMARIES = """
