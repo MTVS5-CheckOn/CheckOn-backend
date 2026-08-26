@@ -83,6 +83,13 @@ public abstract class MemberPostgresSupport {
 	public static void clearMemberFixtures(JdbcTemplate admin) {
 		String[] ordered = {
 			"authentication_sessions",
+			// 🔴 V40 attempt 계열 — 자식 → 부모 순서. member_attempts 가 problem_assignments·
+			//    student_profiles·teacher_profiles 를 참조하므로 그 앞에 있어야 정리가 통과한다.
+			"member_learning_sessions",
+			"member_attempt_answers",
+			"member_attempt_events",
+			"member_attempt_items",
+			"member_attempts",
 			"problem_assignments",
 			"saved_problem_set_items",
 			"saved_problem_sets",
