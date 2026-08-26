@@ -64,6 +64,21 @@ public class MemberAttemptRepository {
 		WHERE id = ?
 		""";
 
+	// 🔴 IN_PROGRESS → SUBMITTED. 상태 CHECK(V40:83-88) 가 submitted_at IS NOT NULL 를 강제한다.
+	//    두 문장을 한 트랜잭션에서 순차로 부른다 — 이벤트 2행이 그 순서를 증명한다(§7 4단계).
+	private static final String UPDATE_TO_SUBMITTED = """
+		UPDATE member_attempts
+		SET status = 'SUBMITTED', submitted_at = ?, version = ?, active_elapsed_sec = ?
+		WHERE id = ? AND status = 'IN_PROGRESS'
+		""";
+
+	// 🔴 SUBMITTED → SCORED. scored_at ≥ submitted_at 를 CHECK 가 강제한다.
+	private static final String UPDATE_TO_SCORED = """
+		UPDATE member_attempts
+		SET status = 'SCORED', scored_at = ?, version = ?
+		WHERE id = ? AND status = 'SUBMITTED'
+		""";
+
 	private final JdbcTemplate jdbcTemplate;
 
 	public MemberAttemptRepository(JdbcTemplate jdbcTemplate) {
@@ -122,6 +137,24 @@ public class MemberAttemptRepository {
 		return jdbcTemplate.update(UPDATE_PROGRESS,
 			newVersion, newActiveElapsedSec, newLastClientSequence,
 			offset(lastProgressAt), attemptId);
+	}
+
+	/**
+	 * IN_PROGRESS → SUBMITTED 로 전이한다. 🔴 <b>WHERE 절에 상태 조건이 있다</b> — 이미
+	 * SUBMITTED 로 바뀐 행은 0 을 돌려주고 호출자가 상태 판정 재검사로 409 를 낸다. 낙관락은
+	 * {@code version} 도 새로 넘겨 다음 UPDATE 를 위한 값을 정한다.
+	 */
+	public int markSubmitted(
+		UUID attemptId, int newVersion, int activeElapsedSec, Instant submittedAt
+	) {
+		return jdbcTemplate.update(UPDATE_TO_SUBMITTED,
+			offset(submittedAt), newVersion, activeElapsedSec, attemptId);
+	}
+
+	/** SUBMITTED → SCORED. 같은 트랜잭션에서 {@link #markSubmitted} 뒤에 부른다(§7 4단계). */
+	public int markScored(UUID attemptId, int newVersion, Instant scoredAt) {
+		return jdbcTemplate.update(UPDATE_TO_SCORED,
+			offset(scoredAt), newVersion, attemptId);
 	}
 
 	private static MemberAttempt map(ResultSet rs) throws java.sql.SQLException {

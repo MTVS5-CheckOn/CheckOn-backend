@@ -9,9 +9,16 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.checkon.member.common.error.FieldViolation;
+import com.checkon.member.common.error.MemberErrorCode;
+import com.checkon.member.common.error.MemberException;
+import com.checkon.member.common.persistence.IdempotentOutcome;
+import com.checkon.member.common.presentation.IdempotencyKeys;
+import com.checkon.member.common.presentation.IdempotentResponses;
 import com.checkon.member.common.presentation.MemberResponse;
 import com.checkon.member.common.security.CurrentMember;
 import com.checkon.member.common.security.MemberSubject;
@@ -19,8 +26,12 @@ import com.checkon.member.learning.application.AttemptInProgressResponse;
 import com.checkon.member.learning.application.StudentAttemptService;
 import com.checkon.member.learning.application.StudentAttemptService.AttemptRaceLostException;
 import com.checkon.member.learning.application.StudentAttemptService.StartOutcome;
+import com.checkon.member.learning.application.StudentSubmissionService;
 import com.checkon.member.learning.application.dto.AttemptProgressRequest;
 import com.checkon.member.learning.application.dto.AttemptProgressResult;
+import com.checkon.member.learning.application.dto.AttemptSubmissionRequest;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * attempt 시작·재개·조회·progress 자동저장 (§4·§5·§6). 계약 operationId 와 1:1 이다:
@@ -41,9 +52,17 @@ import com.checkon.member.learning.application.dto.AttemptProgressResult;
 public class StudentAttemptController {
 
 	private final StudentAttemptService attemptService;
+	private final StudentSubmissionService submissionService;
+	private final ObjectMapper objectMapper;
 
-	public StudentAttemptController(StudentAttemptService attemptService) {
+	public StudentAttemptController(
+		StudentAttemptService attemptService,
+		StudentSubmissionService submissionService,
+		ObjectMapper objectMapper
+	) {
 		this.attemptService = attemptService;
+		this.submissionService = submissionService;
+		this.objectMapper = objectMapper;
 	}
 
 	@PostMapping("/worksheets/{assignmentId}/attempts")
@@ -78,5 +97,41 @@ public class StudentAttemptController {
 		@RequestBody AttemptProgressRequest request
 	) {
 		return MemberResponse.of(attemptService.saveProgress(subject, attemptId, request));
+	}
+
+	@PostMapping("/attempts/{attemptId}/submission")
+	public ResponseEntity<String> submitStudentAttempt(
+		@CurrentMember MemberSubject subject,
+		@PathVariable("attemptId") UUID attemptId,
+		@RequestHeader(value = IdempotencyKeys.HEADER, required = false) String idempotencyKey,
+		@RequestBody String rawBody
+	) {
+		String key = IdempotencyKeys.require(idempotencyKey);
+		AttemptSubmissionRequest request = parseSubmission(rawBody);
+		IdempotentOutcome outcome = submissionService.submit(
+			subject, attemptId, key, rawBody, request);
+		return IdempotentResponses.of(outcome);
+	}
+
+	private AttemptSubmissionRequest parseSubmission(String rawBody) {
+		if (rawBody == null || rawBody.isBlank()) {
+			throw invalidBody("request body is required");
+		}
+		try {
+			AttemptSubmissionRequest parsed = objectMapper.readValue(
+				rawBody, AttemptSubmissionRequest.class);
+			if (parsed == null) {
+				throw invalidBody("request body is required");
+			}
+			return parsed;
+		}
+		catch (JacksonException exception) {
+			throw invalidBody("request body is not readable");
+		}
+	}
+
+	private static MemberException invalidBody(String message) {
+		return new MemberException(MemberErrorCode.INVALID_REQUEST, message,
+			java.util.List.of(new FieldViolation("body", message)));
 	}
 }

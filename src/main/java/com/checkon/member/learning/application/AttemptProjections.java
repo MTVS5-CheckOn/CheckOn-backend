@@ -81,6 +81,7 @@ public final class AttemptProjections {
 		Instant startedAt,
 		Instant submittedAt,
 		Instant scoredAt,
+		UUID learningRecordId,
 		List<PublishedItemSnapshot> snapshots,
 		Map<UUID, Integer> selectedByItemId
 	) {
@@ -90,7 +91,7 @@ public final class AttemptProjections {
 			.toList();
 		return new AttemptResult(
 			attemptId, assignmentId, "SCORED", itemCount, correctCount, accuracyRate,
-			totalActiveElapsedSeconds, startedAt, submittedAt, scoredAt, items);
+			totalActiveElapsedSeconds, startedAt, submittedAt, scoredAt, learningRecordId, items);
 	}
 
 	private static AttemptItemResult toItemResult(
