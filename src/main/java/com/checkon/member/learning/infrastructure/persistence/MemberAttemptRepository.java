@@ -49,6 +49,21 @@ public class MemberAttemptRepository {
 		SELECT %s FROM member_attempts WHERE id = ?
 		""".formatted(COLUMNS);
 
+	// 🔴 FOR UPDATE — progress·제출이 두 탭에서 동시에 들어와도 한 트랜잭션만 수정하게 한다.
+	//    지운 순간 채점이 두 번 되고 learning_records 에 멱등 키가 없어 되돌릴 방법이 없다
+	//    (PR5 §7 · V8:52-55 주석). RLS 는 self select 만 통과시키므로 남의 attempt 는 여기서
+	//    잠기지 않는다 (V40:210-231).
+	private static final String LOCK_BY_ID = """
+		SELECT %s FROM member_attempts WHERE id = ? FOR UPDATE
+		""".formatted(COLUMNS);
+
+	private static final String UPDATE_PROGRESS = """
+		UPDATE member_attempts
+		SET version = ?, active_elapsed_sec = ?, last_client_sequence = ?,
+		    last_progress_at = ?
+		WHERE id = ?
+		""";
+
 	private final JdbcTemplate jdbcTemplate;
 
 	public MemberAttemptRepository(JdbcTemplate jdbcTemplate) {
@@ -84,6 +99,29 @@ public class MemberAttemptRepository {
 		return jdbcTemplate.query(FIND_BY_ID, rs -> rs.next()
 			? Optional.of(map(rs))
 			: Optional.<MemberAttempt>empty(), attemptId);
+	}
+
+	/** 🔴 progress·제출 트랜잭션에서만 부른다. RLS 학생 self 로 격리된 상태에서 FOR UPDATE 를 건다. */
+	public Optional<MemberAttempt> lockById(UUID attemptId) {
+		return jdbcTemplate.query(LOCK_BY_ID, rs -> rs.next()
+			? Optional.of(map(rs))
+			: Optional.<MemberAttempt>empty(), attemptId);
+	}
+
+	/**
+	 * progress 자동저장의 UPDATE. version·active_elapsed_sec·last_client_sequence·last_progress_at
+	 * 만 갱신하고 다른 컬럼은 건드리지 않는다.
+	 */
+	public int updateProgress(
+		UUID attemptId,
+		int newVersion,
+		int newActiveElapsedSec,
+		int newLastClientSequence,
+		Instant lastProgressAt
+	) {
+		return jdbcTemplate.update(UPDATE_PROGRESS,
+			newVersion, newActiveElapsedSec, newLastClientSequence,
+			offset(lastProgressAt), attemptId);
 	}
 
 	private static MemberAttempt map(ResultSet rs) throws java.sql.SQLException {

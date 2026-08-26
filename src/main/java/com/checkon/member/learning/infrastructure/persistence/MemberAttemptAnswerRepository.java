@@ -36,6 +36,21 @@ public class MemberAttemptAnswerRepository {
 		ORDER BY item_id
 		""";
 
+	// 🔴 progress UPSERT — placeholder 가 이미 있어도 selected_no·active_elapsed_sec 를
+	//    누적하며 revision 을 +1 한다. 항목당 delta 는 절대값 가산이 아니라 「덧셈」이라
+	//    active_elapsed_sec 는 EXCLUDED 로 덮지 않고 + 로 더한다.
+	private static final String UPSERT_ANSWER = """
+		INSERT INTO member_attempt_answers
+			(attempt_id, item_id, selected_no, active_elapsed_sec, revision, updated_at)
+		VALUES (?, ?, ?, ?, 1, ?)
+		ON CONFLICT (attempt_id, item_id) DO UPDATE
+		SET selected_no = COALESCE(EXCLUDED.selected_no, member_attempt_answers.selected_no),
+		    active_elapsed_sec = member_attempt_answers.active_elapsed_sec
+		        + EXCLUDED.active_elapsed_sec,
+		    revision = member_attempt_answers.revision + 1,
+		    updated_at = EXCLUDED.updated_at
+		""";
+
 	private final JdbcTemplate jdbcTemplate;
 
 	public MemberAttemptAnswerRepository(JdbcTemplate jdbcTemplate) {
@@ -60,6 +75,22 @@ public class MemberAttemptAnswerRepository {
 				return itemIds.size();
 			}
 		});
+	}
+
+	/**
+	 * 항목 한 개의 답안 delta 를 반영한다. {@code selectedNo} 는 null 이면 기존 값을 유지하고,
+	 * {@code activeElapsedDelta} 는 항상 누적된다. 호출자는 상한(600) 검증을 미리 통과시켰어야 한다.
+	 */
+	public void upsert(
+		UUID attemptId,
+		UUID itemId,
+		Integer selectedNo,
+		int activeElapsedDelta,
+		Instant now
+	) {
+		OffsetDateTime updatedAt = OffsetDateTime.ofInstant(now, ZoneOffset.UTC);
+		jdbcTemplate.update(UPSERT_ANSWER,
+			attemptId, itemId, selectedNo, activeElapsedDelta, updatedAt);
 	}
 
 	public List<MemberAttemptAnswer> findByAttempt(UUID attemptId) {

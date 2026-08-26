@@ -2,6 +2,7 @@ package com.checkon.member.learning.application;
 
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -31,10 +32,10 @@ public final class AttemptProjections {
 		UUID assignmentId,
 		String status,
 		int version,
-		int itemCount,
+		String snapshotHash,
+		UUID currentItemId,
 		int totalActiveElapsedSeconds,
 		Instant startedAt,
-		Instant lastProgressAt,
 		List<PublishedItemSnapshot> snapshots,
 		List<AttemptAnswerSnapshot> answers
 	) {
@@ -42,9 +43,18 @@ public final class AttemptProjections {
 			.sorted(Comparator.comparingInt(PublishedItemSnapshot::ordinal))
 			.map(AttemptProjections::toInProgressItem)
 			.toList();
+		Map<UUID, Integer> selected = new LinkedHashMap<>();
+		Map<UUID, Integer> elapsed = new LinkedHashMap<>();
+		for (AttemptAnswerSnapshot answer : answers) {
+			if (answer.selectedNo() != null) {
+				selected.put(answer.itemId(), answer.selectedNo());
+			}
+			elapsed.put(answer.itemId(), answer.activeElapsedSec());
+		}
 		return new AttemptInProgressResponse(
-			attemptId, assignmentId, status, version, itemCount, totalActiveElapsedSeconds,
-			startedAt, lastProgressAt, items, List.copyOf(answers));
+			attemptId, assignmentId, status, version, snapshotHash, currentItemId,
+			totalActiveElapsedSeconds, startedAt, items,
+			Map.copyOf(selected), Map.copyOf(elapsed));
 	}
 
 	private static AttemptInProgressItem toInProgressItem(PublishedItemSnapshot snapshot) {
