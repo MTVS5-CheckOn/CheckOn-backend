@@ -181,15 +181,11 @@ class MembershipIntegrationTest extends MembershipRlsEnforcedSupport {
 	@DisplayName("🔴 자녀 등록 응답의 teachers 도 같은 조립기를 통해 존재한다 (MB-36 · V40)")
 	void teachersKeyIsPresentInRegistrationResponse() throws Exception {
 		// 등록 시점에는 아직 강사가 없다 — 빈 배열이지만 키는 존재해야 한다.
-		MvcResult created = mockMvc.perform(
-				registrationRequest("STU-CHILD1", UUID.randomUUID().toString()))
+		// jsonPath 는 "키가 존재하고 배열이며 길이가 0" 을 정확히 잰다. 문자열 대조는 공백 하나에 갈린다.
+		mockMvc.perform(registrationRequest("STU-CHILD1", UUID.randomUUID().toString()))
 			.andExpect(status().isCreated())
-			.andExpect(jsonPath("$.data.child.teachers.length()").value(0))
-			.andReturn();
-
-		assertThat(created.getResponse().getContentAsString())
-			.as("teachers 키 자체는 존재한다")
-			.contains("\"teachers\":[]");
+			.andExpect(jsonPath("$.data.child.teachers").isArray())
+			.andExpect(jsonPath("$.data.child.teachers.length()").value(0));
 	}
 
 	@Test
