@@ -29,6 +29,21 @@ class MemberCodeRuleTest {
 
 	private static final Path MEMBER = Path.of("src/main/java/com/checkon/member");
 	private static final Path ERROR_CODE_DOCUMENT = Path.of("docs/MEMBER_ERROR_CODES.md");
+
+	/**
+	 * 🔴 <b>저장소 사본을 읽는다. 정본({@code docs/member-backend/member-api.yaml})이 아니다.</b>
+	 *
+	 * <p>정본은 {@code .gitignore} 의 {@code /docs/*} 로 <b>추적되지 않는다</b> — 실측:
+	 * {@code git ls-tree -r origin/dev -- docs/member-backend/} 가 <b>0건</b>이다.
+	 * 즉 CI 체크아웃에는 그 파일이 <b>존재하지 않는다.</b> 정본을 읽게 하면 이 게이트는
+	 * 로컬에서만 돌고 CI 에서는 {@code NoSuchFileException} 으로 죽는다.</p>
+	 *
+	 * <p>대신 <b>두 파일이 같다는 것을 §2-5 cmp 가 보증한다</b>(PR5 에서 계약 쌍을 그 목록에
+	 * 넷째로 추가했다). 그래서 사본을 읽어도 정본을 읽는 것과 같다 —
+	 * 🔴 <b>단 cmp 를 돌렸을 때만 그렇다.</b> 그 의존을 여기 적어 둔다.</p>
+	 */
+	private static final Path API_CONTRACT =
+		Path.of("src/main/resources/openapi/member-api.yaml");
 	private static final Path OPEN_ITEM_DOCUMENT = Path.of("docs/MEMBER_OPEN_ITEMS.md");
 	private static final Path MIGRATIONS = Path.of("src/main/resources/db/migration");
 	private static final Path ERROR_CODE_SOURCE =
@@ -226,6 +241,42 @@ class MemberCodeRuleTest {
 		assertThat(declared)
 			.as("문서와 enum 이 갈리면 계약·프론트 분기가 조용히 어긋난다")
 			.isEqualTo(documented);
+	}
+
+	@Test
+	@DisplayName("G16. 계약의 오류코드가 전부 어딘가의 응답에 실제로 붙어 있다")
+	void errorCodesAreReachableFromSomeOperation() throws IOException {
+		// 🔴 G13 은 **집합**만 본다 — enum 과 문서가 같기만 하면 통과한다.
+		//    "선언은 됐는데 어떤 엔드포인트도 낼 수 없는 코드"는 못 잡는다.
+		//    WORKSHEET_NOT_GRADABLE 이 정확히 그 상태였다(PR5 실측) — 계약의 enum 목록에만
+		//    있고 startStudentAttempt 의 응답에는 422 자체가 없었다.
+		//
+		// 🔴 이 판정은 **느슨하다.** "응답에 실제로 연결됐는가"가 아니라
+		//    "enum 선언 줄 말고 다른 곳에서도 한 번은 언급되는가"만 본다.
+		//    응답 코드와 코드 이름의 실제 결합까지 보려면 OpenAPI 를 파싱해
+		//    responses[*].description 을 훑어야 하는데, 그건 문구 규약에 의존한다.
+		//    느슨한 걸 엄격한 척하지 않는다 — 이 게이트는 "완전히 잊힌 코드"만 잡는다.
+		String contract = Files.readString(API_CONTRACT);
+		List<String> declared = Pattern.compile("^\\s*([A-Z][A-Z_]{3,})\\(", Pattern.MULTILINE)
+			.matcher(Files.readString(ERROR_CODE_SOURCE))
+			.results().map(result -> result.group(1)).toList();
+
+		List<String> unreachable = declared.stream()
+			.filter(code -> mentionsOutsideEnumList(contract, code))
+			.toList();
+		assertThat(unreachable)
+			.as("계약에 선언만 되고 어떤 응답에서도 언급되지 않는 오류코드가 있다")
+			.isEmpty();
+	}
+
+	/** 계약에서 그 코드가 <b>enum 나열 줄 말고</b> 다른 곳에 한 번도 안 나오면 true. */
+	private static boolean mentionsOutsideEnumList(String contract, String code) {
+		long elsewhere = contract.lines()
+			// enum 나열은 "        - CODE_NAME" 형태다. 그 줄은 세지 않는다.
+			.filter(line -> !line.strip().equals("- " + code))
+			.filter(line -> line.contains(code))
+			.count();
+		return elsewhere == 0;
 	}
 
 	@Test
