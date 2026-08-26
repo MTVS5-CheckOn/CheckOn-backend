@@ -41,6 +41,7 @@ class StudentHomeIntegrationTest extends MembershipRlsEnforcedSupport {
 
 	private JdbcTemplate admin;
 	private UUID studentAccountId;
+	private UUID studentId;
 	private UUID assignmentId;
 
 	@BeforeEach
@@ -50,7 +51,7 @@ class StudentHomeIntegrationTest extends MembershipRlsEnforcedSupport {
 		OffsetDateTime now = OffsetDateTime.now();
 		UUID teacherId = insertTeacher(admin, "teacher@example.com", "김강사", now);
 		studentAccountId = insertAccount(admin, "student@example.com", "STUDENT", now);
-		UUID studentId = MemberPostgresSupport.insertStudentProfile(
+		studentId = MemberPostgresSupport.insertStudentProfile(
 			admin, studentAccountId, "박학생", null, now);
 		LearningFixtures.activateStudent(admin, studentId, now);
 		admin.update("INSERT INTO teacher_student_relationships (id, teacher_id, student_id,"
@@ -96,6 +97,17 @@ class StudentHomeIntegrationTest extends MembershipRlsEnforcedSupport {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.continuing.status").value("IN_PROGRESS"))
 			.andExpect(jsonPath("$.data.continuing.latestAttemptId").value(attemptId));
+	}
+
+	@Test
+	@DisplayName("home — 대기 학생은 403 STUDENT_ACTIVATION_REQUIRED다")
+	void pendingStudentIsForbidden() throws Exception {
+		admin.update("UPDATE member_student_activation SET status='PENDING_PARENT_LINK',"
+			+ " activated_at=NULL, updated_at=? WHERE student_id=?",
+			OffsetDateTime.now(), studentId);
+		mockMvc.perform(get(HOME).with(student()))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.error.code").value("STUDENT_ACTIVATION_REQUIRED"));
 	}
 
 	private org.springframework.test.web.servlet.request.RequestPostProcessor student() {
