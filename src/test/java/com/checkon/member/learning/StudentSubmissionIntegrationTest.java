@@ -11,6 +11,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.UUID;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
@@ -219,12 +223,51 @@ class StudentSubmissionIntegrationTest extends MembershipRlsEnforcedSupport {
 			.andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
 	}
 
+	@Test
+	@DisplayName("제출 — 다른 key 동시 2요청은 하나만 채점하고 원장을 한 벌만 쓴다")
+	void concurrentSubmitWritesOnce() throws Exception {
+		UUID attemptId = createAttempt();
+		String body = submissionBody(0, Map.of(itemA, 1, itemB, 2), Map.of());
+		CountDownLatch ready = new CountDownLatch(2);
+		CountDownLatch start = new CountDownLatch(1);
+		try (var executor = Executors.newFixedThreadPool(2)) {
+			var tasks = List.of(
+				executor.submit(() -> concurrentSubmit(attemptId, body, ready, start)),
+				executor.submit(() -> concurrentSubmit(attemptId, body, ready, start)));
+			assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+			start.countDown();
+			List<Integer> statuses = List.of(
+				tasks.get(0).get(10, TimeUnit.SECONDS),
+				tasks.get(1).get(10, TimeUnit.SECONDS));
+			assertThat(statuses).containsExactlyInAnyOrder(200, 409);
+		}
+		assertThat(admin.queryForObject(
+			"SELECT count(*) FROM learning_records WHERE external_record_ref LIKE ?",
+			Integer.class, attemptId + "%")).isEqualTo(3);
+		assertThat(admin.queryForObject(
+			"SELECT count(*) FROM problem_assignment_responses WHERE assignment_id = ?",
+			Integer.class, assignmentId)).isEqualTo(2);
+	}
+
 	private org.springframework.test.web.servlet.ResultActions submit(
 		UUID attemptId, String key, String body
 	) throws Exception {
 		return mockMvc.perform(post(SUBMIT, attemptId).with(student())
 			.header("Idempotency-Key", key)
 			.contentType(MediaType.APPLICATION_JSON).content(body));
+	}
+
+	private int concurrentSubmit(
+		UUID attemptId, String body, CountDownLatch ready, CountDownLatch start
+	) throws Exception {
+		ready.countDown();
+		if (!start.await(5, TimeUnit.SECONDS)) {
+			throw new IllegalStateException("concurrent submit start latch timed out");
+		}
+		return mockMvc.perform(post(SUBMIT, attemptId).with(student())
+				.header("Idempotency-Key", UUID.randomUUID().toString())
+				.contentType(MediaType.APPLICATION_JSON).content(body))
+			.andReturn().getResponse().getStatus();
 	}
 
 	private UUID createAttempt() throws Exception {
