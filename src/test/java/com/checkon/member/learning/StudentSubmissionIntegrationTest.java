@@ -249,6 +249,23 @@ class StudentSubmissionIntegrationTest extends MembershipRlsEnforcedSupport {
 			Integer.class, assignmentId)).isEqualTo(2);
 	}
 
+	@Test
+	@DisplayName("MB-05 — 전 문항 미응답이어도 제출을 허용하고 SUBMIT 사건은 남긴다")
+	void unansweredSubmissionIsAllowed() throws Exception {
+		UUID attemptId = createAttempt();
+		submit(attemptId, UUID.randomUUID().toString(),
+			submissionBody(0, Map.of(), Map.of()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.status").value("SCORED"))
+			.andExpect(jsonPath("$.data.correctCount").value(0));
+		assertThat(admin.queryForObject(
+			"SELECT count(*) FROM problem_assignment_responses WHERE assignment_id = ?",
+			Integer.class, assignmentId)).isZero();
+		assertThat(admin.queryForObject(
+			"SELECT count(*) FROM learning_records WHERE external_record_ref = ?",
+			Integer.class, attemptId.toString())).isEqualTo(1);
+	}
+
 	private org.springframework.test.web.servlet.ResultActions submit(
 		UUID attemptId, String key, String body
 	) throws Exception {
