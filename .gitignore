@@ -62,9 +62,6 @@ out/
 /openapi/checkon-apidog-openapi-import/
 /openapi/checkon-apidog-openapi-import.zip
 /openapi/communication-split/
-/scripts/export-frontend-apidog-openapi.ps1
-
-
 ## mac os
 .DS_Store
 CLAUDE.md
