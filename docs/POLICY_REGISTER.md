@@ -179,6 +179,26 @@
   - `src/main/resources/db/migration/V33__support_student_parent_multi_tenancy.sql`
 - 마지막 검증일: 2026-08-24
 
+### Counsel Frontend Read Model
+
+#### COU-001 강사용 학부모·상담 조회 경계
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
+- 테넌트 경계: 인증 principal의 `teacherProfileId`만 사용하고 application 읽기 트랜잭션 안에서 PostgreSQL tenant context를 설정한다. 학부모-강사, 학부모-학생, 강사-학생은 모두 현재 `ACTIVE`인 관계만 화면 조회에 포함한다. 없음과 다른 강사 접근은 같은 404로 숨긴다.
+- 화면 식별자: `parent_profiles.id`, `student_profiles.id`, `class_groups.id`, `inquiry_ref`, 백엔드 `job_id`만 반환한다. AI의 `guardian_ref`, `parent_ref`, `student_ref`, `class_ref`, `tenant_alias`는 화면 식별자로 노출하지 않는다.
+- 표시 이름: 학생은 저장된 `student_personal_information.real_name`만 사용하고 없으면 null이다. 강사가 학부모의 `member_display_names`를 읽을 수 있는 검증된 account scope 계약은 현재 없으므로 학부모 `displayName`은 null이며 계정 이메일이나 AI alias로 대체하지 않는다.
+- 상담 이력: 수신 문의와 `sent_text`·`sent_at`이 모두 저장된 실제 발송문만 합쳐 최신순으로 반환한다. 내부 AI 라벨 projection을 Controller에 직접 노출하지 않고 화면용 record ID와 실제 학생·문의·job 문맥을 별도 DTO로 제공한다.
+- 문의 시작 컨텍스트: `counsel_inquiries`에 이미 저장된 labels, periodLabel, facts를 조회해 기존 `POST /counsel/drafts` 입력으로 재사용한다. 이 facts는 백엔드 저장 컨텍스트이며 프론트가 학습 기록 원본에서 재조합하지 않는다.
+- OPEN: 신규 수신 문의에 대해 학습 기록에서 facts를 어떤 기간·집계 규칙으로 생성할지는 확정되지 않았다. 조회 API가 임의 projection을 만들지 않으며 별도 정책 결정 전까지 저장된 facts만 반환한다.
+- 코드 근거:
+  - `src/main/java/com/checkon/counsel/presentation/CounselFrontendQueryController.java`
+  - `src/main/java/com/checkon/counsel/application/CounselFrontendQueryService.java`
+  - `src/main/java/com/checkon/counsel/infrastructure/persistence/CounselFrontendQueryRepository.java`
+  - `src/main/resources/openapi/dashboard-api.yaml`
+- 마지막 검증일: 2026-08-26
+
 ### Guardian Labels
 
 #### GL-001 실제 학부모 단위 라벨 소유권과 테넌트 경계

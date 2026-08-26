@@ -12,7 +12,8 @@ import com.checkon.counsel.application.CounselException;
 import com.checkon.counsel.application.GuardianLabelSuggestionException;
 
 @RestControllerAdvice(assignableTypes = {
-	CounselDraftController.class, InquiryClassificationController.class, GuardianLabelController.class
+	CounselDraftController.class, InquiryClassificationController.class, GuardianLabelController.class,
+	CounselFrontendQueryController.class
 })
 public class CounselDraftExceptionHandler {
 
