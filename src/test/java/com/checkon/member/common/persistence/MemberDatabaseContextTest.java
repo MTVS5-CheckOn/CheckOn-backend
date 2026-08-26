@@ -9,34 +9,32 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
+
+import com.checkon.member.support.MemberPostgresSupport;
 
 /**
  * RLS 주체 설정이 <b>트랜잭션 로컬</b>인지 본다.
  *
  * <p>커넥션은 요청이 끝나면 풀로 돌아가 다른 주체가 재사용한다. {@code set_config} 의 세 번째
  * 인자를 {@code false} 로 두면 값이 커넥션에 남아, 다음 요청이 앞 사람의 주체로 조회하게 된다.</p>
+ *
+ * <p>🔴 {@link MemberPostgresSupport} 를 상속해 <b>컨테이너와 스프링 컨텍스트를 공유</b>한다
+ * (G17). 자기 컨테이너를 띄우면 같은 프로퍼티 조합이라도 컨텍스트 캐시가 갈려 컨테이너 수가 늘고
+ * 통합 테스트 전체가 느려진다.</p>
  */
 @SpringBootTest(properties = {
 	"checkon.security.test-authentication.enabled=true",
-	"checkon.auth.allowed-origins=http://localhost:3000"
+	"checkon.auth.allowed-origins=http://localhost:3000",
+	"spring.datasource.hikari.maximum-pool-size=4"
 })
 @ActiveProfiles("dev")
-@Testcontainers
-class MemberDatabaseContextTest {
+class MemberDatabaseContextTest extends MemberPostgresSupport {
 
 	private static final String READ_SETTING =
 		"SELECT current_setting('checkon.current_student_id', true)";
-
-	@Container
-	@ServiceConnection
-	static final PostgreSQLContainer POSTGRESQL = new PostgreSQLContainer("postgres:18.4");
 
 	@Autowired MemberDatabaseContext memberDatabaseContext;
 	@Autowired TransactionTemplate transactionTemplate;

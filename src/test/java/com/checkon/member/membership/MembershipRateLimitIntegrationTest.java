@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.checkon.account.domain.AccountRole;
+import com.checkon.member.common.presentation.MemberRateLimiter;
 
 /**
  * 열거 방어(429)만 따로 증명한다.
@@ -28,12 +30,15 @@ import com.checkon.account.domain.AccountRole;
  * <p>🔴 별도 클래스인 이유 — {@code MemberRateLimiter} 는 컨텍스트 싱글턴이고 MockMvc 요청은
  * 전부 같은 IP 로 들어온다. 낮은 상한을 같은 클래스에 두면 <b>다른 테스트들이 서로의 카운터를
  * 소진</b>시켜 무관한 단언이 429 로 죽는다(실측으로 8건이 그렇게 깨졌다).</p>
+ *
+ * <p>🔴 상한 3 은 <b>런타임에</b> 오버라이드한다 — 예전에는 {@code @SpringBootTest} 프로퍼티로
+ * 갈랐고 그 조합마다 컨텍스트가 하나씩 떴다(G17). 이제는 같은 컨텍스트를 공유하되
+ * {@code @BeforeEach} 가 상한을 낮추고 {@code @AfterEach} 가 되돌린다.</p>
  */
 @SpringBootTest(properties = {
 	"checkon.security.test-authentication.enabled=true",
 	"checkon.auth.allowed-origins=http://localhost:3000",
-	"spring.datasource.hikari.maximum-pool-size=4",
-	"checkon.member.rate-limit.permits=3"
+	"spring.datasource.hikari.maximum-pool-size=4"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")
@@ -43,6 +48,7 @@ class MembershipRateLimitIntegrationTest extends MembershipRlsEnforcedSupport {
 		"/api/v1/member/parents/me/children/verification";
 
 	@Autowired MockMvc mockMvc;
+	@Autowired MemberRateLimiter rateLimiter;
 
 	private UUID parentAccountId;
 
@@ -57,6 +63,15 @@ class MembershipRateLimitIntegrationTest extends MembershipRlsEnforcedSupport {
 			new StudentFixture("김민수", "김민수", 2, "STU-CHILD1"), now);
 		parentAccountId = insertAccount(admin, "parent@example.com", "PARENT", now);
 		insertParent(admin, parentAccountId, "박학부모", now);
+
+		// 🔴 컨텍스트 공유하는 다른 클래스의 카운터·오버라이드가 남을 수 있다 — 먼저 지우고 낮춘다.
+		rateLimiter.resetForTesting();
+		rateLimiter.overridePermitsForTesting(3);
+	}
+
+	@AfterEach
+	void tearDown() {
+		rateLimiter.resetForTesting();
 	}
 
 	@Test

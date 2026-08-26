@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 class MemberCodeRuleTest {
 
 	private static final Path MEMBER = Path.of("src/main/java/com/checkon/member");
+	private static final Path MEMBER_TESTS = Path.of("src/test/java/com/checkon/member");
 	private static final Path ERROR_CODE_DOCUMENT = Path.of("docs/MEMBER_ERROR_CODES.md");
 
 	/**
@@ -79,6 +80,12 @@ class MemberCodeRuleTest {
 
 	private static List<Path> memberSources() throws IOException {
 		try (Stream<Path> walk = Files.walk(MEMBER)) {
+			return walk.filter(path -> path.toString().endsWith(".java")).sorted().toList();
+		}
+	}
+
+	private static List<Path> memberTestSources() throws IOException {
+		try (Stream<Path> walk = Files.walk(MEMBER_TESTS)) {
 			return walk.filter(path -> path.toString().endsWith(".java")).sorted().toList();
 		}
 	}
@@ -345,6 +352,57 @@ class MemberCodeRuleTest {
 					.doesNotContainAnyElementsOf(rlsTables);
 			}
 		}
+	}
+
+	@Test
+	@DisplayName("G17. member 통합 테스트는 승인된 @SpringBootTest properties 조합만 쓴다")
+	void springBootTestPropertiesAreOnTheApprovedList() throws IOException {
+		// 🔴 @SpringBootTest 의 properties 조합이 하나 늘 때마다 스프링이 한 번 더 뜬다.
+		//    PR5b 에서 통합 테스트가 늘어나는데, 조합이 늘면 CI 상한(15분)에 닿는다.
+		//    허용 조합을 여기 목록으로 두고, 새 조합을 쓰려면 이 목록을 먼저 고치게 한다.
+		// 🔴 이 판정은 느슨하다 — properties 문자열 집합만 본다.
+		//    @ContextConfiguration · @DynamicPropertySource · @ServiceConnection 등이 만드는
+		//    ContextCustomizer 는 이 게이트가 못 본다. 컨테이너·역할이 갈리면 여기가 통과해도
+		//    실제 컨텍스트는 여전히 갈릴 수 있다 — 그 한계를 여기 적어 둔다.
+		Set<Set<String>> approved = Set.of(
+			// 기본 통합 테스트 (MemberPostgresSupport · MembershipRlsEnforcedSupport ·
+			// MemberRlsEnforcedApplicationIntegrationTest 공용)
+			Set.of(
+				"checkon.security.test-authentication.enabled=true",
+				"checkon.auth.allowed-origins=http://localhost:3000",
+				"spring.datasource.hikari.maximum-pool-size=4"));
+
+		List<String> offenders = new java.util.ArrayList<>();
+		for (Path path : memberTestSources()) {
+			for (Set<String> combo : extractSpringBootTestPropertyCombos(readString(path))) {
+				if (!approved.contains(combo)) {
+					offenders.add(path + " :: " + new TreeSet<>(combo));
+				}
+			}
+		}
+		assertThat(offenders)
+			.as("승인 조합에 없는 @SpringBootTest properties 를 새로 쓸 때는 approved 에 먼저 넣는다")
+			.isEmpty();
+	}
+
+	private static final Pattern SPRING_BOOT_TEST_PROPERTIES =
+		Pattern.compile("@SpringBootTest\\s*\\(\\s*properties\\s*=\\s*\\{([^}]*)\\}\\s*\\)",
+			Pattern.DOTALL);
+
+	private static final Pattern QUOTED = Pattern.compile("\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"");
+
+	private static List<Set<String>> extractSpringBootTestPropertyCombos(String source) {
+		java.util.regex.Matcher matcher = SPRING_BOOT_TEST_PROPERTIES.matcher(source);
+		List<Set<String>> combos = new java.util.ArrayList<>();
+		while (matcher.find()) {
+			Set<String> combo = new TreeSet<>();
+			java.util.regex.Matcher quotes = QUOTED.matcher(matcher.group(1));
+			while (quotes.find()) {
+				combo.add(quotes.group(1));
+			}
+			combos.add(combo);
+		}
+		return combos;
 	}
 
 	private static long countLines(Path path) {

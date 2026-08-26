@@ -30,9 +30,39 @@ public class MemberRateLimiter {
 	private final MemberRateLimitProperties properties;
 	private final Clock clock;
 
+	/**
+	 * 🔴 <b>테스트 전용 오버라이드</b>. 프로덕션은 {@code null} 이고 {@link #permits()} 는
+	 * {@code properties.permits()} 를 그대로 돌려준다. 테스트에서 상한을 컨텍스트 프로퍼티로
+	 * 갈라 두면 그 조합마다 스프링이 새 컨텍스트를 뜬다(G17) — 그걸 막으려고 여기서 런타임에
+	 * 조정한다. 프로덕션 동작은 이 필드를 손대지 않아야 한다.
+	 */
+	private volatile Integer permitsOverride;
+
 	public MemberRateLimiter(MemberRateLimitProperties properties, Clock clock) {
 		this.properties = properties;
 		this.clock = clock;
+	}
+
+	private int permits() {
+		Integer override = this.permitsOverride;
+		return override != null ? override : properties.permits();
+	}
+
+	/**
+	 * 🔴 <b>테스트 전용</b>. 상한을 런타임에 덮어써 컨텍스트를 새로 띄우지 않게 한다.
+	 * {@link #resetForTesting()} 로 되돌린다.
+	 */
+	public void overridePermitsForTesting(int permits) {
+		this.permitsOverride = permits;
+	}
+
+	/**
+	 * 🔴 <b>테스트 전용</b>. 창 카운터를 비우고 오버라이드를 해제한다.
+	 * 컨텍스트를 공유하는 테스트 클래스가 서로의 카운터·설정에 영향받지 않게 한다.
+	 */
+	public void resetForTesting() {
+		windows.clear();
+		this.permitsOverride = null;
 	}
 
 	/**
@@ -59,7 +89,7 @@ public class MemberRateLimiter {
 			existing == null || existing.isExpired(now, properties.window())
 				? new Window(now)
 				: existing);
-		return window.increment() > properties.permits();
+		return window.increment() > permits();
 	}
 
 	/**

@@ -10,17 +10,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import com.checkon.member.MemberPackageMarker;
+import com.checkon.member.support.MemberPostgresSupport;
 
 /**
  * {@code @RestControllerAdvice} 의 범위가 member 로만 묶여 있는지 본다.
@@ -30,19 +27,18 @@ import com.checkon.member.MemberPackageMarker;
  *
  * <p>🔴 리터럴 {@code "AUTHENTICATION_REQUIRED"} 대신 기존 코드 문자열을 쓴다 — 이 테스트가
  * 지켜야 하는 것은 enum 이름이 아니라 <b>와이어 계약</b>이다.</p>
+ *
+ * <p>🔴 {@link MemberPostgresSupport} 를 상속해 <b>컨테이너와 스프링 컨텍스트를 공유</b>한다
+ * (G17). 자기 컨테이너를 띄우면 프로퍼티 조합이 같아도 캐시가 갈려 벌 수가 늘어난다.</p>
  */
 @SpringBootTest(properties = {
 	"checkon.security.test-authentication.enabled=true",
-	"checkon.auth.allowed-origins=http://localhost:3000"
+	"checkon.auth.allowed-origins=http://localhost:3000",
+	"spring.datasource.hikari.maximum-pool-size=4"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")
-@Testcontainers
-class MemberExceptionHandlerScopeTest {
-
-	@Container
-	@ServiceConnection
-	static final PostgreSQLContainer POSTGRESQL = new PostgreSQLContainer("postgres:18.4");
+class MemberExceptionHandlerScopeTest extends MemberPostgresSupport {
 
 	@Autowired MockMvc mockMvc;
 
