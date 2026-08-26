@@ -1,6 +1,6 @@
 -- V40 — 파일명은 member_attempt 지만 실제로는 **넷**이 들어갈 자리다.
---   1. 🔴 MB-38  초대코드 1회용 강제       ← 이 커밋에서 넣는다
---   2. 🔴 MB-36  학부모의 자녀 강사 조회    ← 다음 커밋
+--   1. 🔴 MB-38  초대코드 1회용 강제       ✅ 이전 커밋에서 넣었다
+--   2. 🔴 MB-36  학부모의 자녀 강사 조회    ← 이 커밋에서 넣는다 (승우님 예외 승인)
 --   3.    attempt 계열 5테이블              ← 다음 커밋
 --   4.    RLS 정책 + Verifier 대상          ← 다음 커밋
 --
@@ -32,3 +32,23 @@ CREATE UNIQUE INDEX uq_member_invitation_claims_single_use
 --    앞으로 누군가 "다중 사용" 코드를 만들려고 이 값을 바꾸면 CHECK 가 즉시 막는다.
 ALTER TABLE member_invitation_codes
     ADD CONSTRAINT ck_member_invitation_codes_single_use CHECK (max_claims = 1);
+
+-- ═════════════════════ 2. MB-36  학부모의 자녀 강사 조회 ═════════════════════
+--
+-- 🔴 이것은 승우님 테이블(teacher_student_relationships, V6)이다.
+--    예약표 규칙 1 — 기존 테이블 정책 추가는 V38 뿐이다. V38 이 재귀(불변식 4) 때문에 뺐고,
+--    §6-4-2 범위 세션 변수로 다시 넣지 못한 유일한 항목이 이것이다.
+--    승우님 승인을 받아 V40 에 넣는다 — V38 이후 예외 승인의 유일한 사례다.
+--
+-- 🔴 정책만 넣으면 MB-33 재발(아무도 못 쓰는 정책)이다.
+--    ChildViewAssembler 가 withVerifiedChildScope 로 범위를 열어 채운다(같은 커밋).
+--
+-- 🔴 술어에서 RLS 켜진 테이블 참조 0 · 재귀 0. 범위는 PR3 이 만든 함수를 그대로 쓴다.
+--    학부모는 확인된 자녀의 관계만 본다 (`current_checkon_scope_student_id()`).
+CREATE POLICY teacher_student_relationships_member_parent_scope_select
+    ON teacher_student_relationships
+    FOR SELECT USING (
+        current_checkon_parent_id() IS NOT NULL
+        AND current_checkon_scope_student_id() IS NOT NULL
+        AND student_id = current_checkon_scope_student_id()
+    );

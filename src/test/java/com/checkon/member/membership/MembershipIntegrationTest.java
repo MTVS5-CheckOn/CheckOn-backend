@@ -157,34 +157,58 @@ class MembershipIntegrationTest extends MembershipRlsEnforcedSupport {
 	}
 
 	@Test
-	@DisplayName("🔴 teachers 키는 응답에 아예 없다 — null 도 빈 배열도 아니다 (MB-36)")
-	void teachersKeyIsAbsentFromChildResponse() throws Exception {
+	@DisplayName("🔴 teachers 키가 존재하고 활성 강사가 배열로 담긴다 (MB-36 · V40)")
+	void teachersKeyIsPresentAndPopulated() throws Exception {
 		linkParentToChild(parentProfileId, childProfileId, "ACTIVE");
 		admin.update("INSERT INTO teacher_student_relationships (id, teacher_id, student_id,"
 			+ " status, started_at, created_at) VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
 			UUID.randomUUID(), teacherId, childProfileId, now, now);
+		// ENDED 관계는 배열에 없어야 한다.
+		admin.update("INSERT INTO teacher_student_relationships (id, teacher_id, student_id,"
+			+ " status, started_at, ended_at, created_at) VALUES (?, ?, ?, 'ENDED', ?, ?, ?)",
+			UUID.randomUUID(), otherTeacherId, childProfileId, now.minusDays(30), now, now);
 
-		MvcResult listed = mockMvc.perform(get(CHILDREN).with(parent()))
+		mockMvc.perform(get(CHILDREN).with(parent()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.items.length()").value(1))
-			.andReturn();
-
-		// 🔴 본문 문자열로 본다. jsonPath 의 doesNotExist() 는 값이 명시적 null 이어도 통과해서
-		//    "키가 없다"와 "키는 있고 값이 null"을 구분하지 못한다 — 이 단언의 전부가 그 구분이다.
-		assertThat(listed.getResponse().getContentAsString())
-			.as("계약의 teachers 는 nullable 이 아니라 null 로 내려보내면 계약 위반이다")
-			.doesNotContain("teachers");
+			.andExpect(jsonPath("$.data.items[0].teachers.length()").value(1))
+			.andExpect(jsonPath("$.data.items[0].teachers[0].teacherId")
+				.value(teacherId.toString()))
+			.andExpect(jsonPath("$.data.items[0].teachers[0].displayName").value("김강사"));
 	}
 
 	@Test
-	@DisplayName("🔴 자녀 등록 응답에도 teachers 키가 없다 — 목록과 같은 조립기를 쓴다")
-	void teachersKeyIsAbsentFromRegistrationResponse() throws Exception {
+	@DisplayName("🔴 자녀 등록 응답의 teachers 도 같은 조립기를 통해 존재한다 (MB-36 · V40)")
+	void teachersKeyIsPresentInRegistrationResponse() throws Exception {
+		// 등록 시점에는 아직 강사가 없다 — 빈 배열이지만 키는 존재해야 한다.
 		MvcResult created = mockMvc.perform(
 				registrationRequest("STU-CHILD1", UUID.randomUUID().toString()))
 			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.child.teachers.length()").value(0))
 			.andReturn();
 
-		assertThat(created.getResponse().getContentAsString()).doesNotContain("teachers");
+		assertThat(created.getResponse().getContentAsString())
+			.as("teachers 키 자체는 존재한다")
+			.contains("\"teachers\":[]");
+	}
+
+	@Test
+	@DisplayName("🔴 남의 자녀 id 를 범위에 넣어도 그 자녀의 강사는 안 보인다 (MB-36 정책 격리)")
+	void teachersLookupIsScopedToVerifiedChild() throws Exception {
+		// 이 학부모는 childProfileId 하고만 연결돼 있다.
+		linkParentToChild(parentProfileId, childProfileId, "ACTIVE");
+		// otherChildProfileId 는 이 학부모의 자녀가 아니다. 강사 관계도 만들어 둔다.
+		admin.update("INSERT INTO teacher_student_relationships (id, teacher_id, student_id,"
+			+ " status, started_at, created_at) VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
+			UUID.randomUUID(), teacherId, otherChildProfileId, now, now);
+
+		// 목록에 남의 자녀는 안 나타나므로(정책이 이미 격리), 이 시나리오의 남단언은
+		// 「내 자녀 목록에 남의 자녀의 강사가 새어 나오지 않는다」이다.
+		mockMvc.perform(get(CHILDREN).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items.length()").value(1))
+			.andExpect(jsonPath("$.data.items[0].studentId").value(childProfileId.toString()))
+			.andExpect(jsonPath("$.data.items[0].teachers.length()").value(0));
 	}
 
 	@Test
