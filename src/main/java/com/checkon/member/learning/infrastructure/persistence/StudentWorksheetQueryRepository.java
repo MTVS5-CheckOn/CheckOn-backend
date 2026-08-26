@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import com.checkon.member.learning.domain.MemberAttemptStatus;
+import com.checkon.member.learning.domain.StudentAssignmentPageRow;
 import com.checkon.member.learning.domain.StudentAssignmentRow;
 import com.checkon.member.learning.domain.StudentAttemptSummary;
 
@@ -47,10 +48,61 @@ public class StudentWorksheetQueryRepository {
 		ORDER BY assignment_id, started_at DESC, id DESC
 		""";
 
+	// 🔴 목록 조회의 정본 SQL. student_id 필터는 방어가 아니라 인덱스 힌트다 —
+	//    problem_assignments_member_student_select(V38:154) 가 이미 격리한다.
+	//    LATERAL 로 member_attempts 학생 self 정책 위에서 자기 최신 attempt 를 얻는다 —
+	//    없으면 status/attempt_id 가 NULL 이다. cursor 조건은
+	//    (published_at, id) < (cursor_published_at, cursor_assignment_id) 로 표현해
+	//    idx_problem_assignments 정렬 인덱스를 그대로 탄다.
+	private static final String FIND_ASSIGNMENT_PAGE = """
+		SELECT a.id, a.problem_set_id, a.teacher_id, a.published_at,
+		       att.id, att.status
+		FROM problem_assignments a
+		LEFT JOIN LATERAL (
+		    SELECT id, status
+		    FROM member_attempts m
+		    WHERE m.student_id = a.student_id AND m.assignment_id = a.id
+		    ORDER BY started_at DESC, id DESC
+		    LIMIT 1
+		) att ON true
+		WHERE a.student_id = ?
+		  AND (?::timestamptz IS NULL
+		       OR (a.published_at, a.id) < (?::timestamptz, ?::uuid))
+		ORDER BY a.published_at DESC, a.id DESC
+		LIMIT ?
+		""";
+
 	private final JdbcTemplate jdbcTemplate;
 
 	public StudentWorksheetQueryRepository(JdbcTemplate jdbcTemplate) {
 		this.jdbcTemplate = jdbcTemplate;
+	}
+
+	/**
+	 * 목록 한 페이지. limit 은 서비스가 <b>정확히 페이지 크기 + 1</b> 로 넣어 hasNext 를 계산한다.
+	 * cursor 가 {@code null} 이면 첫 페이지다.
+	 *
+	 * @param cursorPublishedAt 다음 페이지의 상한 (열림 구간)
+	 * @param cursorAssignmentId 상한 시각과 같은 초의 tie-break
+	 * @param limit 페이지 크기 + 1 (서비스가 넘긴다)
+	 */
+	public List<StudentAssignmentPageRow> findAssignmentPage(
+		UUID studentId,
+		OffsetDateTime cursorPublishedAt,
+		UUID cursorAssignmentId,
+		int limit
+	) {
+		return jdbcTemplate.query(FIND_ASSIGNMENT_PAGE, (rs, rowNum) -> {
+			String statusText = rs.getString(6);
+			return new StudentAssignmentPageRow(
+				rs.getObject(1, UUID.class),
+				rs.getObject(2, UUID.class),
+				rs.getObject(3, UUID.class),
+				rs.getObject(4, OffsetDateTime.class).toInstant(),
+				(UUID) rs.getObject(5),
+				statusText == null ? null : MemberAttemptStatus.valueOf(statusText)
+			);
+		}, studentId, cursorPublishedAt, cursorPublishedAt, cursorAssignmentId, limit);
 	}
 
 	public List<StudentAssignmentRow> findAssignmentsByStudent(UUID studentId) {

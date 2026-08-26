@@ -38,12 +38,28 @@ public class PublishedWorksheetAdapter {
 		ORDER BY ordinal
 		""";
 
+	private static final String COUNT_BY_PROBLEM_SET_ID = """
+		SELECT count(*) FROM saved_problem_set_items
+		WHERE problem_set_id = ?
+		""";
+
 	private final JdbcTemplate jdbcTemplate;
 	private final ObjectMapper objectMapper;
 
 	public PublishedWorksheetAdapter(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
 		this.jdbcTemplate = jdbcTemplate;
 		this.objectMapper = objectMapper;
+	}
+
+	/**
+	 * 학습지 문항 수. 🔴 <b>{@code withVerifiedProblemSetScope} 안에서 부른다.</b> 스코프가
+	 * 열리지 않았거나 학생이 소유자가 아니면 RLS 로 <b>0</b> 이 돌아온다 — 예외가 아니다
+	 * (설계 §6-4-3). count 만 다뤄서 문항 본문을 읽을 필요가 없다.
+	 */
+	public int countItems(UUID problemSetId) {
+		Integer count = jdbcTemplate.queryForObject(
+			COUNT_BY_PROBLEM_SET_ID, Integer.class, problemSetId);
+		return count == null ? 0 : count;
 	}
 
 	/**
