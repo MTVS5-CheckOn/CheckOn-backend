@@ -16,7 +16,7 @@
 | MB-02 | 대기 학생(`PENDING_PARENT_LINK`) 허용 API 범위 | **CONFIRMED** — 세션 조회 · 활성화 상태(+공개 ID) 확인 · 로그아웃 **3개뿐**. 🔴 강사 초대 등록은 허용하지 않는다. 학습 기능은 전부 활성화 후 | A | ✅ 2026-08-25 |
 | MB-03 | 학부모 한 계정이 여러 자녀를 등록할 수 있나 | **PROPOSED** — 다자녀 허용. 실측 근거: V33 이 학생당 학부모 1명만 제한하고 학부모당 자녀 수 제한은 두지 않았다 | A | PR4 착수 전 |
 | MB-04 | 초대 코드 1회/다회 사용 · 만료 기간 | **CONFIRMED** — 역할이 지정된 한 계정만 쓰는 1회용(`max_claims=1`), 발급 후 **7일**. 학생용·학부모용 별도 발급. 동일 강사 재등록은 새 관계를 만들지 않고 기존 연결을 `200` 으로 반환(멱등) | A | ✅ 2026-08-25 |
-| MB-05 | 미응답 문항이 있어도 제출 가능한가 | **OPEN** — 금지로 정하면 `SUBMISSION_INCOMPLETE` 가 살아나고, 허용으로 정하면 그 코드는 쓰이지 않는다 | A | PR5 착수 전 |
+| MB-05 | 미응답 문항이 있어도 제출 가능한가 | **CONFIRMED** — 허용(`member.attempt.require-complete-submission=false`). 근거: 계약(`member-api.yaml`)과 분기표(`01_endpoint_branch_matrix.md`) 둘 다 `SUBMISSION_INCOMPLETE` 를 「금지 정책일 때만」으로 적었다. 학생이 모르는 문제를 비우고 내는 것은 자연스럽고, 막으면 학습 흐름이 끊긴다. 🔴 `SUBMISSION_INCOMPLETE` enum 상수는 남긴다 — 정책이 뒤집힐 때 응답에서 쓸 자리다 | A | ✅ 2026-08-26 |
 | MB-06 | progress autosave 주기와 시간 이상치 상한 | **PROPOSED** — 30초 주기 · 단일 delta 상한 600초 | A | PR5 착수 전 |
 | MB-07 | 월별 최소 표본 수와 월 경계 timezone | **PROPOSED** — 최소 표본 10 · 월 경계 `Asia/Seoul` | A | PR7 착수 전 |
 | MB-08 | 관계 종료 후 과거 학습기록·보고서를 학부모가 계속 볼 수 있나 | **OPEN** | A | PR7 착수 전 |

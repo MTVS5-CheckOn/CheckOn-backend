@@ -237,7 +237,7 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | 같은 key·다른 body | | `409 IDEMPOTENCY_CONFLICT` | 🔴 자동 재시도 금지. 재조회 안내 |
 | 이미 제출됨 | `status ∈ {SUBMITTED, SCORED}` | `409 ATTEMPT_ALREADY_SUBMITTED` | 결과 화면 |
 | 낙관락 충돌 | `baseVersion` 불일치 | `409 REVISION_CONFLICT` | 재조회 → 재제출 |
-| 미응답 문항 존재 | 정책이 "미응답 금지"일 때 **만** | `422 SUBMISSION_INCOMPLETE` + `details.itemIds[]` | 해당 문항 하이라이트. 🔴 정책은 MB-05 미확정 |
+| 미응답 문항 존재 | 정책이 "미응답 금지"일 때 **만** | `422 SUBMISSION_INCOMPLETE` + `details.itemIds[]` | 해당 문항 하이라이트. 🔴 MB-05 확정: 기본 정책은 **허용** (`member.attempt.require-complete-submission=false`) — 이 코드는 현재 어떤 응답 경로에서도 나오지 않는다. enum 상수는 정책 반전 대비로 남긴다 |
 | 채점 불가 문항 | 스냅샷 `correct_no` 가 null | `422 WORKSHEET_NOT_GRADABLE` | 문의 안내. 🔴 판정은 **attempt 시작 시점**에 끝나므로 여기 도달하면 시작 이후 스냅샷이 바뀐 것이다 |
 | `learning_records` INSERT 실패 | 강사 관계가 그 사이 종료 → RLS 거절 | 🔴 **전체 롤백** → `409` + 관계 종료 안내 | 목록 복귀 |
 | 대기 학생 | | `403 STUDENT_ACTIVATION_REQUIRED` | |
@@ -533,7 +533,7 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 1. **PR 구현 시**: 담당 엔드포인트의 표를 열고, 표의 모든 행에 대해 통합 테스트를 1:1 로 만든다. 표에 없는 분기를 코드가 만들면 **표를 먼저 고친다**.
 2. **프론트 구현 시**(PR10): 각 표의 "클라이언트" 열이 핸들러 명세다. MSW 픽스처는 표의 행 수만큼 만든다.
 3. **리뷰 시**: 이 표에 없는 오류 코드가 코드에 나타나면 반려.
-4. 🔴 **잠정 표시된 행**(MB-05 미응답 제출 · MB-08 관계 종료 후 열람 · MB-09 상담 취소·추가질문)은 확정 전까지 구현하지 말고, 확정되면 **표 → 코드 → 테스트** 순으로 고친다.
+4. 🔴 **잠정 표시된 행**(MB-08 관계 종료 후 열람 · MB-09 상담 취소·추가질문)은 확정 전까지 구현하지 말고, 확정되면 **표 → 코드 → 테스트** 순으로 고친다. (MB-05 는 2026-08-26 확정 — 미응답 제출은 **허용**)
 
 ## §7. 미확정이 걸린 분기 (구현 전 확정 필요)
 
@@ -541,7 +541,7 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 
 | 분기 | 미확정 ID | 잠정값 |
 |---|---|---|
-| 미응답 문항 있어도 제출 가능한가 | MB-05 | 허용(=`422 SUBMISSION_INCOMPLETE` 안 씀) |
+| 미응답 문항 있어도 제출 가능한가 | ✅ MB-05 확정 | **허용** (`member.attempt.require-complete-submission=false`, 2026-08-26) — `422 SUBMISSION_INCOMPLETE` 는 현재 응답 경로 없음. enum 상수는 정책 반전 대비로 남긴다 |
 | 관계 종료 후 과거 기록·보고서 열람 | MB-08 | 불가(404) |
 | 상담 취소 가능 시점 / 추가 질문 횟수 | MB-09 | §4 표의 잠정값 |
 | progress delta 상한 | MB-06 | 항목당 600초, 저장 주기 30초 |
