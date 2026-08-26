@@ -497,6 +497,37 @@ class MembershipIntegrationTest extends MembershipRlsEnforcedSupport {
 	}
 
 	@Test
+	@DisplayName("🔴 다른 계정이 이미 쓴 코드는 409 INVITE_ALREADY_CLAIMED 다 (MB-38 · V40)")
+	void secondAccountCannotClaimSameCode() throws Exception {
+		UUID invitationId = insertStudentInvitation(STUDENT_CODE, now.plusDays(7), null);
+
+		// 첫 학생이 코드를 소진한다 — pair unique 도 single_use unique 도 방금 채워진다.
+		mockMvc.perform(claimRequest(STUDENT_INVITATIONS, STUDENT_CODE,
+				UUID.randomUUID().toString(), student()))
+			.andExpect(status().isCreated());
+		assertThat(countClaims(invitationId)).isEqualTo(1);
+
+		// 두 번째 학생이 같은 코드를 쓰면 uq_member_invitation_claims_single_use 가 막는다.
+		// 🔴 RLS 로 남의 claim 이 안 보이는데도 DB 가 판정한다 — 유니크 인덱스가 정책을 우회한다.
+		UUID otherAccount = insertAccount(admin, "student2@example.com", "STUDENT", now);
+		UUID otherProfile = insertStudent(admin, otherAccount,
+			new StudentFixture("김두번", "김두번", 2, "STU-STUD02"), now);
+		activate(otherProfile);
+		var otherStudent = authentication(principalOf(otherAccount, AccountRole.STUDENT));
+
+		mockMvc.perform(claimRequest(STUDENT_INVITATIONS, STUDENT_CODE,
+				UUID.randomUUID().toString(), otherStudent))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.error.code").value("INVITE_ALREADY_CLAIMED"));
+
+		// 두 번째 학생의 관계는 만들어지지 않았다 — 롤백이 온전하다.
+		assertThat(countTeacherStudentLinks(teacherId, otherProfile)).isZero();
+		assertThat(countClaims(invitationId))
+			.as("두 번째 계정의 claim 이 남으면 single_use 를 뚫은 것이다")
+			.isEqualTo(1);
+	}
+
+	@Test
 	@DisplayName("🔴 평문 초대 코드는 어느 컬럼에도 저장되지 않는다")
 	void plaintextCodeIsNeverPersisted() throws Exception {
 		insertStudentInvitation(STUDENT_CODE, now.plusDays(7), null);

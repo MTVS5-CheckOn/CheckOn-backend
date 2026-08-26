@@ -318,7 +318,7 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | 정상 | | `201` `TeacherSummary` | 강사 목록 갱신 |
 | 이미 같은 강사와 연결 (내 계정) | 관계가 이미 ACTIVE | 🔴 **`200`** + 기존 `TeacherSummary` | 오류 아님. 완료 화면 (MB-04 멱등) |
 | 같은 코드를 내가 다시 제출 | `member_invitation_claims` 에 내 기록 존재 | 🔴 **`200`** + 기존 `TeacherSummary` | 동일 |
-| 🔴 **다른 계정이 이미 쓴 코드** | `max_claims=1` 소진 | `409 INVITE_ALREADY_CLAIMED` — 🔴 **판정 불가 · PR4 미구현.** `member_invitation_claims` 가 계정 소유 정책으로 격리돼 남의 claim 이 0으로 보이고, 총 claim 수를 막는 DB 제약이 없다. **MB-38** | 새 코드 요청 안내 |
+| 🔴 **다른 계정이 이미 쓴 코드** | `max_claims=1` 소진 | `409 INVITE_ALREADY_CLAIMED` — V40 이 `uq_member_invitation_claims_single_use` 를 넣어 DB 가 두 번째 INSERT 를 23505 로 막는다. `InvitationClaimService` 가 제약 이름으로 걸러 번역한다(MB-38 · CONFIRMED · V40) | 새 코드 요청 안내 |
 | 대기 학생 | `PENDING_PARENT_LINK` | `403 STUDENT_ACTIVATION_REQUIRED` | 활성화 대기 화면 (MB-02) |
 | 만료·폐기 | | `410 INVITE_EXPIRED` | |
 | 없는 코드 | | `404 RESOURCE_NOT_FOUND` | |
