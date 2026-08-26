@@ -34,6 +34,7 @@ import com.checkon.member.learning.infrastructure.persistence.MemberAttemptRepos
 import com.checkon.member.learning.infrastructure.persistence.MemberLearningSessionRepository;
 import com.checkon.member.learning.infrastructure.persistence.StudentWorksheetQueryRepository;
 import com.checkon.member.membership.MembershipRlsEnforcedSupport;
+import com.checkon.member.support.MemberPostgresSupport;
 
 /**
  * S1 리포지토리·어댑터의 최소 계약. 🔴 <b>제한 역할</b> 위에서 돈다 ({@link MembershipRlsEnforcedSupport}) —
@@ -87,10 +88,10 @@ class AttemptRepositoryIntegrationTest extends MembershipRlsEnforcedSupport {
 		teacherId = insertTeacher(admin, "teacher@example.com", "김강사", now);
 
 		UUID studentAccount = insertAccount(admin, "student@example.com", "STUDENT", now);
-		studentId = insertStudentProfile(admin, studentAccount, "박학생", now);
+		studentId = MemberPostgresSupport.insertStudentProfile(admin, studentAccount, "박학생", null, now);
 
 		UUID otherAccount = insertAccount(admin, "other@example.com", "STUDENT", now);
-		otherStudentId = insertStudentProfile(admin, otherAccount, "이학생", now);
+		otherStudentId = MemberPostgresSupport.insertStudentProfile(admin, otherAccount, "이학생", null, now);
 
 		admin.update("INSERT INTO teacher_student_relationships (id, teacher_id, student_id,"
 			+ " status, started_at, created_at) VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
@@ -284,22 +285,6 @@ class AttemptRepositoryIntegrationTest extends MembershipRlsEnforcedSupport {
 		appJdbcTemplate.queryForObject(
 			"SELECT set_config('checkon.scope_problem_set_id', ?, true)",
 			String.class, id.toString());
-	}
-
-	/**
-	 * 🔴 부모 클래스의 {@code insertStudent(StudentFixture)} 를 못 쓰는 이유 — 그 record 가
-	 * {@code protected} 라 다른 패키지에서는 <b>subclass 여도</b> 생성자 호출이 막힌다(JLS 6.6.2).
-	 * 부모 helper 를 public 으로 바꾸면 무접촉 범위(승우님 소유 아님이지만 팀 공유 지원 클래스)를
-	 * 흔들 소지가 있어, 이 테스트는 필요한 최소 픽스처만 로컬에서 직접 넣는다.
-	 */
-	private static UUID insertStudentProfile(
-		JdbcTemplate admin, UUID accountId, String alias, OffsetDateTime now
-	) {
-		UUID id = UUID.randomUUID();
-		admin.update("INSERT INTO student_profiles (id, account_id, alias, account_linked_at,"
-			+ " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-			id, accountId, alias, now, now, now);
-		return id;
 	}
 
 	private static UUID insertProblemRequest(

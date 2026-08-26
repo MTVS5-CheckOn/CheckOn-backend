@@ -1,5 +1,8 @@
 package com.checkon.member.support;
 
+import java.time.OffsetDateTime;
+import java.util.UUID;
+
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -121,5 +124,29 @@ public abstract class MemberPostgresSupport {
 		return restricted.queryForObject(
 			"SELECT rolsuper||'/'||rolbypassrls FROM pg_roles WHERE rolname = current_user",
 			String.class);
+	}
+
+	/**
+	 * 🔴 {@code student_profiles} 한 행. member 통합 테스트가 <b>여러 지점</b>에서 학생을 만들어야
+	 * 하므로 헬퍼를 여기 둔다.
+	 *
+	 * <p>왜 여기냐 — 이 클래스는 모든 member 통합 테스트가 상속하는 <b>단일 지점</b>이다.
+	 * {@code MembershipRlsEnforcedSupport.StudentFixture} 는 {@code protected record} 라
+	 * 다른 패키지 서브클래스에서 생성자가 막힌다(JLS 6.6.2). 그렇다고 두 곳에서 같은 INSERT 를
+	 * 사본으로 유지하면 컬럼 하나만 바뀌어도 갈린다.</p>
+	 *
+	 * <p>🔴 이 헬퍼는 {@code student_profiles} 만 만든다 — {@code member_display_names} ·
+	 * {@code member_student_public_ids} · {@code member_student_activation} 은 픽스처를 요구하는
+	 * 상위 헬퍼가 따로 붙인다. 그래야 이 attempt·worksheet 처럼 profile 만 필요한 테스트가 규약을
+	 * 다 만족시키지 않아도 된다.</p>
+	 */
+	public static UUID insertStudentProfile(
+		JdbcTemplate admin, UUID accountId, String alias, Integer grade, OffsetDateTime now
+	) {
+		UUID id = UUID.randomUUID();
+		admin.update("INSERT INTO student_profiles (id, account_id, alias, grade,"
+			+ " account_linked_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			id, accountId, alias, grade, now, now, now);
+		return id;
 	}
 }

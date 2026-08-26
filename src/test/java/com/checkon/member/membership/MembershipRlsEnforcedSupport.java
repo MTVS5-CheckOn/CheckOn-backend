@@ -131,10 +131,8 @@ public abstract class MembershipRlsEnforcedSupport {
 	protected static UUID insertStudent(
 		JdbcTemplate admin, UUID accountId, StudentFixture fixture, OffsetDateTime now
 	) {
-		UUID profileId = UUID.randomUUID();
-		admin.update("INSERT INTO student_profiles (id, account_id, alias, grade,"
-			+ " account_linked_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			profileId, accountId, fixture.alias(), fixture.grade(), now, now, now);
+		UUID profileId = MemberPostgresSupport.insertStudentProfile(
+			admin, accountId, fixture.alias(), fixture.grade(), now);
 		admin.update("INSERT INTO member_display_names (account_id, display_name, created_at,"
 			+ " updated_at) VALUES (?, ?, ?, ?)", accountId, fixture.displayName(), now, now);
 		admin.update("INSERT INTO member_student_public_ids (student_id, public_id, issued_at)"
