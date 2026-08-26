@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 import com.checkon.problem.application.ProblemStudioViews.DiagnosisProvenance;
 import com.checkon.problem.application.ProblemStudioViews.GenerationCapability;
+import com.checkon.problem.application.ProblemStudioViews.SkillNodeCandidate;
 import com.checkon.problem.application.ProblemStudioViews.WeaknessAnalysis;
 import com.checkon.problem.application.ProblemStudioViews.WeaknessCell;
 import com.checkon.problem.domain.ProblemStudioEvaluation;
@@ -30,9 +31,7 @@ import tools.jackson.databind.ObjectMapper;
 public class ProblemDiagnosisService {
 	private static final ZoneId SEOUL=ZoneId.of("Asia/Seoul");
 	private static final int MINIMUM_SAMPLE_SIZE=10;
-	private static final List<GenerationCapability> CAPABILITIES=List.of(
-		new GenerationCapability("language",ProblemTypeTag.CONCEPT,20,3),
-		new GenerationCapability("language",ProblemTypeTag.INFER,20,3));
+	private static final List<GenerationCapability> CAPABILITIES=capabilities();
 	private final ProblemDiagnosisTransactionService transactions;
 	private final ProblemDiagnosisClient client;
 	private final ObjectMapper objectMapper;
@@ -58,8 +57,30 @@ public class ProblemDiagnosisService {
 		BigDecimal average=overall(prepared);
 		DiagnosisProvenance provenance=new DiagnosisProvenance(snapshot.status(),snapshot.statusReason(),snapshot.snapshotHash(),
 			snapshot.taxonomyVersion(),snapshot.graphVersion(),snapshot.configVersion());
+		List<SkillNodeCandidate> nodes="GENERATED".equals(snapshot.status())?aiNodes(snapshot.responsePayload()):List.of();
 		return new WeaknessAnalysis(snapshot.id(),prepared.studentId(),prepared.from().atZone(SEOUL).toLocalDate(),
-			prepared.asOf().atZone(SEOUL).toLocalDate(),MINIMUM_SAMPLE_SIZE,average,cells,CAPABILITIES,provenance);
+			prepared.asOf().atZone(SEOUL).toLocalDate(),MINIMUM_SAMPLE_SIZE,average,cells,nodes,CAPABILITIES,provenance);
+	}
+
+	private List<SkillNodeCandidate> aiNodes(String payload) {
+		try {
+			JsonNode nodes=objectMapper.readTree(payload).get("data").get("weakness_map").get("nodes");
+			List<SkillNodeCandidate> result=new ArrayList<>();
+			nodes.properties().forEach(entry->{ JsonNode value=entry.getValue(); List<String> basis=new ArrayList<>();
+				JsonNode rawBasis=value.get("basis"); if(rawBasis!=null&&rawBasis.isArray()) for(JsonNode item:rawBasis)
+					if(item.isTextual()) basis.add(item.asText());
+				result.add(new SkillNodeCandidate(entry.getKey(),text(value,"verdict"),List.copyOf(basis))); });
+			return result.stream().sorted(java.util.Comparator.comparing(SkillNodeCandidate::skillNodeId)).toList();
+		}
+		catch (RuntimeException exception) { return List.of(); }
+	}
+
+	private static List<GenerationCapability> capabilities() {
+		List<GenerationCapability> result=new ArrayList<>();
+		for(String area:List.of("language","reading","literature","speech_writing","media"))
+			for(ProblemTypeTag type:List.of(ProblemTypeTag.FACT,ProblemTypeTag.INFER,
+				ProblemTypeTag.CRITIC,ProblemTypeTag.CONCEPT)) result.add(new GenerationCapability(area,type,20,3));
+		return List.copyOf(result);
 	}
 
 	private List<WeaknessCell> aiCells(String payload) {

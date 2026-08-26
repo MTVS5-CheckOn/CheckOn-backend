@@ -1,0 +1,5 @@
+package com.checkon.report.integration.ai;
+import java.util.Map;import java.util.UUID;import org.springframework.http.MediaType;import org.springframework.web.client.RestClient;
+final class RestMonthlyReportRevisionClient implements MonthlyReportRevisionClient {private final RestClient client;RestMonthlyReportRevisionClient(RestClient client){this.client=client;}
+	public String update(String tenant,UUID report,String block,int revision,String content){return client.patch().uri("/internal/v1/monthly-reports/{report}/blocks/{block}",report,block).header("X-Tenant-Id",tenant).contentType(MediaType.APPLICATION_JSON).body(Map.of("base_revision_no",revision,"content",content)).retrieve().body(String.class);}
+	public String restore(String tenant,UUID report,String block,int revision,int revert,String teacher){return client.post().uri("/internal/v1/monthly-reports/{report}/blocks/{block}/restore",report,block).header("X-Tenant-Id",tenant).contentType(MediaType.APPLICATION_JSON).body(Map.of("base_revision_no",revision,"revert_to_revision_no",revert,"teacher_ref",teacher)).retrieve().body(String.class);}}

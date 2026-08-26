@@ -10,7 +10,7 @@ import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-import com.checkon.problem.application.CreateProblemStudioCommand.Target;
+import com.checkon.problem.domain.ProblemTypeTag;
 import com.checkon.problem.domain.ProblemValidationStatus;
 
 @Repository
@@ -21,18 +21,22 @@ public class ProblemStudioWorkflowRepository {
 		this.jdbc = jdbc;
 	}
 
-	public List<UUID> insertTargets(UUID teacherId, UUID requestId, List<Target> targets) {
+	public List<UUID> insertTargets(UUID teacherId, UUID requestId, List<NewTarget> targets) {
 		java.util.ArrayList<UUID> ids = new java.util.ArrayList<>();
 		for (int index = 0; index < targets.size(); index++) {
-			Target target = targets.get(index);
+			NewTarget target = targets.get(index);
 			ids.add(jdbc.sql("""
 				INSERT INTO problem_generation_request_targets
-				    (teacher_id, problem_request_id, ordinal, area_tag, type_tag, requested_count)
-				VALUES (:teacherId, :requestId, :ordinal, :areaTag, :typeTag, :count)
+				    (teacher_id, problem_request_id, ordinal, area_tag, type_tag, requested_count,
+				     skill_node_id, source_payload)
+				VALUES (:teacherId, :requestId, :ordinal, :areaTag, :typeTag, :count,
+				    :skillNodeId, CAST(:sourcePayload AS jsonb))
 				RETURNING id
 				""").param("teacherId", teacherId).param("requestId", requestId)
 				.param("ordinal", index + 1).param("areaTag", target.areaTag())
-				.param("typeTag", target.typeTag().name()).param("count", target.count()).query(UUID.class).single());
+				.param("typeTag", target.typeTag().name()).param("count", target.count())
+				.param("skillNodeId", target.skillNodeId()).param("sourcePayload", target.sourcePayload())
+				.query(UUID.class).single());
 		}
 		return List.copyOf(ids);
 	}
@@ -42,11 +46,13 @@ public class ProblemStudioWorkflowRepository {
 			INSERT INTO problem_generation_items (
 			    teacher_id, problem_request_id, external_item_id, ordinal, stem, passage,
 			    correct_answer_text, explanation, source_basis, validation_status,
-			    validation_message, selected, raw_payload, created_at, updated_at
+			    validation_message, selected, raw_payload, skill_node_id, area_tag, type_tag,
+			    correct_no, created_at, updated_at
 			) VALUES (
 			    :teacherId, :requestId, :externalId, :ordinal, :stem, :passage,
 			    :correctAnswer, :explanation, :sourceBasis, :validationStatus,
-			    :validationMessage, :selected, CAST(:rawPayload AS jsonb), :now, :now
+			    :validationMessage, :selected, CAST(:rawPayload AS jsonb), :skillNodeId, :areaTag, :typeTag,
+			    :correctNo, :now, :now
 			) RETURNING id
 			""").params(Map.ofEntries(
 			Map.entry("teacherId", item.teacherId()), Map.entry("requestId", item.requestId()),
@@ -57,38 +63,86 @@ public class ProblemStudioWorkflowRepository {
 			Map.entry("validationStatus", item.validationStatus().name()),
 			Map.entry("validationMessage", nullable(item.validationMessage())),
 			Map.entry("selected", item.validationStatus().publishable()), Map.entry("rawPayload", item.rawPayload()),
+			Map.entry("skillNodeId", nullable(item.skillNodeId())),Map.entry("areaTag",nullable(item.areaTag())),
+			Map.entry("typeTag",nullable(item.typeTag())),Map.entry("correctNo", nullable(item.correctNo())),
 			Map.entry("now", item.now().atOffset(ZoneOffset.UTC))
 		)).query(UUID.class).single();
 	}
 
-	public void insertOption(UUID teacherId, UUID requestId, UUID itemId, int position, String content) {
+	public void insertOption(UUID teacherId, UUID requestId, UUID itemId, int position, String content,
+		String whyWrong, String misconceptionTag) {
 		jdbc.sql("""
 			INSERT INTO problem_generation_item_options
-			    (item_id, teacher_id, problem_request_id, position, content)
-			VALUES (:itemId, :teacherId, :requestId, :position, :content)
+			    (item_id, teacher_id, problem_request_id, position, content, why_wrong, misconception_tag)
+			VALUES (:itemId, :teacherId, :requestId, :position, :content, :whyWrong, :misconceptionTag)
 			""").param("itemId", itemId).param("teacherId", teacherId).param("requestId", requestId)
-			.param("position", position).param("content", content).update();
+			.param("position", position).param("content", content)
+			.param("whyWrong", nullable(whyWrong)).param("misconceptionTag", nullable(misconceptionTag)).update();
 	}
 
-	public void insertSlot(NewSlot slot) {
+	public void replaceItemForRevision(NewItem item, UUID itemId) {
 		jdbc.sql("""
+			UPDATE problem_generation_items SET stem=:stem,passage=:passage,
+			 correct_answer_text=:correctAnswer,explanation=:explanation,source_basis=:sourceBasis,
+			 validation_status=:validationStatus,validation_message=:validationMessage,
+			 raw_payload=CAST(:rawPayload AS jsonb),skill_node_id=:skillNodeId,area_tag=:areaTag,
+			 type_tag=:typeTag,correct_no=:correctNo,
+			 selected=FALSE,updated_at=:now
+			WHERE id=:itemId AND teacher_id=:teacherId AND problem_request_id=:requestId
+			""").param("itemId",itemId).param("teacherId",item.teacherId()).param("requestId",item.requestId())
+			.param("stem",item.stem()).param("passage",nullable(item.passage()))
+			.param("correctAnswer",nullable(item.correctAnswer())).param("explanation",nullable(item.explanation()))
+			.param("sourceBasis",nullable(item.sourceBasis())).param("validationStatus",item.validationStatus().name())
+			.param("validationMessage",nullable(item.validationMessage())).param("rawPayload",item.rawPayload())
+			.param("skillNodeId",nullable(item.skillNodeId())).param("correctNo",nullable(item.correctNo()))
+			.param("areaTag",nullable(item.areaTag())).param("typeTag",nullable(item.typeTag()))
+			.param("now",item.now().atOffset(ZoneOffset.UTC)).update();
+		jdbc.sql("DELETE FROM problem_generation_item_options WHERE item_id=:itemId AND teacher_id=:teacherId")
+			.param("itemId",itemId).param("teacherId",item.teacherId()).update();
+	}
+
+	public void updateSlotRevision(NewSlot slot) {
+		jdbc.sql("""
+			UPDATE problem_generation_slots SET status=:status,current_revision_no=:revision,
+			 review_reason=:reviewReason,failure_reason=:failureReason,
+			 failure_detail=CAST(:failureDetail AS jsonb),raw_payload=CAST(:raw AS jsonb),
+			 ai_status=:aiStatus,available_actions=CAST(:availableActions AS jsonb),
+			 revision_payload=CAST(:revisions AS jsonb),updated_at=:now
+			WHERE teacher_id=:teacherId AND problem_request_id=:requestId
+			  AND problem_execution_id=:executionId AND slot_index=:slotIndex
+			""").params(Map.ofEntries(Map.entry("teacherId",slot.teacherId()),Map.entry("requestId",slot.requestId()),
+			Map.entry("executionId",slot.executionId()),Map.entry("slotIndex",slot.slotIndex()),
+			Map.entry("status",slot.status().name()),Map.entry("revision",slot.revision()),
+			Map.entry("reviewReason",nullable(slot.reviewReason())),Map.entry("failureReason",nullable(slot.failureReason())),
+			Map.entry("failureDetail",nullable(slot.failureDetail())),Map.entry("raw",slot.rawPayload()),
+			Map.entry("aiStatus",nullable(slot.aiStatus())),Map.entry("availableActions",slot.availableActionsPayload()),
+			Map.entry("revisions",slot.revisionsPayload()),Map.entry("now",slot.now().atOffset(ZoneOffset.UTC)))).update();
+	}
+
+	public int insertSlot(NewSlot slot) {
+		return jdbc.sql("""
 			INSERT INTO problem_generation_slots (
 			 teacher_id,problem_request_id,problem_execution_id,slot_index,item_id,external_item_id,status,
-			 current_revision_no,review_reason,failure_reason,failure_detail,raw_payload,created_at,updated_at
+			 current_revision_no,review_reason,failure_reason,failure_detail,raw_payload,ai_status,
+			 available_actions,revision_payload,created_at,updated_at
 			) VALUES (:teacherId,:requestId,:executionId,:slotIndex,:itemId,:externalId,:status,
-			 :revision,:reviewReason,:failureReason,CAST(:failureDetail AS jsonb),CAST(:raw AS jsonb),:now,:now)
+			 :revision,:reviewReason,:failureReason,CAST(:failureDetail AS jsonb),CAST(:raw AS jsonb),:aiStatus,
+			 CAST(:availableActions AS jsonb),CAST(:revisions AS jsonb),:now,:now)
 			ON CONFLICT (problem_execution_id,slot_index) DO NOTHING
 			""").params(Map.ofEntries(Map.entry("teacherId",slot.teacherId()),Map.entry("requestId",slot.requestId()),
 			Map.entry("executionId",slot.executionId()),Map.entry("slotIndex",slot.slotIndex()),Map.entry("itemId",nullable(slot.itemId())),
 			Map.entry("externalId",nullable(slot.externalItemId())),Map.entry("status",slot.status().name()),
 			Map.entry("revision",slot.revision()),Map.entry("reviewReason",nullable(slot.reviewReason())),
 			Map.entry("failureReason",nullable(slot.failureReason())),Map.entry("failureDetail",nullable(slot.failureDetail())),
-			Map.entry("raw",slot.rawPayload()),Map.entry("now",slot.now().atOffset(ZoneOffset.UTC)))).update();
+			Map.entry("raw",slot.rawPayload()),Map.entry("aiStatus",nullable(slot.aiStatus())),
+			Map.entry("availableActions",slot.availableActionsPayload()),Map.entry("revisions",slot.revisionsPayload()),
+			Map.entry("now",slot.now().atOffset(ZoneOffset.UTC)))).update();
 	}
 
 	public void updateExecutionSummary(UUID teacherId,UUID executionId,int requested,int processed,String statusCounts) {
 		jdbc.sql("""
 			UPDATE problem_generation_executions SET requested_count=:requested,processed_count=:processed,
+			 expected_slot_count=COALESCE(expected_slot_count,:requested),
 			 status_counts=CAST(:counts AS jsonb) WHERE id=:executionId AND teacher_id=:teacherId
 			""").param("requested",requested).param("processed",processed).param("counts",statusCounts)
 			.param("executionId",executionId).param("teacherId",teacherId).update();
@@ -109,6 +163,25 @@ public class ProblemStudioWorkflowRepository {
 			WHERE teacher_id = :teacherId AND problem_request_id = :requestId)
 			""").param("teacherId", teacherId).param("requestId", requestId)
 			.query(Boolean.class).single();
+	}
+
+	public Optional<RevisionTarget> findRevisionTarget(UUID teacherId, UUID requestId, UUID executionId,
+		int slotIndex) {
+		return jdbc.sql("""
+			SELECT slot.item_id,slot.current_revision_no,slot.available_actions::text,
+			       execution.ai_set_id
+			FROM problem_generation_slots slot
+			JOIN problem_generation_executions execution
+			  ON execution.id=slot.problem_execution_id
+			 AND execution.teacher_id=slot.teacher_id
+			 AND execution.problem_request_id=slot.problem_request_id
+			WHERE slot.teacher_id=:teacherId AND slot.problem_request_id=:requestId
+			  AND slot.problem_execution_id=:executionId AND slot.slot_index=:slotIndex
+			""").param("teacherId",teacherId).param("requestId",requestId)
+			.param("executionId",executionId).param("slotIndex",slotIndex)
+			.query((rs,row)->new RevisionTarget(rs.getObject("item_id",UUID.class),
+				rs.getInt("current_revision_no"),rs.getString("available_actions"),rs.getString("ai_set_id")))
+			.optional();
 	}
 
 	public int countItems(UUID teacherId, UUID requestId) {
@@ -188,14 +261,22 @@ public class ProblemStudioWorkflowRepository {
 			       jsonb_build_object(
 			           'itemId', item.id,
 			           'ordinal', item.ordinal,
+			           'skillNodeId', item.skill_node_id,
+			           'areaTag', item.area_tag,
+			           'typeTag', item.type_tag,
 			           'stem', item.stem,
 			           'passage', item.passage,
+			           'correctNo', item.correct_no,
 			           'correctAnswerText', item.correct_answer_text,
 			           'explanation', item.explanation,
 			           'sourceBasis', item.source_basis,
 			           'validationStatus', item.validation_status,
 			           'options', COALESCE((
-			               SELECT jsonb_agg(jsonb_build_object('position', option.position, 'content', option.content)
+			               SELECT jsonb_agg(jsonb_build_object(
+			                   'position', option.position,
+			                   'content', option.content,
+			                   'whyWrong', option.why_wrong,
+			                   'misconceptionTag', option.misconception_tag)
 			                                ORDER BY option.position)
 			               FROM problem_generation_item_options option WHERE option.item_id = item.id
 			           ), '[]'::jsonb)
@@ -246,10 +327,16 @@ public class ProblemStudioWorkflowRepository {
 
 	public record NewItem(UUID teacherId, UUID requestId, String externalId, int ordinal,
 		String stem, String passage, String correctAnswer, String explanation, String sourceBasis,
-		ProblemValidationStatus validationStatus, String validationMessage, String rawPayload, Instant now) { }
+		ProblemValidationStatus validationStatus, String validationMessage, String skillNodeId,
+		String areaTag,String typeTag,Integer correctNo,
+		String rawPayload, Instant now) { }
 	public record NewSlot(UUID teacherId,UUID requestId,UUID executionId,int slotIndex,UUID itemId,String externalItemId,
 		ProblemValidationStatus status,int revision,String reviewReason,String failureReason,String failureDetail,
-		String rawPayload,Instant now) { }
+		String aiStatus,String availableActionsPayload,String revisionsPayload,String rawPayload,Instant now) { }
 	public record SavedSetRow(UUID id, String status, Instant savedAt) { }
 	public record AssignmentRow(UUID id, UUID setId, UUID studentId, String status, Instant publishedAt) { }
+	public record NewTarget(String areaTag, ProblemTypeTag typeTag, int count, String skillNodeId,
+		String sourcePayload) { }
+	public record RevisionTarget(UUID itemId,int currentRevisionNo,String availableActionsPayload,
+		String aiSetId) { }
 }

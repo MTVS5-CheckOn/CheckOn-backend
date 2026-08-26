@@ -19,13 +19,14 @@ public class ProblemGenerationOutboxRepository {
 	public void insert(NewOutboxEvent event) {
 		jdbcClient.sql("""
 			INSERT INTO problem_generation_outbox (
-			    id, teacher_id, problem_request_id, problem_execution_id, event_type, schema_version,
+			    id, teacher_id, problem_request_id, problem_execution_id, revision_request_id, event_type, schema_version,
 			    event_key, payload, status, next_attempt_at, created_at
-			) VALUES (:id, :teacherId, :requestId, :executionId, :eventType, :schemaVersion,
+			) VALUES (:id, :teacherId, :requestId, :executionId, :revisionId, :eventType, :schemaVersion,
 			    :eventKey, CAST(:payload AS jsonb), 'PENDING', :createdAt, :createdAt)
 			""").param("id", event.id()).param("teacherId", event.teacherId())
 			.param("requestId", event.requestId()).param("eventType", event.eventType())
 			.param("executionId", event.executionId() == null ? new org.springframework.jdbc.core.SqlParameterValue(java.sql.Types.OTHER,null) : event.executionId())
+			.param("revisionId", event.revisionId() == null ? new org.springframework.jdbc.core.SqlParameterValue(java.sql.Types.OTHER,null) : event.revisionId())
 			.param("schemaVersion", event.schemaVersion()).param("eventKey", event.eventKey())
 			.param("payload", event.payload()).param("createdAt", databaseTime(event.createdAt())).update();
 	}
@@ -48,6 +49,7 @@ public class ProblemGenerationOutboxRepository {
 			    attempt_count = outbox.attempt_count + 1
 			FROM candidates WHERE outbox.id = candidates.id
 			RETURNING outbox.id, outbox.teacher_id, outbox.problem_request_id, outbox.problem_execution_id,
+			          outbox.revision_request_id,
 			          outbox.event_type, outbox.schema_version, outbox.event_key,
 			          outbox.payload::text AS payload, outbox.attempt_count, outbox.created_at
 			""").param("teacherId", teacherId).param("now", databaseTime(now))
@@ -85,7 +87,8 @@ public class ProblemGenerationOutboxRepository {
 
 	private static OutboxMessage mapMessage(ResultSet rs, int row) throws SQLException {
 		return new OutboxMessage(rs.getObject("id", UUID.class), rs.getObject("teacher_id", UUID.class),
-			rs.getObject("problem_request_id", UUID.class), rs.getObject("problem_execution_id",UUID.class), rs.getString("event_type"), rs.getString("schema_version"),
+			rs.getObject("problem_request_id", UUID.class), rs.getObject("problem_execution_id",UUID.class),
+			rs.getObject("revision_request_id",UUID.class), rs.getString("event_type"), rs.getString("schema_version"),
 			rs.getString("event_key"), rs.getString("payload"), rs.getInt("attempt_count"),
 			rs.getObject("created_at", OffsetDateTime.class).toInstant());
 	}
@@ -95,8 +98,8 @@ public class ProblemGenerationOutboxRepository {
 	}
 	private static OffsetDateTime databaseTime(Instant value) { return value.atOffset(ZoneOffset.UTC); }
 
-	public record NewOutboxEvent(UUID id, UUID teacherId, UUID requestId, UUID executionId, String eventType,
+	public record NewOutboxEvent(UUID id, UUID teacherId, UUID requestId, UUID executionId, UUID revisionId, String eventType,
 		String schemaVersion, String eventKey, String payload, Instant createdAt) { }
-	public record OutboxMessage(UUID id, UUID teacherId, UUID requestId, UUID executionId, String eventType,
+	public record OutboxMessage(UUID id, UUID teacherId, UUID requestId, UUID executionId, UUID revisionId, String eventType,
 		String schemaVersion, String eventKey, String payload, int attemptCount, Instant createdAt) { }
 }

@@ -19,6 +19,8 @@ import tools.jackson.databind.ObjectMapper;
 @Component
 public class ProblemGenerationResultEventParser {
 	private static final Pattern TENANT_ALIAS = Pattern.compile("tn_[0-9a-f]{32}");
+	private static final int REFERENCE_EVENT_MAX_BYTES = 64 * 1024;
+	private static final int DETAIL_EVENT_MAX_BYTES = 1024 * 1024;
 	private final ObjectMapper objectMapper;
 	private final ProblemGenerationPayloadHasher hasher;
 	public ProblemGenerationResultEventParser(ObjectMapper objectMapper, ProblemGenerationPayloadHasher hasher) {
@@ -27,6 +29,8 @@ public class ProblemGenerationResultEventParser {
 
 	public ParsedProblemGenerationResultEvent parse(String rawPayload) {
 		if (rawPayload == null || rawPayload.isBlank()) throw contract("event payload must not be blank");
+		int payloadBytes = rawPayload.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+		if (payloadBytes > DETAIL_EVENT_MAX_BYTES) throw contract("event payload exceeds the 1 MiB detail limit");
 		try {
 			JsonNode root = objectMapper.readTree(rawPayload);
 			JsonNode payload = requiredObject(root, "payload");
@@ -42,57 +46,114 @@ public class ProblemGenerationResultEventParser {
 			UUID requestId = correlationId != null ? correlationId : payloadRequestId;
 			if (requestId == null) throw contract("problem_request_id or correlation_id is required");
 
+			ParsedProblemGenerationResultEvent.EventKind kind = eventKind(eventType);
+			if (kind == ParsedProblemGenerationResultEvent.EventKind.WORKER
+				&& payloadBytes > REFERENCE_EVENT_MAX_BYTES)
+				throw contract("worker reference payload exceeds the 64 KiB limit");
 			validateWorkerKind(eventType, payload);
-			ProblemGenerationStatus status = status(eventType, payload);
+			String workerPhase = workerPhase(eventType, payload, kind);
+			ProblemGenerationStatus status = status(workerPhase, kind);
 			UUID problemExecutionId = optionalUuid(payload.get("problem_execution_id"), "payload.problem_execution_id");
+			UUID revisionRequestId = optionalUuid(payload.get("revision_request_id"), "payload.revision_request_id");
 			Integer targetIndex = optionalNonNegativeInt(payload.get("target_index"), "payload.target_index");
 			UUID adapterExecutionId = optionalUuid(payload.get("adapter_execution_id"), "payload.adapter_execution_id");
-			ProblemGenerationExecutionStatus executionStatus = executionStatus(eventType, payload, status);
+			String domainStatus = normalizeDomainStatus(firstNonBlank(
+				firstText(payload, "domain_status"), firstText(payload, "result_status")));
+			ProblemGenerationExecutionStatus executionStatus = executionStatus(workerPhase, domainStatus, kind);
 			JsonNode result = object(payload, "result");
+			JsonNode slot = kind != ParsedProblemGenerationResultEvent.EventKind.WORKER
+				? firstObject(payload, "slot", "detail") : null;
+			if (kind == ParsedProblemGenerationResultEvent.EventKind.SLOT_DETAIL && slot == null)
+				throw contract("slot detail event requires payload.slot");
 			JsonNode meta = object(root, "meta");
 			String jobId = firstText(payload, "job_id");
 			String executionId = firstNonBlank(firstText(payload, "execution_id"), firstText(meta, "execution_id"));
 			String setId = firstNonBlank(firstText(payload, "set_id"), firstText(result, "set_id"));
 			String resultStatus = firstNonBlank(firstText(payload, "result_status"), firstText(result, "status"), firstText(result, "outcome"));
 			String errorCode = firstNonBlank(firstText(payload, "error_code"), firstText(object(payload, "error"), "code"));
+			JsonNode errorDetail=object(object(payload,"error"),"detail");
+			String conflictReason=firstNonBlank(firstText(payload,"conflict_reason"),firstText(errorDetail,"reason"));
+			Integer currentRevisionNo=optionalNonNegativeInt(firstNode(payload,errorDetail,"current_revision_no"),"current_revision_no");
 			JsonNode versions = object(payload, "versions");
 			if (versions == null) versions = object(meta, "versions");
-			String resultPayload = status == ProblemGenerationStatus.RUNNING ? null : writeJson(result == null ? payload : result);
+			if (domainStatus == null) domainStatus = normalizeDomainStatus(
+				firstNonBlank(firstText(result, "status"), firstText(result, "outcome")));
+			Integer requestedCount = optionalNonNegativeInt(firstNode(payload, result, "requested_count"), "requested_count");
+			Integer processedCount = optionalNonNegativeInt(firstNode(payload, result, "processed_count"), "processed_count");
+			Integer unstartedCount = optionalNonNegativeInt(firstNode(payload, result, "unstarted_count"), "unstarted_count");
+			JsonNode statusCounts = firstNode(payload, result, "status_counts");
+			String resultPayload = kind == ParsedProblemGenerationResultEvent.EventKind.WORKER
+				&& status != ProblemGenerationStatus.RUNNING ? writeJson(result == null ? payload : result) : null;
+			String slotPayload = slot == null ? null : writeJson(slot);
 			String versionsPayload = versions == null ? null : writeJson(versions);
 			return new ParsedProblemGenerationResultEvent(eventId, eventType, schemaVersion, requestId,
-				problemExecutionId, targetIndex, adapterExecutionId, tenantAlias, status, executionStatus, jobId, executionId, setId, resultStatus, errorCode,
-				resultPayload, versionsPayload, occurredAt(requiredText(root, "occurred_at")), hasher.sha256(rawPayload));
+				problemExecutionId, revisionRequestId, targetIndex, adapterExecutionId, tenantAlias, kind, status, executionStatus,
+				workerPhase, domainStatus, jobId, executionId, setId, resultStatus, errorCode,
+				conflictReason,currentRevisionNo,
+				requestedCount, processedCount, unstartedCount, statusCounts == null ? null : writeJson(statusCounts),
+				resultPayload, slotPayload, versionsPayload, occurredAt(requiredText(root, "occurred_at")), hasher.sha256(rawPayload));
 		}
 		catch (ProblemGenerationEventContractException exception) { throw exception; }
 		catch (JacksonException exception) { throw new ProblemGenerationEventContractException("event payload is not valid JSON", exception); }
 	}
-	private static ProblemGenerationExecutionStatus executionStatus(String eventType, JsonNode payload, ProblemGenerationStatus parentStatus) {
-		String value = firstNonBlank(firstText(payload,"child_status"), firstText(payload,"phase"), firstText(payload,"result_status"));
-		if (value != null) {
-			String normalized = value.toLowerCase(Locale.ROOT).replace('-','_');
-			if (normalized.equals("timed_out") || normalized.equals("timeout")) return ProblemGenerationExecutionStatus.TIMED_OUT;
-			if (normalized.equals("delivery_failed")) return ProblemGenerationExecutionStatus.DELIVERY_FAILED;
-			if (normalized.equals("rejected_insufficient")) return ProblemGenerationExecutionStatus.REJECTED_INSUFFICIENT;
-			if (normalized.equals("cancelled")) return ProblemGenerationExecutionStatus.CANCELLED;
-		}
-		return switch (parentStatus) {
-			case RUNNING -> ProblemGenerationExecutionStatus.RUNNING;
-			case SUCCEEDED, PARTIAL_SUCCESS -> ProblemGenerationExecutionStatus.SUCCEEDED;
-			case FAILED, DELIVERY_FAILED -> ProblemGenerationExecutionStatus.FAILED;
-			case CANCELLED -> ProblemGenerationExecutionStatus.CANCELLED;
-			case QUEUED, DISPATCHED -> throw contract("result event cannot move child to a request-only phase");
+	private static ProblemGenerationExecutionStatus executionStatus(String workerPhase, String domainStatus,
+		ParsedProblemGenerationResultEvent.EventKind kind) {
+		if (kind != ParsedProblemGenerationResultEvent.EventKind.WORKER) return ProblemGenerationExecutionStatus.RUNNING;
+		if ("cancelled".equals(workerPhase)) return ProblemGenerationExecutionStatus.CANCELLED;
+		if ("failed".equals(workerPhase)) return ProblemGenerationExecutionStatus.FAILED;
+		if ("succeeded".equals(workerPhase) && "rejected_insufficient".equals(domainStatus))
+			return ProblemGenerationExecutionStatus.REJECTED_INSUFFICIENT;
+		return "succeeded".equals(workerPhase)
+			? ProblemGenerationExecutionStatus.SUCCEEDED : ProblemGenerationExecutionStatus.RUNNING;
+	}
+
+	private static ProblemGenerationStatus status(String workerPhase,
+		ParsedProblemGenerationResultEvent.EventKind kind) {
+		if (kind != ParsedProblemGenerationResultEvent.EventKind.WORKER) return ProblemGenerationStatus.RUNNING;
+		return switch (workerPhase) {
+			case "succeeded" -> ProblemGenerationStatus.SUCCEEDED;
+			case "failed" -> ProblemGenerationStatus.FAILED;
+			case "cancelled" -> ProblemGenerationStatus.CANCELLED;
+			default -> ProblemGenerationStatus.RUNNING;
 		};
 	}
 
-	private static ProblemGenerationStatus status(String eventType, JsonNode payload) {
+	private static ParsedProblemGenerationResultEvent.EventKind eventKind(String eventType) {
 		String normalized = eventType.toLowerCase(Locale.ROOT);
-		if (!(normalized.startsWith("worker_job.") || normalized.startsWith("problem_generation."))) throw contract("unsupported event_type");
-		if (normalized.endsWith(".succeeded")) return ProblemGenerationStatus.SUCCEEDED;
-		if (normalized.endsWith(".failed")) return ProblemGenerationStatus.FAILED;
-		if (normalized.endsWith(".cancelled")) return ProblemGenerationStatus.CANCELLED;
-		if (normalized.endsWith(".progress") || normalized.endsWith(".running")) return ProblemGenerationStatus.RUNNING;
-		if ("running".equalsIgnoreCase(firstText(payload, "phase"))) return ProblemGenerationStatus.RUNNING;
-		throw contract("event_type does not describe a supported phase");
+		if (normalized.equals("problem_generation.slot.detail"))
+			return ParsedProblemGenerationResultEvent.EventKind.SLOT_DETAIL;
+		if (normalized.startsWith("problem_generation.revision."))
+			return ParsedProblemGenerationResultEvent.EventKind.REVISION_RESULT;
+		if (normalized.startsWith("worker_job.") || normalized.startsWith("problem_generation."))
+			return ParsedProblemGenerationResultEvent.EventKind.WORKER;
+		throw contract("unsupported event_type");
+	}
+
+	private static String workerPhase(String eventType, JsonNode payload,
+		ParsedProblemGenerationResultEvent.EventKind kind) {
+		if (kind != ParsedProblemGenerationResultEvent.EventKind.WORKER) return "running";
+		String value = firstNonBlank(firstText(payload, "worker_phase"), firstText(payload, "phase"));
+		if (value == null) {
+			String normalized = eventType.toLowerCase(Locale.ROOT);
+			for (String candidate : java.util.List.of("queued", "leased", "running", "paused", "succeeded", "failed", "cancelled"))
+				if (normalized.endsWith("." + candidate)) return candidate;
+			if (normalized.endsWith(".progress")) return "running";
+			throw contract("worker event does not describe a supported phase");
+		}
+		String normalized = value.toLowerCase(Locale.ROOT).replace('-', '_');
+		if (!java.util.Set.of("queued", "leased", "running", "paused", "succeeded", "failed", "cancelled").contains(normalized))
+			throw contract("worker_phase is not supported");
+		return normalized;
+	}
+	private static String normalizeDomainStatus(String value) {
+		if (value == null) return null;
+		return switch (value.toLowerCase(Locale.ROOT).replace('-', '_')) {
+			case "generated", "completed", "success", "succeeded" -> "generated";
+			case "partial", "partial_success" -> "partial_success";
+			case "failed" -> "failed";
+			case "rejected_insufficient", "insufficient" -> "rejected_insufficient";
+			default -> null;
+		};
 	}
 	private static void validateWorkerKind(String eventType, JsonNode payload) {
 		if (!eventType.startsWith("worker_job.")) return;
@@ -105,6 +166,15 @@ public class ProblemGenerationResultEventParser {
 	}
 	private static JsonNode object(JsonNode node, String field) {
 		if (node == null) return null; JsonNode value = node.get(field); return value != null && value.isObject() ? value : null;
+	}
+	private static JsonNode firstObject(JsonNode node, String... fields) {
+		for (String field : fields) { JsonNode value = object(node, field); if (value != null) return value; }
+		return null;
+	}
+	private static JsonNode firstNode(JsonNode primary, JsonNode secondary, String field) {
+		JsonNode value = primary == null ? null : primary.get(field);
+		if (value == null || value.isNull()) value = secondary == null ? null : secondary.get(field);
+		return value == null || value.isNull() ? null : value;
 	}
 	private static String requiredText(JsonNode node, String field) {
 		String value = firstText(node, field); if (value == null) throw contract(field + " must not be blank"); return value;

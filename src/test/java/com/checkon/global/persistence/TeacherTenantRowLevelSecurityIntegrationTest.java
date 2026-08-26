@@ -63,6 +63,18 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 		UUID.fromString("019846dc-7c00-7000-8000-000000001027");
 	private static final UUID PARENT_STUDENT_B =
 		UUID.fromString("019846dc-7c00-7000-8000-000000001028");
+	private static final UUID PARENT_LABEL_ALIAS_A =
+		UUID.fromString("019846dc-7c00-7000-8000-000000001029");
+	private static final UUID PARENT_LABEL_ALIAS_B =
+		UUID.fromString("019846dc-7c00-7000-8000-00000000102a");
+	private static final UUID LABEL_REQUEST_A =
+		UUID.fromString("019846dc-7c00-7000-8000-00000000102b");
+	private static final UUID LABEL_REQUEST_B =
+		UUID.fromString("019846dc-7c00-7000-8000-00000000102c");
+	private static final UUID LABEL_SUGGESTION_A =
+		UUID.fromString("019846dc-7c00-7000-8000-00000000102d");
+	private static final UUID LABEL_SUGGESTION_B =
+		UUID.fromString("019846dc-7c00-7000-8000-00000000102e");
 	private static final UUID RELATIONSHIP_A =
 		UUID.fromString("019846dc-7c00-7000-8000-000000001031");
 	private static final UUID RELATIONSHIP_B =
@@ -111,6 +123,10 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 	private static final String TENANT_REF_B = "tn_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 	private static final String CLASS_REF_A = "cl_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 	private static final String CLASS_REF_B = "cl_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+	private static final UUID CURRENT_LABEL_A = UUID.fromString("019846dc-7c00-7000-8000-000000001111");
+	private static final UUID CURRENT_LABEL_B = UUID.fromString("019846dc-7c00-7000-8000-000000001112");
+	private static final UUID LABEL_DECISION_A = UUID.fromString("019846dc-7c00-7000-8000-000000001121");
+	private static final UUID LABEL_DECISION_B = UUID.fromString("019846dc-7c00-7000-8000-000000001122");
 	private static final String RESTRICTED_ROLE = "checkon_rls_test_runtime";
 
 	@Container
@@ -167,7 +183,12 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			   problem_assignments,
 			   parent_profiles,
 			   parent_teacher_relationships,
-			   parent_student_relationships
+			   parent_student_relationships,
+			   ai_parent_label_aliases,
+			   guardian_label_suggestion_requests,
+			   guardian_label_suggestions,
+			   guardian_labels,
+			   guardian_label_decisions
 			TO checkon_rls_test_runtime
 			""");
 		administrator.execute("""
@@ -242,11 +263,13 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'problem_generation_request_targets','problem_generation_items',
 				    'problem_generation_item_options','problem_generation_slots','saved_problem_sets',
 				    'saved_problem_set_items','problem_assignments',
-				    'parent_profiles','parent_teacher_relationships','parent_student_relationships'
+				    'parent_profiles','parent_teacher_relationships','parent_student_relationships',
+				    'ai_parent_label_aliases','guardian_label_suggestion_requests','guardian_label_suggestions',
+				    'guardian_labels','guardian_label_decisions'
 				  )
 				  AND table_metadata.relrowsecurity
 				  AND table_metadata.relforcerowsecurity
-				""")).isEqualTo(31);
+				""")).isEqualTo(36);
 			assertThat(queryInt(statement, """
 				SELECT count(*) FROM pg_policies
 				WHERE schemaname = 'public'
@@ -270,9 +293,11 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				    'problem_generation_request_targets','problem_generation_items',
 				    'problem_generation_item_options','problem_generation_slots','saved_problem_sets',
 				    'saved_problem_set_items','problem_assignments',
-				    'parent_profiles','parent_teacher_relationships','parent_student_relationships'
+				    'parent_profiles','parent_teacher_relationships','parent_student_relationships',
+				    'ai_parent_label_aliases','guardian_label_suggestion_requests','guardian_label_suggestions',
+				    'guardian_labels','guardian_label_decisions'
 				  )
-				""")).isEqualTo(121);
+				""")).isEqualTo(154);
 			assertThat(queryInt(statement, """
 				SELECT count(*)
 				FROM pg_class table_metadata
@@ -316,6 +341,11 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			assertThat(count(connection, "parent_profiles")).isZero();
 			assertThat(count(connection, "parent_teacher_relationships")).isZero();
 			assertThat(count(connection, "parent_student_relationships")).isZero();
+			assertThat(count(connection, "ai_parent_label_aliases")).isZero();
+			assertThat(count(connection, "guardian_label_suggestion_requests")).isZero();
+			assertThat(count(connection, "guardian_label_suggestions")).isZero();
+			assertThat(count(connection, "guardian_labels")).isZero();
+			assertThat(count(connection, "guardian_label_decisions")).isZero();
 			assertThat(update(connection,
 				"UPDATE class_groups SET name = 'blocked' WHERE id = ?", CLASS_A
 			)).isZero();
@@ -345,6 +375,11 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 				.containsExactly(PARENT_TEACHER_A);
 			assertThat(ids(connection, "parent_student_relationships"))
 				.containsExactly(PARENT_STUDENT_A);
+			assertThat(ids(connection, "ai_parent_label_aliases")).containsExactly(PARENT_LABEL_ALIAS_A);
+			assertThat(ids(connection, "guardian_label_suggestion_requests")).containsExactly(LABEL_REQUEST_A);
+			assertThat(ids(connection, "guardian_label_suggestions")).containsExactly(LABEL_SUGGESTION_A);
+			assertThat(ids(connection, "guardian_labels")).containsExactly(CURRENT_LABEL_A);
+			assertThat(ids(connection, "guardian_label_decisions")).containsExactly(LABEL_DECISION_A);
 			assertThat(ids(connection, "detection_runs")).containsExactly(RUN_A);
 			assertThat(ids(connection, "detection_request_attempts"))
 				.containsExactly(ATTEMPT_A);
@@ -592,6 +627,14 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			PARENT_B, PARENT_TEACHER_B, PARENT_STUDENT_B,
 			TEACHER_B, STUDENT_B, "rls-parent-b@example.com"
 		);
+		insertGuardianLabelFixture(
+			PARENT_LABEL_ALIAS_A, LABEL_REQUEST_A, LABEL_SUGGESTION_A,
+			TEACHER_A, PARENT_A, "gd_rls_a", "record-a"
+		);
+		insertGuardianLabelFixture(
+			PARENT_LABEL_ALIAS_B, LABEL_REQUEST_B, LABEL_SUGGESTION_B,
+			TEACHER_B, PARENT_B, "gd_rls_b", "record-b"
+		);
 		administrator.update("""
 			INSERT INTO student_personal_information
 			    (student_id, real_name, updated_by_account_id, updated_by_role,
@@ -635,6 +678,45 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			CLASS_ALIAS_B, PROBLEM_REQUEST_B, PROBLEM_OUTBOX_B,
 			PROBLEM_EVENT_B, TEACHER_B, CLASS_B, TENANT_REF_B, CLASS_REF_B, "b"
 		);
+	}
+
+	private void insertGuardianLabelFixture(
+		UUID aliasId,
+		UUID requestId,
+		UUID suggestionId,
+		UUID teacherId,
+		UUID parentId,
+		String guardianRef,
+		String recordId
+	) {
+		administrator.update("""
+			INSERT INTO ai_parent_label_aliases (id, teacher_id, parent_id, alias, created_at)
+			VALUES (?, ?, ?, ?, now())
+			""", aliasId, teacherId, parentId, guardianRef);
+		administrator.update("""
+			INSERT INTO guardian_label_suggestion_requests (
+			 id, teacher_id, parent_id, guardian_ref, history_count,
+			 latest_record_id, history, created_at
+			) VALUES (?, ?, ?, ?, 5, ?, '[{},{},{},{},{}]', now())
+			""", requestId, teacherId, parentId, guardianRef, recordId);
+		administrator.update("""
+			INSERT INTO guardian_label_suggestions (
+			 id, request_id, teacher_id, parent_id, suggestion_id,
+			 axis, value, confidence, evidence_quotes, created_at
+			) VALUES (?, ?, ?, ?, ?, 'comm', 'data', 0.8, '[]', now())
+			""", suggestionId, requestId, teacherId, parentId, guardianRef + ":comm:data");
+		UUID currentLabelId = teacherId.equals(TEACHER_A) ? CURRENT_LABEL_A : CURRENT_LABEL_B;
+		UUID decisionId = teacherId.equals(TEACHER_A) ? LABEL_DECISION_A : LABEL_DECISION_B;
+		administrator.update("""
+			INSERT INTO guardian_labels (
+			 id, teacher_id, parent_id, axis, value, source_suggestion_id, created_at, updated_at
+			) VALUES (?, ?, ?, 'comm', 'data', ?, now(), now())
+			""", currentLabelId, teacherId, parentId, guardianRef + ":comm:data");
+		administrator.update("""
+			INSERT INTO guardian_label_decisions (
+			 id, suggestion_row_id, teacher_id, parent_id, suggestion_id, axis, action, decided_value, created_at
+			) VALUES (?, ?, ?, ?, ?, 'comm', 'confirmed', 'data', now())
+			""", decisionId, suggestionId, teacherId, parentId, guardianRef + ":comm:data");
 	}
 
 	private void insertParentFixture(

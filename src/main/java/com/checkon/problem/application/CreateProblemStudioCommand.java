@@ -13,5 +13,25 @@ public record CreateProblemStudioCommand(
 	ProblemDifficulty difficulty,
 	String clientIdempotencyKey
 ) {
-	public record Target(String areaTag, ProblemTypeTag typeTag, int count) { }
+	public record Target(
+		String areaTag,
+		ProblemTypeTag typeTag,
+		int count,
+		String skillNodeId,
+		Passage passage,
+		WorkSelection workSelection
+	) { }
+
+	public record Passage(
+		String areaTag,
+		String domain,
+		String topicHint,
+		Integer wordCount,
+		String sentenceComplexity,
+		Integer paragraphCount,
+		String sourceKind,
+		String bannedTopicsVersion
+	) { }
+
+	public record WorkSelection(String genre, String era, List<String> conceptKeywords) { }
 }
