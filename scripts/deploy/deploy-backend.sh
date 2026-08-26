@@ -21,7 +21,7 @@ if [[ ! "$TARGET_IMAGE" =~ $IMAGE_PATTERN ]]; then
   exit 2
 fi
 
-for required_command in awk chmod chown cp curl docker flock grep mktemp mv rm sleep; do
+for required_command in awk chmod chown cp docker flock grep mktemp mv rm sleep; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     echo "Required command is missing: $required_command" >&2
     exit 3
@@ -78,11 +78,9 @@ wait_for_readiness() {
 
   for ((attempt = 1; attempt <= 15; attempt++)); do
     response="$(
-      curl \
-        --fail \
-        --silent \
-        --show-error \
-        http://127.0.0.1/actuator/health/readiness \
+      docker compose exec -T web \
+        wget -qO- \
+        http://back:8080/actuator/health/readiness \
         2>/dev/null ||
         true
     )"

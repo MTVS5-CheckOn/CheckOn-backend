@@ -145,11 +145,9 @@ jobs:
           fi
 
           readiness_response="$(
-            curl \
-              --fail \
-              --silent \
-              --show-error \
-              http://127.0.0.1/actuator/health/readiness
+            sudo -n docker compose exec -T web \
+              wget -qO- \
+              http://back:8080/actuator/health/readiness
           )"
 
           if [[ "$readiness_response" != '{"status":"UP"}' ]]; then
