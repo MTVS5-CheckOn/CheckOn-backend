@@ -169,6 +169,7 @@ rebase 를 쓰면 이미 push 한 브랜치에 **force-push** 가 필요하고, 
 | `docs/MEMBER_CONSULTATION_HITL_CONTRACT.md` | `docs/member-backend/04_consultation_hitl_contract.md` |
 | 🔴 `docs/MEMBER_REPORT_PUBLICATION_CONTRACT.md` | `docs/member-backend/05_report_publication_contract.md` | (PR9 추가 · 여섯째)
 | 🔴 `docs/MEMBER_REGRESSION_GUARD.md` | `docs/member-backend/02_regression_guard.md` | (W1 추가 · 일곱째 — 게이트를 저장소에 올리면서)
+| 🔴 `src/main/resources/openapi/member-teacher-api.yaml` | `docs/member-backend/member-teacher-api.yaml` | (W2 추가 · 여덟째 — 강사 발행 계약)
 | `docs/MEMBER_ERROR_CODES.md` | 설계 §7-2 |
 | `docs/MEMBER_OPEN_ITEMS.md` | 설계 §17 + 지시서의 MB-xx |
 | 🔴 `src/main/resources/openapi/member-api.yaml` | `docs/member-backend/member-api.yaml` |
@@ -182,6 +183,7 @@ for pair in "docs/MEMBER_DESIGN.md:docs/member-backend/00_member_backend_design.
             "docs/MEMBER_CONSULTATION_HITL_CONTRACT.md:docs/member-backend/04_consultation_hitl_contract.md" \
             "docs/MEMBER_REPORT_PUBLICATION_CONTRACT.md:docs/member-backend/05_report_publication_contract.md" \
             "docs/MEMBER_REGRESSION_GUARD.md:docs/member-backend/02_regression_guard.md" \
+            "src/main/resources/openapi/member-teacher-api.yaml:docs/member-backend/member-teacher-api.yaml" \
             "src/main/resources/openapi/member-api.yaml:docs/member-backend/member-api.yaml"; do
   a=${pair%%:*}; b=${pair##*:}
   cmp -s "$a" "$b" && echo "✅ $a" || echo "🔴 다름 $a"
@@ -197,7 +199,7 @@ done
 🔴 **계약 쌍이 목록에 없던 이유가 중요하다.** PR0~PR4 는 계약을 <b>고치지 않아서</b> 드리프트가
 드러나지 않았다. **PR5 가 계약을 고치는 첫 PR** 이고, 그 순간 바로 갈렸다 —
 §3-9 「게이트는 실제로 무언가를 막아본 뒤에야 검증된다」와 정확히 같은 자리다.
-쌍이 **일곱**으로 늘었으니(PR9 이 발행 계약을, W1 이 이 문서 자체를 추가했다) 새 문서를 만들 때는 **여기 먼저 등록**한다.
+쌍이 **여덟**로 늘었으니(PR9 이 발행 계약을, W1 이 이 문서 자체를, W2 가 강사 계약을 추가했다) 새 문서를 만들 때는 **여기 먼저 등록**한다.
 🔴 PR9 실측 — 새 문서는 커밋 사본만 만들고 작업 원본이 없었다. 그러면 **드리프트가 날 수는 없지만
    다음 사람이 어느 쪽을 고쳐야 하는지 모른다.** 원본을 만들고 여기 등록해서 방향을 고정했다.
 
