@@ -544,7 +544,7 @@
   - `src/main/java/com/checkon/learning/application/LearningRecordSnapshotService.java`
   - `src/main/java/com/checkon/detection/integration/ai/AiDetectionSignalTypes.java`
   - `src/main/java/com/checkon/detection/application/DetectionResponseStorageService.java`
-  - `src/main/resources/db/migration/V42__restrict_new_detection_signal_types.sql`
+  - `src/main/resources/db/migration/V43__restrict_new_detection_signal_types.sql`
 - 마지막 검증일: 2026-08-27
 
 #### DET-004 일일 Detection 자동 실행
