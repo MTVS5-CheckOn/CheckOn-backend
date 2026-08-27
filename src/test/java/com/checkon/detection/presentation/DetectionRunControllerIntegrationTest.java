@@ -455,7 +455,7 @@ class DetectionRunControllerIntegrationTest {
 			INSERT INTO learning_records
 			(id, teacher_id, student_id, record_type, occurred_at, source_type,
 			 correct, duration_sec, created_at, updated_at)
-			VALUES (?, ?, ?, 'SOLVE', ?, 'integration-test', true, 120, ?, ?)
+			VALUES (?, ?, ?, 'SOLVE', ?, 'MANUAL', true, 120, ?, ?)
 			""", recordId, teacherId, studentId, occurredAt.atOffset(ZoneOffset.UTC),
 			occurredAt.atOffset(ZoneOffset.UTC), occurredAt.atOffset(ZoneOffset.UTC));
 	}

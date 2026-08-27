@@ -182,7 +182,7 @@ class EngagementPersistenceIntegrationTest {
 			    brief_text, gate_passed, fallback_used, created_at
 			)
 			VALUES (?, ?, 'advisory-signal', 'st_cccccccccccccccccccccccccccccccc',
-			        'class', 'R6', 'advisory', '참고 신호', 0.5, 2, true, 'NEW',
+			        'class', 'R6', 'type_bias', '참고 신호', 0.5, 2, true, 'NEW',
 			        '학생 상세 참고용', true, false, ?)
 			""", advisorySignal, run, offset(NOW));
 		jdbc.update("""
@@ -208,7 +208,7 @@ class EngagementPersistenceIntegrationTest {
 		jdbc.update("DELETE FROM interventions");
 		jdbc.update("UPDATE engagement_alerts SET status = 'PENDING_REVIEW', decided_at = NULL");
 		UUID run = insertRun(TEACHER, LocalDate.parse("2026-08-05"), "ongoing-pending");
-		UUID signal = insertCandidateSignal(run, "ongoing-pending", "ONGOING", "RISK",
+		UUID signal = insertCandidateSignal(run, "ongoing-pending", "ONGOING", "hidden_risk",
 			"st_cccccccccccccccccccccccccccccccc");
 
 		engagementCandidateService.createPendingAlerts(TEACHER, run, NOW.plusSeconds(60));
@@ -228,7 +228,7 @@ class EngagementPersistenceIntegrationTest {
 	@org.junit.jupiter.api.DisplayName("Given APPROVED이지만 미완료인 open Alert와 ONGOING 신호, When 후보를 만들면, Then 새 Alert와 Todo를 만들지 않는다")
 	void givenApprovedOpenAlertAndOngoingSignal_whenCreatingCandidates_thenSkipsAlertAndTodo() {
 		UUID run = insertRun(TEACHER, LocalDate.parse("2026-08-05"), "ongoing-approved");
-		UUID signal = insertCandidateSignal(run, "ongoing-approved", "ONGOING", "RISK",
+		UUID signal = insertCandidateSignal(run, "ongoing-approved", "ONGOING", "hidden_risk",
 			"st_cccccccccccccccccccccccccccccccc");
 
 		engagementCandidateService.createPendingAlerts(TEACHER, run, NOW.plusSeconds(60));
@@ -247,7 +247,7 @@ class EngagementPersistenceIntegrationTest {
 			WHERE id = ?
 			""", offset(completedAt), offset(completedAt), intervention);
 		UUID run = insertRun(TEACHER, LocalDate.parse("2026-08-05"), "ongoing-resolved");
-		UUID signal = insertCandidateSignal(run, "ongoing-resolved", "ONGOING", "RISK",
+		UUID signal = insertCandidateSignal(run, "ongoing-resolved", "ONGOING", "hidden_risk",
 			"st_cccccccccccccccccccccccccccccccc");
 
 		engagementCandidateService.createPendingAlerts(TEACHER, run, NOW.plusSeconds(60));
@@ -260,10 +260,10 @@ class EngagementPersistenceIntegrationTest {
 	@org.junit.jupiter.api.DisplayName("Given 기존 open Alert와 NEW 및 FOLLOW_UP 신호, When 후보를 만들면, Then lifecycle별 새 Alert와 Todo를 만든다")
 	void givenOpenAlertAndNonOngoingSignals_whenCreatingCandidates_thenCreatesAlertsAndTodos() {
 		UUID newRun = insertRun(TEACHER, LocalDate.parse("2026-08-05"), "new-signal");
-		UUID newSignal = insertCandidateSignal(newRun, "new-signal", "NEW", "RISK",
+		UUID newSignal = insertCandidateSignal(newRun, "new-signal", "NEW", "hidden_risk",
 			"st_cccccccccccccccccccccccccccccccc");
 		UUID followUpRun = insertRun(TEACHER, LocalDate.parse("2026-08-06"), "follow-up-signal");
-		UUID followUpSignal = insertCandidateSignal(followUpRun, "follow-up-signal", "FOLLOW_UP", "RISK",
+		UUID followUpSignal = insertCandidateSignal(followUpRun, "follow-up-signal", "FOLLOW_UP", "hidden_risk",
 			"st_cccccccccccccccccccccccccccccccc");
 
 		engagementCandidateService.createPendingAlerts(TEACHER, newRun, NOW.plusSeconds(60));
@@ -279,7 +279,7 @@ class EngagementPersistenceIntegrationTest {
 	@org.junit.jupiter.api.DisplayName("Given 다른 signal_type의 open Alert와 ONGOING 신호, When 후보를 만들면, Then 서로 다른 유형은 억제하지 않는다")
 	void givenOpenAlertForDifferentSignalType_whenCreatingOngoingCandidate_thenCreatesAlertAndTodo() {
 		UUID run = insertRun(TEACHER, LocalDate.parse("2026-08-05"), "ongoing-other-type");
-		UUID signal = insertCandidateSignal(run, "ongoing-other-type", "ONGOING", "OTHER_RISK",
+		UUID signal = insertCandidateSignal(run, "ongoing-other-type", "ONGOING", "type_bias",
 			"st_cccccccccccccccccccccccccccccccc");
 
 		engagementCandidateService.createPendingAlerts(TEACHER, run, NOW.plusSeconds(60));
@@ -292,7 +292,7 @@ class EngagementPersistenceIntegrationTest {
 	@org.junit.jupiter.api.DisplayName("Given 다른 학생의 open Alert와 ONGOING 신호, When 후보를 만들면, Then 학생 경계를 넘어 억제하지 않는다")
 	void givenOpenAlertForDifferentStudent_whenCreatingOngoingCandidate_thenCreatesAlertAndTodo() {
 		UUID run = insertRun(TEACHER, LocalDate.parse("2026-08-05"), "ongoing-other-student");
-		UUID signal = insertCandidateSignal(run, "ongoing-other-student", "ONGOING", "RISK",
+		UUID signal = insertCandidateSignal(run, "ongoing-other-student", "ONGOING", "hidden_risk",
 			"st_dddddddddddddddddddddddddddddddd");
 
 		engagementCandidateService.createPendingAlerts(TEACHER, run, NOW.plusSeconds(60));
@@ -305,7 +305,7 @@ class EngagementPersistenceIntegrationTest {
 	@org.junit.jupiter.api.DisplayName("Given 다른 tenant의 open Alert와 ONGOING 신호, When 후보를 만들면, Then tenant 경계를 넘어 억제하지 않는다")
 	void givenOpenAlertForDifferentTenant_whenCreatingOngoingCandidate_thenCreatesAlertAndTodo() {
 		UUID run = insertRun(OTHER_TEACHER, LocalDate.parse("2026-08-04"), "ongoing-other-tenant");
-		UUID signal = insertCandidateSignal(run, "ongoing-other-tenant", "ONGOING", "RISK",
+		UUID signal = insertCandidateSignal(run, "ongoing-other-tenant", "ONGOING", "hidden_risk",
 			"st_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
 
 		engagementCandidateService.createPendingAlerts(OTHER_TEACHER, run, NOW.plusSeconds(60));
@@ -328,7 +328,7 @@ class EngagementPersistenceIntegrationTest {
 
 		assertThat(history).singleElement().satisfies(item -> {
 			assertThat(item.studentId()).isEqualTo(STUDENT);
-			assertThat(item.signalType()).isEqualTo("RISK");
+			assertThat(item.signalType()).isEqualTo("hidden_risk");
 			assertThat(item.status()).isEqualTo("resolved");
 			assertThat(item.resolvedAt()).isEqualTo(completedAt);
 			assertThat(item.followedUp()).isTrue();
@@ -430,7 +430,7 @@ class EngagementPersistenceIntegrationTest {
 			    brief_text, gate_passed, fallback_used, created_at
 			)
 			VALUES (?, ?, ?, 'st_cccccccccccccccccccccccccccccccc',
-			        'class', 'R1', 'RISK', '위험', 0.8,
+			        'class', 'R1', 'hidden_risk', '위험', 0.8,
 			        1, 'NEW', 'summary', true, false, ?)
 			""", signal, run, externalId, offset(NOW));
 	}
