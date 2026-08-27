@@ -79,6 +79,27 @@ public class ParentChildAccessGuard {
 	}
 
 	/**
+	 * {@code teacherId} 필터가 <b>관계 교집합 안</b>인지 판정한다 — 설계 §9-2 그대로
+	 * {@code parent↔teacher} <b>와</b> {@code student↔teacher} 를 <b>둘 다</b> 본다.
+	 *
+	 * <p>🔴 하나라도 없으면 <b>{@code false}</b> 이고 호출자는 <b>404</b> 를 낸다(403 아님).
+	 * 「그 강사가 존재하는가」를 알려주지 않는다.</p>
+	 *
+	 * <p>🔴 <b>{@link #withVerifiedChild} 안에서 부른다.</b> {@code student↔teacher} 쪽은
+	 * 이미 열린 범위의 {@code activeTeacherIds} 를 쓰고, {@code parent↔teacher} 쪽은 범위가
+	 * 필요 없다(V38 정책이 {@code parent_id} 로 격리). 밖에서 부르면 앞쪽이 조용히 비어
+	 * 언제나 {@code false} 가 된다.</p>
+	 */
+	public boolean allowsTeacherFilter(ChildAccess access, UUID teacherId) {
+		if (teacherId == null) {
+			return true;
+		}
+		return access.allowsTeacher(teacherId)
+			&& rosterRelationships.findActiveTeacherIdsOfParent(access.parentId())
+				.contains(teacherId);
+	}
+
+	/**
 	 * {@code findTeachersOfChild} 는 인덱스를 타게 하려고 {@code student_id} 를 인자로 받는다.
 	 * 🔴 격리는 인자가 아니라 V40 정책이 한다 — 범위 밖에서 부르면 예외 없이 0행이다.
 	 */

@@ -60,22 +60,40 @@ public class ParentWeaknessDetailService {
 		MemberSubject subject, UUID studentId,
 		String areaTag, String typeTag, String month
 	) {
+		return getDetail(subject, studentId, areaTag, typeTag, month, null);
+	}
+
+	/**
+	 * @param teacherFilter 🔴 <b>권한이 아니라 필터</b>다(계약 {@code TeacherIdFilter} ·
+	 *                      member-api.yaml:1012). {@code null} 이면 활성 강사 전체 셀을
+	 *                      합치고, 값이 있으면 그 강사 셀만 합친다.
+	 *                      🔴 <b>합산 방식은 그대로다 — 먹이는 행만 좁힌다.</b>
+	 *                      관계 교집합 재검증은 호출자가 이미 했다는 전제다.
+	 */
+	@Transactional(readOnly = true)
+	public WeaknessDetailResponse getDetail(
+		MemberSubject subject, UUID studentId,
+		String areaTag, String typeTag, String month, UUID teacherFilter
+	) {
 		validate(areaTag, typeTag, month);
 		UUID parentId = subject.requireParentProfileId();
 		databaseContext.setCurrentAccount(subject.accountId());
 		databaseContext.setCurrentParent(parentId);
 		return databaseContext.withVerifiedChildScope(parentId, studentId,
-			() -> buildDetail(studentId, areaTag, typeTag, month));
+			() -> buildDetail(studentId, areaTag, typeTag, month, teacherFilter));
 	}
 
 	private WeaknessDetailResponse buildDetail(
-		UUID studentId, String areaTag, String typeTag, String month
+		UUID studentId, String areaTag, String typeTag, String month, UUID teacherFilter
 	) {
-		List<MonthlyWeaknessMetric> current = metrics.findWeaknessCell(
-			studentId, month, areaTag, typeTag);
+		// 🔴 셀은 (teacher_id, area_tag, type_tag) 다. 필터가 있으면 그 강사 셀만 남기고
+		//    없으면 전부 남긴다 — 아래 합산 코드는 한 벌 그대로다.
+		List<MonthlyWeaknessMetric> current = narrow(
+			metrics.findWeaknessCell(studentId, month, areaTag, typeTag), teacherFilter);
 		YearMonth prevMonth = YearMonth.parse(month).minusMonths(1);
-		List<MonthlyWeaknessMetric> prev = metrics.findWeaknessCell(
-			studentId, prevMonth.toString(), areaTag, typeTag);
+		List<MonthlyWeaknessMetric> prev = narrow(
+			metrics.findWeaknessCell(studentId, prevMonth.toString(), areaTag, typeTag),
+			teacherFilter);
 		int scored = current.stream().mapToInt(MonthlyWeaknessMetric::scoredCount).sum();
 		int correct = current.stream().mapToInt(MonthlyWeaknessMetric::correctCount).sum();
 		int prevScored = prev.stream().mapToInt(MonthlyWeaknessMetric::scoredCount).sum();
@@ -102,6 +120,14 @@ public class ParentWeaknessDetailService {
 	private static BigDecimal ratio(int correct, int scored) {
 		return new BigDecimal(correct)
 			.divide(new BigDecimal(scored), RATIO_SCALE, RoundingMode.HALF_UP);
+	}
+
+	/** 🔴 강사 필터. {@code null} 이면 그대로 둔다 — 「생략 = 전체 합산」이다. */
+	private static List<MonthlyWeaknessMetric> narrow(
+		List<MonthlyWeaknessMetric> rows, UUID teacherFilter
+	) {
+		return teacherFilter == null ? rows
+			: rows.stream().filter(row -> teacherFilter.equals(row.teacherId())).toList();
 	}
 
 	private static void validate(String areaTag, String typeTag, String month) {

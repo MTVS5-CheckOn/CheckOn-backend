@@ -62,9 +62,15 @@ public class MemberLearningSessionRepository {
 			+ " item_count, correct_count, active_elapsed_sec, submit_record_id, occurred_at";
 
 	// 🔴 cursor = (occurred_at, id) 열림 구간, DESC 순서. month 필터가 있으면 [from, to) UTC.
+	/**
+	 * 🔴 {@code teacher_id} 는 <b>필터</b>다. {@code null} 이면 전체 강사 세션이 그대로 나온다 —
+	 * 계약 {@code TeacherIdFilter}(member-api.yaml:1538-1540) 「생략하면 활성 강사 전체를
+	 * 합산한다」 그대로다. 인덱스는 {@code idx_member_learning_sessions_teacher_student} 다.
+	 */
 	private static final String FIND_PAGE = """
 		SELECT %s FROM member_learning_sessions
 		WHERE student_id = ?
+		  AND (?::uuid IS NULL OR teacher_id = ?::uuid)
 		  AND (?::timestamptz IS NULL OR occurred_at >= ?)
 		  AND (?::timestamptz IS NULL OR occurred_at < ?)
 		  AND (?::timestamptz IS NULL
@@ -102,6 +108,7 @@ public class MemberLearningSessionRepository {
 	 */
 	public List<MemberLearningSession> findPage(
 		UUID studentId,
+		UUID teacherId,
 		Instant fromInclusive,
 		Instant toExclusive,
 		Instant cursorOccurredAt,
@@ -114,9 +121,11 @@ public class MemberLearningSessionRepository {
 			: OffsetDateTime.ofInstant(toExclusive, ZoneOffset.UTC);
 		OffsetDateTime cursor = cursorOccurredAt == null ? null
 			: OffsetDateTime.ofInstant(cursorOccurredAt, ZoneOffset.UTC);
+		String teacher = teacherId == null ? null : teacherId.toString();
 		return jdbcTemplate.query(FIND_PAGE,
 			(rs, rowNum) -> map(rs),
 			studentId,
+			teacher, teacher,
 			from, from,
 			to, to,
 			cursor, cursor, cursorId,

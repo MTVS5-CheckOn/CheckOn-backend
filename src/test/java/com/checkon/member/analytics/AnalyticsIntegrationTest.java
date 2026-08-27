@@ -522,21 +522,34 @@ class AnalyticsIntegrationTest extends MembershipRlsEnforcedSupport {
 	private void insertStudentMetric(
 		UUID studentId, String month, int scored, int correct, int totalSec
 	) {
+		insertStudentMetric(teacherId, studentId, month, scored, correct, totalSec);
+	}
+
+	private void insertStudentMetric(
+		UUID teacher, UUID studentId, String month, int scored, int correct, int totalSec
+	) {
 		admin.update("INSERT INTO member_monthly_student_metrics"
 			+ " (teacher_id, student_id, month, month_zone, scored_count, correct_count,"
 			+ "  total_active_sec, calculation_version, calculated_at)"
 			+ " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			teacherId, studentId, month, ZONE, scored, correct, totalSec, VERSION, now);
+			teacher, studentId, month, ZONE, scored, correct, totalSec, VERSION, now);
 	}
 
 	private void insertWeaknessMetric(
 		UUID studentId, String month, String area, String type, int scored, int correct
 	) {
+		insertWeaknessMetric(teacherId, studentId, month, area, type, scored, correct);
+	}
+
+	private void insertWeaknessMetric(
+		UUID teacher, UUID studentId, String month, String area, String type,
+		int scored, int correct
+	) {
 		admin.update("INSERT INTO member_monthly_weakness_metrics"
 			+ " (teacher_id, student_id, month, month_zone, area_tag, type_tag,"
 			+ "  scored_count, correct_count, status, calculation_version, calculated_at)"
 			+ " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'AVAILABLE', ?, ?)",
-			teacherId, studentId, month, ZONE, area, type, scored, correct, VERSION, now);
+			teacher, studentId, month, ZONE, area, type, scored, correct, VERSION, now);
 	}
 
 	private static String hex(int chars) {
@@ -550,6 +563,134 @@ class AnalyticsIntegrationTest extends MembershipRlsEnforcedSupport {
 
 	private static String upperHex(int chars) {
 		return hex(chars).toUpperCase();
+	}
+
+	// ══════════════ teacherId 필터 — 계약 :1538-1540 (MB-60) ══════════════
+
+	/**
+	 * 🔴 <b>「200 이 나온다」로 끝내면 필터가 안 걸려도 통과한다.</b> 두 강사에게 서로 다른
+	 * 집계를 심고 <b>세 값이 실제로 다른지</b> 본다. 값은 전부 나누어떨어지게 골랐다 —
+	 * 떨어지지 않으면 scale 10 반올림과 double 비교가 어긋나 무엇을 재는지 흐려진다.
+	 */
+	@Test
+	@DisplayName("🔴 parent analysis — teacherId 가 합산을 실제로 좁힌다")
+	void parentAnalysisTeacherFilterNarrowsAggregate() throws Exception {
+		UUID second = insertSecondTeacher();
+		// A: 30문항 15정답 = 0.5 / B: 10문항 9정답 = 0.9 / 합산: 40문항 24정답 = 0.6
+		insertStudentMetric(teacherId, studentProfileId, MONTH, 30, 15, 1800);
+		insertStudentMetric(second, studentProfileId, MONTH, 10, 9, 600);
+
+		mockMvc.perform(get(CHILD_ANALYSIS, studentProfileId).param("month", MONTH)
+				.with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.overall.scoredCount").value(40))
+			.andExpect(jsonPath("$.data.overall.accuracyRate").value(0.6));
+
+		mockMvc.perform(get(CHILD_ANALYSIS, studentProfileId).param("month", MONTH)
+				.param("teacherId", teacherId.toString()).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.overall.scoredCount").value(30))
+			.andExpect(jsonPath("$.data.overall.accuracyRate").value(0.5));
+
+		mockMvc.perform(get(CHILD_ANALYSIS, studentProfileId).param("month", MONTH)
+				.param("teacherId", second.toString()).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.overall.scoredCount").value(10))
+			.andExpect(jsonPath("$.data.overall.accuracyRate").value(0.9));
+	}
+
+	@Test
+	@DisplayName("🔴 parent analysis — 그 강사 데이터 0건이면 NO_DATA + null (0 아님)")
+	void parentAnalysisTeacherFilterWithoutDataIsNoData() throws Exception {
+		UUID second = insertSecondTeacher();
+		insertStudentMetric(teacherId, studentProfileId, MONTH, 30, 15, 1800);
+
+		MvcResult result = mockMvc.perform(get(CHILD_ANALYSIS, studentProfileId)
+				.param("month", MONTH).param("teacherId", second.toString()).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.overall.status").value("NO_DATA"))
+			.andReturn();
+		assertThat(result.getResponse().getContentAsString())
+			.as("데이터가 없는데 0 으로 채웠다")
+			.doesNotContain("\"scoredCount\":0", "\"accuracyRate\":0.");
+		assertOverallNullFields(result);
+	}
+
+	@Test
+	@DisplayName("🔴 weakness 상세 — teacherId 가 셀을 실제로 좁힌다")
+	void weaknessDetailTeacherFilterNarrowsCell() throws Exception {
+		UUID second = insertSecondTeacher();
+		// A: 20문항 10정답 = 0.5 / B: 10문항 9정답 = 0.9 / 합산: 30문항
+		insertWeaknessMetric(teacherId, studentProfileId, MONTH, "reading", "fact", 20, 10);
+		insertWeaknessMetric(second, studentProfileId, MONTH, "reading", "fact", 10, 9);
+
+		mockMvc.perform(get(CHILD_WEAKNESS, studentProfileId, "reading", "fact")
+				.param("month", MONTH).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.scoredCount").value(30));
+
+		mockMvc.perform(get(CHILD_WEAKNESS, studentProfileId, "reading", "fact")
+				.param("month", MONTH).param("teacherId", teacherId.toString()).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.scoredCount").value(20))
+			.andExpect(jsonPath("$.data.accuracyRate").value(0.5));
+
+		mockMvc.perform(get(CHILD_WEAKNESS, studentProfileId, "reading", "fact")
+				.param("month", MONTH).param("teacherId", second.toString()).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.scoredCount").value(10))
+			.andExpect(jsonPath("$.data.accuracyRate").value(0.9));
+	}
+
+	@Test
+	@DisplayName("🔴 parent learning-records — teacherId 가 목록을 실제로 좁힌다")
+	void parentRecordsTeacherFilterNarrowsList() throws Exception {
+		UUID second = insertSecondTeacher();
+		UUID secondAssignment = insertAssignment(second, studentProfileId);
+		insertSession(secondAssignment, studentProfileId, "다른 강사 학습지",
+			3, 1, 200, sessionOccurredAt.minusSeconds(60));
+
+		mockMvc.perform(get(CHILD_LIST, studentProfileId).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items.length()").value(2));
+		mockMvc.perform(get(CHILD_LIST, studentProfileId)
+				.param("teacherId", teacherId.toString()).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items.length()").value(1))
+			.andExpect(jsonPath("$.data.items[0].recordId").value(sessionId.toString()));
+		mockMvc.perform(get(CHILD_LIST, studentProfileId)
+				.param("teacherId", second.toString()).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items.length()").value(1))
+			.andExpect(jsonPath("$.data.items[0].title").value("다른 강사 학습지"));
+	}
+
+	@Test
+	@DisplayName("🔴 세 경로 모두 — teacherId 가 관계 교집합 밖이면 404")
+	void teacherFilterOutsideIntersectionIsNotFound() throws Exception {
+		// 🔴 student↔teacher 는 있는데 parent↔teacher 가 없는 강사 — 교집합 밖이다.
+		UUID halfLinked = insertTeacher(admin, "half@example.com", "반강사", now);
+		linkTeacherStudent(halfLinked, studentProfileId);
+
+		mockMvc.perform(get(CHILD_LIST, studentProfileId)
+				.param("teacherId", halfLinked.toString()).with(parent()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+		mockMvc.perform(get(CHILD_ANALYSIS, studentProfileId).param("month", MONTH)
+				.param("teacherId", halfLinked.toString()).with(parent()))
+			.andExpect(status().isNotFound());
+		mockMvc.perform(get(CHILD_WEAKNESS, studentProfileId, "reading", "fact")
+				.param("month", MONTH).param("teacherId", halfLinked.toString())
+				.with(parent()))
+			.andExpect(status().isNotFound());
+	}
+
+	/** 자녀·학부모 둘 다와 연결된 둘째 강사. 교집합 안이라 필터로 쓸 수 있다. */
+	private UUID insertSecondTeacher() {
+		UUID second = insertTeacher(admin, "second@example.com", "이강사", now);
+		linkTeacherStudent(second, studentProfileId);
+		linkParentTeacher(parentProfileId, second);
+		return second;
 	}
 
 	private RequestPostProcessor student() {
