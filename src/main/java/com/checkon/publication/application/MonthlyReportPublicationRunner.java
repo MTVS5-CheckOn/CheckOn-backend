@@ -1,6 +1,5 @@
 package com.checkon.publication.application;
 
-import java.util.List;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -13,7 +12,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 import com.checkon.publication.domain.PublicationOutcome;
-import com.checkon.publication.domain.QueuedDelivery;
 import com.checkon.publication.infrastructure.QueuedDeliveryReader;
 
 /**
@@ -92,39 +90,44 @@ public class MonthlyReportPublicationRunner {
 				remaining += countQueued(teacherId);
 				continue;
 			}
-			List<QueuedDelivery> queued = queuedFor(teacherId, budget + 1);
-			int taken = Math.min(queued.size(), budget);
-			for (int index = 0; index < taken; index++) {
-				total = total.plus(publicationService.publish(queued.get(index)));
+			// 🔴 한 건씩 집는다. 집는 것과 쓰는 것이 한 트랜잭션이어야 SKIP LOCKED 가 뜻을
+			//    가진다 — 서비스가 그 트랜잭션을 연다.
+			while (budget > 0) {
+				PublicationOutcome one = publicationService.publishNext(teacherId);
+				if (one.handled() == 0) {
+					break;
+				}
+				total = total.plus(one);
+				budget--;
 			}
-			remaining += queued.size() - taken;
-			budget -= taken;
+			if (budget <= 0) {
+				remaining += countQueued(teacherId);
+			}
 		}
 		PublicationOutcome result = total.withRemaining(remaining);
 		if (result.handled() > 0 || result.remaining() > 0) {
 			log.info("publication.monthly-report.run published={} skipped={} empty={}"
-				+ " failed={} remaining={} cap={}", result.published(), result.skipped(),
+				+ " failed={} remaining~{} cap={}", result.published(), result.skipped(),
 				result.empty(), result.failed(), result.remaining(), properties.maxPerRun());
 		}
 		if (result.remaining() > 0) {
 			// 🔴 잘랐으면 무엇을 왜 잘랐는지 말한다. 다음 회에 이어서 처리한다.
-			log.warn("publication.monthly-report.capped remaining={} cap={}"
+			log.warn("publication.monthly-report.capped remaining~{} cap={}"
 				+ " — 남은 건은 다음 회차에서 처리한다", result.remaining(), properties.maxPerRun());
 		}
 		return result;
 	}
 
-	/** 🔴 강사 컨텍스트를 연 읽기 트랜잭션. 밖에서 읽으면 예외가 아니라 0행이다. */
-	private List<QueuedDelivery> queuedFor(UUID teacherId, int limit) {
-		List<QueuedDelivery> found = readOnlyTransactionTemplate.execute(status -> {
-			tenantContext.setCurrentTeacher(teacherId);
-			return reader.findQueued(limit);
-		});
-		return found == null ? List.of() : found;
-	}
-
-	/** 상한을 다 쓴 뒤 남은 수를 세기만 한다. 🔴 세는 것도 강사 컨텍스트가 필요하다. */
+	/**
+	 * 상한을 다 쓴 뒤 남은 수를 센다. 🔴 <b>추정치다</b> — 잠금을 걸지 않으므로 다른
+	 * 인스턴스가 지금 처리 중인 행도 함께 센다. 로그의 숫자가 「대략 이만큼 남았다」인
+	 * 이유이고, 그래서 {@code remaining~} 로 찍는다.
+	 */
 	private int countQueued(UUID teacherId) {
-		return queuedFor(teacherId, properties.maxPerRun()).size();
+		Integer count = readOnlyTransactionTemplate.execute(status -> {
+			tenantContext.setCurrentTeacher(teacherId);
+			return reader.countQueued(properties.maxPerRun());
+		});
+		return count == null ? 0 : count;
 	}
 }

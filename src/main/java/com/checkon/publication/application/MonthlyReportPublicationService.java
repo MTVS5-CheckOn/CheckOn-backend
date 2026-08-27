@@ -29,8 +29,14 @@ import tools.jackson.databind.ObjectMapper;
  * 열리면 「강사 자기 것」과 「학부모 자기 자녀 것」이 동시에 참이 되어 격리가 무너진다.
  * 그것이 불변식의 진짜 내용이고, {@code PublicationContextRuleTest} 가 게이트로 막는다.</p>
  *
- * <p>🔴 <b>승우님 원장에 쓰지 않는다.</b> {@code monthly_report_deliveries.status} 를
- * {@code DELIVERED} 로 바꾸지 않는다. 멱등은 우리 원장에서 보장한다 — 아래 참조.</p>
+ * <p>🔴 <b>승우님 원장에 쓰는 것은 딱 하나</b> — 발행에 성공한 배달의
+ * {@code status='DELIVERED'} 표시다(MB-61). 주인이 없음을 실측으로 확인하고 넣었다:
+ * 승우님 코드는 {@code QUEUED} 만 만들고, {@code DELIVERED} 를 쓰는 코드가 밖에 0곳이며,
+ * 유일한 소비처가 QUEUED 와 DELIVERED 를 똑같이 취급한다({@code QueuedDeliveryReader} 참조).
+ * 🔴 <b>실패는 표시하지 않는다</b> — {@code QUEUED} 로 남아야 다음 회차에 재시도된다.</p>
+ *
+ * <p>🔴 <b>멱등 판정은 그대로 둔다.</b> 표시가 실패하거나 경합으로 밀려도 두 벌이 안 생기는
+ * 것이 마지막 방어선이다 — 표시는 <b>비용을 줄이는 장치</b>이지 정합성의 근거가 아니다.</p>
  *
  * <p>🔴 <b>민감 문자열을 로그에 넣지 않는다.</b> 보고서 본문·학생 이름·AI 원문은 어느 로그에도
  * 나가지 않는다. 식별자와 사유 코드만 남긴다(PR8 이 그 검사를 만들어 뒀다).</p>
@@ -50,6 +56,7 @@ public class MonthlyReportPublicationService {
 	private static final int FIRST_REVISION = 1;
 
 	private final PublishedReportWriter writer;
+	private final com.checkon.publication.infrastructure.QueuedDeliveryReader reader;
 	private final TeacherTenantDatabaseContext tenantContext;
 	private final PublicationProperties properties;
 	private final ObjectMapper objectMapper;
@@ -58,6 +65,7 @@ public class MonthlyReportPublicationService {
 
 	public MonthlyReportPublicationService(
 		PublishedReportWriter writer,
+		com.checkon.publication.infrastructure.QueuedDeliveryReader reader,
 		TeacherTenantDatabaseContext tenantContext,
 		PublicationProperties properties,
 		ObjectMapper objectMapper,
@@ -65,6 +73,7 @@ public class MonthlyReportPublicationService {
 		PlatformTransactionManager transactionManager
 	) {
 		this.writer = writer;
+		this.reader = reader;
 		this.tenantContext = tenantContext;
 		this.properties = properties;
 		this.objectMapper = objectMapper;
@@ -78,26 +87,39 @@ public class MonthlyReportPublicationService {
 	}
 
 	/**
-	 * @return 이 배달 하나의 결과. 🔴 예외를 밖으로 던지지 않는다 — 하나가 실패해도 배치가
-	 *         멈추면 안 된다. 대신 {@code failed} 로 세고 사유를 로그에 남긴다
+	 * 이 강사의 <b>다음</b> 대기 배달 한 건을 잠그고 발행한다.
+	 *
+	 * <p>🔴 <b>집는 것과 쓰는 것이 한 트랜잭션</b>이다. 잠금은 트랜잭션이 끝나면 풀리므로
+	 * 나눠 두면 {@code SKIP LOCKED} 가 아무것도 지키지 못한다.</p>
+	 *
+	 * @return 처리 결과. 🔴 {@link PublicationOutcome#handled()} 가 0이면 <b>더 없다</b>는 뜻이고
+	 *         호출자가 그 강사에 대한 반복을 멈춘다
 	 */
-	public PublicationOutcome publish(QueuedDelivery delivery) {
+	public PublicationOutcome publishNext(java.util.UUID teacherId) {
 		try {
 			PublicationOutcome outcome =
-				transactionTemplate.execute(status -> publishInTransaction(delivery));
-			return outcome == null ? new PublicationOutcome(0, 0, 0, 1, 0) : outcome;
+				transactionTemplate.execute(status -> publishNextInTransaction(teacherId));
+			return outcome == null ? PublicationOutcome.none() : outcome;
 		}
 		catch (RuntimeException error) {
 			// 🔴 실패를 삼키지 않는다. 무엇이 왜 실패했는지 남긴다 — 본문은 넣지 않는다.
-			log.error("publication.monthly-report.failed delivery={} report={} teacher={} err={}",
-				delivery.deliveryId(), delivery.reportId(), delivery.teacherId(),
-				error.getClass().getSimpleName(), error);
+			//    🔴 롤백이므로 배달은 QUEUED 그대로다 — 다음 회차에 재시도된다.
+			log.error("publication.monthly-report.failed teacher={} err={}",
+				teacherId, error.getClass().getSimpleName(), error);
 			return new PublicationOutcome(0, 0, 0, 1, 0);
 		}
 	}
 
-	private PublicationOutcome publishInTransaction(QueuedDelivery delivery) {
-		tenantContext.setCurrentTeacher(delivery.teacherId());
+	private PublicationOutcome publishNextInTransaction(java.util.UUID teacherId) {
+		tenantContext.setCurrentTeacher(teacherId);
+		QueuedDelivery delivery = reader.lockNextQueued().orElse(null);
+		if (delivery == null) {
+			return PublicationOutcome.none();
+		}
+		return publishLocked(delivery);
+	}
+
+	private PublicationOutcome publishLocked(QueuedDelivery delivery) {
 		if (delivery.reportMonth() == null) {
 			log.warn("publication.monthly-report.no-month delivery={} report={}",
 				delivery.deliveryId(), delivery.reportId());
@@ -105,11 +127,15 @@ public class MonthlyReportPublicationService {
 		}
 		String month = delivery.reportMonth().toString();
 		if (writer.alreadyPublished(delivery.studentId(), delivery.teacherId(), month)) {
-			// 🔴 정상 경로다. 같은 배달을 두 번 돌려도 여기서 멈춘다.
+			// 🔴 정상 경로다. 표시가 어떤 이유로 밀렸어도 여기서 두 벌을 막는다 —
+			//    이것이 마지막 방어선이고 DELIVERED 표시는 비용을 줄이는 장치일 뿐이다.
 			//    다른 배달(정정본)이어도 멈춘다 — 그 판단은 MB-10 이다. 조용히 넘기지 않는다.
 			log.info("publication.monthly-report.skipped-existing delivery={} report={}"
 				+ " student={} month={}", delivery.deliveryId(), delivery.reportId(),
 				delivery.studentId(), month);
+			// 🔴 이미 우리 원장에 있으니 이 배달은 할 일이 끝났다. 표시해서 다음 회차에
+			//    다시 집지 않게 한다 — 안 하면 skip 카운터가 영원히 자란다.
+			reader.markDelivered(delivery.deliveryId(), clock.instant());
 			return new PublicationOutcome(0, 1, 0, 0, 0);
 		}
 		List<PublishableSection> sections = sectionsOf(delivery);
@@ -119,9 +145,12 @@ public class MonthlyReportPublicationService {
 				delivery.deliveryId(), delivery.reportId(), delivery.aiStatus());
 			return new PublicationOutcome(0, 0, 1, 0, 0);
 		}
+		java.time.Instant publishedAt = clock.instant();
 		writer.publish(delivery.studentId(), delivery.teacherId(), month,
 			properties.monthZone(), FIRST_REVISION, properties.snapshotVersion(),
-			sections, clock.instant());
+			sections, publishedAt);
+		// 🔴 성공했을 때만 표시한다. 같은 트랜잭션이라 발행과 표시가 함께 커밋되거나 함께 없다.
+		reader.markDelivered(delivery.deliveryId(), publishedAt);
 		log.info("publication.monthly-report.published delivery={} report={} student={}"
 			+ " month={} sections={}", delivery.deliveryId(), delivery.reportId(),
 			delivery.studentId(), month, sections.size());
