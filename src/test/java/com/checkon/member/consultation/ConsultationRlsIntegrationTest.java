@@ -102,6 +102,19 @@ class ConsultationRlsIntegrationTest extends MemberPostgresSupport {
 		})).rootCause().hasMessageContaining("row-level security");
 	}
 
+	@Test
+	void 발행_메시지는_publishedAt이_반드시_있다() {
+		String nullable = admin.queryForObject("""
+			SELECT is_nullable
+			FROM information_schema.columns
+			WHERE table_schema = 'public'
+			  AND table_name = 'member_consultation_messages'
+			  AND column_name = 'published_at'
+			""", String.class);
+
+		assertThat(nullable).isEqualTo("NO");
+	}
+
 	private UUID insertAccount(String email, String role, OffsetDateTime now) {
 		UUID id = UUID.randomUUID();
 		admin.update("INSERT INTO accounts (id, email, role, status, created_at)"
