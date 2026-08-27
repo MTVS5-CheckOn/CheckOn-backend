@@ -377,6 +377,55 @@ class ReportIntegrationTest extends MembershipRlsEnforcedSupport {
 	}
 
 	@Test
+	@DisplayName("🔴 저장소가 보고한 content type 이 다르면 → 503")
+	void contentTypeMismatchBlocksIssue() throws Exception {
+		// 🔴 로컬 어댑터는 키 확장자로 content type 을 결정한다(OS 무관). .bin 키를 쓰면
+		//    저장소는 application/octet-stream 을 보고하고 DB 는 application/pdf 라 불일치다.
+		//    content_type 컬럼은 CHECK 로 application/pdf 만 허용되므로 값을 바꿀 수 없다 —
+		//    「키가 주장하는 형식」과 「DB 가 적은 형식」이 갈리는 상황이 바로 이 분기다.
+		UUID otherReport = insertReport(studentProfileId, linkedTeacherId, 20, "PUBLISHED");
+		byte[] bytes = "%PDF-1.7 stored under a bin key".getBytes(StandardCharsets.UTF_8);
+		writeStoredObject("2026-08/report.bin", bytes);
+		admin.update("INSERT INTO member_report_files (id, report_id, student_id, teacher_id,"
+			+ " published_at, object_key, checksum, content_type, size_bytes, page_count,"
+			+ " created_at) VALUES (?, ?, ?, ?, ?, '2026-08/report.bin', ?,"
+			+ " 'application/pdf', ?, NULL, ?)",
+			UUID.randomUUID(), otherReport, studentProfileId, linkedTeacherId, publishedAt,
+			checksumOf(bytes), (long) bytes.length, now);
+
+		mockMvc.perform(post(FILE_ACCESS, studentProfileId, otherReport).with(parent()))
+			.andExpect(status().isServiceUnavailable())
+			.andExpect(jsonPath("$.error.code").value("DEPENDENCY_UNAVAILABLE"));
+	}
+
+	@Test
+	@DisplayName("🔴 file-access — 관계가 끝난 뒤에는 발급하지 않는다 → 404")
+	void fileAccessAfterRelationshipEndsIsNotFound() throws Exception {
+		mockMvc.perform(post(FILE_ACCESS, studentProfileId, publishedReportId).with(parent()))
+			.andExpect(status().isCreated());
+		admin.update("UPDATE parent_student_relationships SET status = 'ENDED', ended_at = ?"
+			+ " WHERE parent_id = ? AND student_id = ?", now, parentProfileId, studentProfileId);
+		mockMvc.perform(post(FILE_ACCESS, studentProfileId, publishedReportId).with(parent()))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+	}
+
+	@Test
+	@DisplayName("🔴 teacherId 필터가 연결 안 된 강사 → 200 + items:[] (404 아님)")
+	void teacherFilterOutsideAllowedSetIsEmpty() throws Exception {
+		mockMvc.perform(get(REPORTS, studentProfileId)
+			.param("teacherId", unlinkedTeacherId.toString()).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items.length()").value(0))
+			.andExpect(jsonPath("$.data.hasNext").value(false));
+		// 연결된 강사로 거르면 그대로 나온다 — 필터가 통째로 죽은 게 아니다.
+		mockMvc.perform(get(REPORTS, studentProfileId)
+			.param("teacherId", linkedTeacherId.toString()).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items.length()").value(1));
+	}
+
+	@Test
 	@DisplayName("🔴 저장소에 파일이 없으면 → 503 (URL 을 주지 않는다)")
 	void missingObjectBlocksIssue() throws Exception {
 		Files.deleteIfExists(STORAGE_ROOT.resolve(OBJECT_KEY));
@@ -584,7 +633,11 @@ class ReportIntegrationTest extends MembershipRlsEnforcedSupport {
 	}
 
 	private static void writeStoredPdf(byte[] bytes) throws IOException {
-		Path file = STORAGE_ROOT.resolve(OBJECT_KEY);
+		writeStoredObject(OBJECT_KEY, bytes);
+	}
+
+	private static void writeStoredObject(String objectKey, byte[] bytes) throws IOException {
+		Path file = STORAGE_ROOT.resolve(objectKey);
 		Files.createDirectories(file.getParent());
 		Files.write(file, bytes);
 	}
