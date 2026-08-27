@@ -392,7 +392,18 @@ class MemberCodeRuleTest {
 			Set.of(
 				"checkon.security.test-authentication.enabled=true",
 				"checkon.auth.allowed-origins=http://localhost:3000",
-				"spring.datasource.hikari.maximum-pool-size=4"));
+				"spring.datasource.hikari.maximum-pool-size=4"),
+			// 🔴 PR9 가 추가한 둘째 조합 — object storage 가 <b>설정된</b> 컨텍스트.
+			//    보고서 PDF 경로는 storage-root 와 signing-secret 이 있어야 발급까지 간다.
+			//    저장소 <b>미설정</b> 분기는 위 기본 조합이 그대로 덮으므로
+			//    (ReportStorageUnconfiguredIntegrationTest) 컨텍스트는 하나만 늘어난다.
+			//    🔴 signing-secret 은 테스트 전용 문자열이다 — 운영 자격증명이 아니다.
+			Set.of(
+				"checkon.security.test-authentication.enabled=true",
+				"checkon.auth.allowed-origins=http://localhost:3000",
+				"spring.datasource.hikari.maximum-pool-size=4",
+				"checkon.member.report.storage-root=build/member-report-test-storage",
+				"checkon.member.report.signing-secret=test-report-signing-secret"));
 
 		List<String> offenders = new java.util.ArrayList<>();
 		for (Path path : memberTestSources()) {
