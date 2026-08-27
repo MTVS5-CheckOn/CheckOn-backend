@@ -13,6 +13,9 @@ import com.checkon.member.auth.application.ActivationCommandPort;
 import com.checkon.member.common.error.ConstraintViolations;
 import com.checkon.member.common.error.MemberErrorCode;
 import com.checkon.member.common.error.MemberException;
+import com.checkon.member.common.notification.NotificationPort;
+import com.checkon.member.common.notification.NotificationRequest;
+import com.checkon.member.common.notification.NotificationType;
 import com.checkon.member.common.persistence.IdempotencyGuard;
 import com.checkon.member.common.persistence.IdempotentOutcome;
 import com.checkon.member.common.persistence.IdempotentPayload;
@@ -54,6 +57,7 @@ public class ChildRegistrationService {
 	private final ChildViewAssembler childViews;
 	private final IdempotencyGuard idempotencyGuard;
 	private final MemberDatabaseContext databaseContext;
+	private final NotificationPort notificationPort;
 	private final Clock clock;
 
 	public ChildRegistrationService(
@@ -64,6 +68,7 @@ public class ChildRegistrationService {
 		ChildViewAssembler childViews,
 		IdempotencyGuard idempotencyGuard,
 		MemberDatabaseContext databaseContext,
+		NotificationPort notificationPort,
 		Clock clock
 	) {
 		this.rosterRelationships = rosterRelationships;
@@ -73,6 +78,7 @@ public class ChildRegistrationService {
 		this.childViews = childViews;
 		this.idempotencyGuard = idempotencyGuard;
 		this.databaseContext = databaseContext;
+		this.notificationPort = notificationPort;
 		this.clock = clock;
 	}
 
@@ -105,12 +111,27 @@ public class ChildRegistrationService {
 				"the caller is already linked to this student",
 				new AlreadyLinkedDetails(true));
 		}
-		insertRelationship(parentProfileId, student.studentProfileId(), now);
+		UUID relationshipId = insertRelationship(parentProfileId, student.studentProfileId(), now);
 
 		// 🔴 방금 같은 트랜잭션에서 만든 관계를 되읽어 범위를 연다. "방금 넣었으니 확인은 생략"
 		//    할 문법적 방법이 없도록 세터를 두지 않았다(MemberDatabaseContext 참조).
 		databaseContext.withVerifiedChildScope(parentProfileId, student.studentProfileId(),
 			() -> activationCommand.activate(student.studentProfileId(), now));
+
+		// 🔴 CHILD_LINKED 알림 — 이 PR 이 실제로 발행하는 유일한 알림.
+		//    발행자·수신자가 같은 학부모 자신. source_id = relationshipId. 같은 관계 재등록은
+		//    unique 로 조용히 무시된다(NotificationPort 계약).
+		//    이 트랜잭션이 롤백되면 알림도 함께 사라진다(같은 트랜잭션).
+		notificationPort.publish(new NotificationRequest(
+			subject.accountId(),
+			NotificationType.CHILD_LINKED,
+			"자녀 " + student.alias() + " 등록 완료",
+			null,
+			student.studentProfileId(),
+			null,
+			"parent_student_relationship",
+			relationshipId
+		));
 
 		ChildLinkView link = new ChildLinkView(student.studentProfileId(), student.accountId(),
 			student.alias(), student.grade(), command.studentPublicId(), now);
@@ -127,9 +148,9 @@ public class ChildRegistrationService {
 			MemberErrorCode.RESOURCE_NOT_FOUND, "no student matches the given public id"));
 	}
 
-	private void insertRelationship(UUID parentProfileId, UUID studentProfileId, Instant now) {
+	private UUID insertRelationship(UUID parentProfileId, UUID studentProfileId, Instant now) {
 		try {
-			relationshipWriter.insertActive(parentProfileId, studentProfileId, now);
+			return relationshipWriter.insertActive(parentProfileId, studentProfileId, now);
 		}
 		catch (DataIntegrityViolationException exception) {
 			// 🔴 제약 이름으로만 가른다. 메시지 substring 매칭은 DB 버전이 바뀌면 조용히 깨진다.

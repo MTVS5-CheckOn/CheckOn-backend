@@ -11,6 +11,10 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.checkon.member.analytics.application.MemberMetricsProperties;
+import com.checkon.member.analytics.domain.MetricRefreshOutboxRow;
+import com.checkon.member.analytics.domain.MonthWindow;
+import com.checkon.member.analytics.infrastructure.persistence.MemberMetricRefreshOutboxRepository;
 import com.checkon.member.common.error.FieldViolation;
 import com.checkon.member.common.error.MemberErrorCode;
 import com.checkon.member.common.error.MemberException;
@@ -87,8 +91,10 @@ public class StudentSubmissionService {
 	private final MemberLearningSessionRepository sessionRepository;
 	private final ProblemAssignmentResponseWriter responseWriter;
 	private final LearningRecordWriter learningRecordWriter;
+	private final MemberMetricRefreshOutboxRepository metricOutbox;
 	private final IdempotencyGuard idempotencyGuard;
 	private final MemberDatabaseContext databaseContext;
+	private final MemberMetricsProperties metricsProperties;
 	private final AttemptProgressValidator progressValidator;
 	private final ObjectMapper objectMapper;
 	private final Clock clock;
@@ -102,9 +108,11 @@ public class StudentSubmissionService {
 		MemberLearningSessionRepository sessionRepository,
 		ProblemAssignmentResponseWriter responseWriter,
 		LearningRecordWriter learningRecordWriter,
+		MemberMetricRefreshOutboxRepository metricOutbox,
 		IdempotencyGuard idempotencyGuard,
 		MemberDatabaseContext databaseContext,
 		MemberAttemptProperties properties,
+		MemberMetricsProperties metricsProperties,
 		ObjectMapper objectMapper,
 		Clock clock
 	) {
@@ -116,8 +124,10 @@ public class StudentSubmissionService {
 		this.sessionRepository = sessionRepository;
 		this.responseWriter = responseWriter;
 		this.learningRecordWriter = learningRecordWriter;
+		this.metricOutbox = metricOutbox;
 		this.idempotencyGuard = idempotencyGuard;
 		this.databaseContext = databaseContext;
+		this.metricsProperties = metricsProperties;
 		this.progressValidator = new AttemptProgressValidator(properties.maxProgressDeltaSeconds());
 		this.objectMapper = objectMapper;
 		this.clock = clock;
@@ -221,6 +231,12 @@ public class StudentSubmissionService {
 			UUID.randomUUID(), attemptId, studentId, attempt.teacherId(), assignment.assignmentId(),
 			assignmentTitle, snapshots.size(), score.correct(), totalActiveElapsedSec,
 			learningRecordId, now));
+		// 🔴 8단계 — 월별 집계 재계산 outbox. 같은 트랜잭션에서 넣고, 실제 재계산은 학생 진입
+		//    시점에 MetricRefreshOutboxDrainer 가 돌린다. 제출을 분석 계산에 인질로 잡지 않는다.
+		java.time.ZoneId zone = java.time.ZoneId.of(metricsProperties.monthZone());
+		String monthKey = MonthWindow.resolveMonth(now, zone).toString();
+		metricOutbox.insertPending(attempt.teacherId(), studentId, monthKey, zone.getId(),
+			MetricRefreshOutboxRow.REASON_ATTEMPT_SCORED, attemptId.toString(), now);
 
 		return AttemptProjections.toResult(
 			attemptId, assignment.assignmentId(), snapshots.size(), score.correct(),

@@ -846,7 +846,7 @@ class TeacherTenantRowLevelSecurityIntegrationTest {
 			    rule_id, signal_type, display_label, score, rank, lifecycle,
 			    brief_text, gate_passed, fallback_used
 			)
-			VALUES (?, ?, ?, ?, 'class', 'R1', 'risk', 'Risk',
+			VALUES (?, ?, ?, ?, 'class', 'R1', 'acc_drop', 'Risk',
 			        0.5, 1, 'NEW', 'brief', true, false)
 			""", signalId, runId, "external-" + signalId, studentRef);
 		administrator.update("""

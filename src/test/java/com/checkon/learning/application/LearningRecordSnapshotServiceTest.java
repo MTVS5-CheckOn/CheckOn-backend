@@ -1,6 +1,7 @@
 package com.checkon.learning.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -15,6 +16,8 @@ import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import com.checkon.detection.application.AiDetectionConsentMode;
 import com.checkon.detection.application.AiDetectionConsentPolicy;
@@ -69,6 +72,45 @@ class LearningRecordSnapshotServiceTest {
 			.filteredOn(evidence -> evidence.weekStart().equals(LocalDate.parse("2026-07-27")))
 			.singleElement()
 			.satisfies(evidence -> assertThat(evidence.activityCount()).isEqualTo(1));
+	}
+
+	@ParameterizedTest
+	@CsvSource({
+		"MANUAL, MANUAL",
+		"member_attempt_item, studentHome",
+		"member_attempt, studentHome"
+	})
+	@org.junit.jupiter.api.DisplayName("내부 provenance를 외부 AI learning event source로 매핑한다")
+	void mapsInternalLearningRecordSourceToAiContract(
+		String internalSource,
+		String expectedAiSource
+	) {
+		Fixture fixture = fixture(
+			AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true, internalSource
+		);
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.learningEvents()).singleElement().satisfies(event ->
+			assertThat(event.source()).isEqualTo(expectedAiSource)
+		);
+	}
+
+	@Test
+	@org.junit.jupiter.api.DisplayName("매핑되지 않은 내부 source는 snapshot과 Outbox 생성 전에 거절한다")
+	void rejectsUnknownInternalLearningRecordSource() {
+		Fixture fixture = fixture(
+			AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true, "AI_DEMO_FIXTURE"
+		);
+
+		assertThatThrownBy(() -> fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessageContaining("Unsupported internal learning record source_type")
+			.hasMessageContaining("AI_DEMO_FIXTURE");
 	}
 
 	@Test
@@ -439,6 +481,28 @@ class LearningRecordSnapshotServiceTest {
 		});
 	}
 
+	@Test
+	@org.junit.jupiter.api.DisplayName("legacy signal type은 원본 이력을 보존하고 새 alert_context에서 제외한다")
+	void excludesUnsupportedSignalTypeFromAlertContext() {
+		Fixture fixture = fixture(AiDetectionConsentMode.PRE_CONSENT_ALLOW_ALL, true);
+		when(fixture.alertContexts().latestByStudentAndSignalType(TEACHER)).thenReturn(List.of(
+			new EngagementAlertContextService.AlertHistory(
+				STUDENT, "learning_gap", "open", null, false
+			),
+			new EngagementAlertContextService.AlertHistory(
+				STUDENT, "volume_gap", "resolved", Instant.parse("2026-08-05T10:00:00Z"), true
+			)
+		));
+
+		var snapshot = fixture.service().build(
+			TEACHER, LocalDate.parse("2026-07-27"), "normal", FROM, FROM.plusSeconds(60)
+		);
+
+		assertThat(snapshot.alertContext()).singleElement().satisfies(context ->
+			assertThat(context.signalType()).isEqualTo("volume_gap")
+		);
+	}
+
 	private Fixture fixture(AiDetectionConsentMode mode, boolean includeRecord) {
 		return fixture(mode, includeRecord, true);
 	}
@@ -446,9 +510,19 @@ class LearningRecordSnapshotServiceTest {
 	private Fixture fixture(
 		AiDetectionConsentMode mode,
 		boolean includeRecord,
+		String sourceType
+	) {
+		return fixture(mode, includeRecord, true, FROM.minusSeconds(60), sourceType);
+	}
+
+	private Fixture fixture(
+		AiDetectionConsentMode mode,
+		boolean includeRecord,
 		boolean activeRelationship
 	) {
-		return fixture(mode, includeRecord, activeRelationship, FROM.minusSeconds(60));
+		return fixture(
+			mode, includeRecord, activeRelationship, FROM.minusSeconds(60), "MANUAL"
+		);
 	}
 
 	private Fixture fixture(
@@ -456,6 +530,18 @@ class LearningRecordSnapshotServiceTest {
 		boolean includeRecord,
 		boolean activeRelationship,
 		Instant relationshipStartedAt
+	) {
+		return fixture(
+			mode, includeRecord, activeRelationship, relationshipStartedAt, "MANUAL"
+		);
+	}
+
+	private Fixture fixture(
+		AiDetectionConsentMode mode,
+		boolean includeRecord,
+		boolean activeRelationship,
+		Instant relationshipStartedAt,
+		String sourceType
 	) {
 		LearningRecordRepository records = mock(LearningRecordRepository.class);
 		ClassEnrollmentRepository enrollments = mock(ClassEnrollmentRepository.class);
@@ -472,7 +558,7 @@ class LearningRecordSnapshotServiceTest {
 			DetectionStudentStatusHistoryService.class
 		);
 		TeacherTenantDatabaseContext tenantContext = mock(TeacherTenantDatabaseContext.class);
-		LearningRecord record = record();
+		LearningRecord record = record(sourceType);
 
 		when(records.findAllByTeacherIdAndOccurredAtGreaterThanEqualAndOccurredAtLessThan(
 			eq(TEACHER), any(Instant.class), any(Instant.class)
@@ -512,7 +598,7 @@ class LearningRecordSnapshotServiceTest {
 			assignmentSummaries, statusHistory);
 	}
 
-	private LearningRecord record() {
+	private LearningRecord record(String sourceType) {
 		LearningRecord record = mock(LearningRecord.class);
 		when(record.id()).thenReturn(RECORD);
 		when(record.teacherId()).thenReturn(TEACHER);
@@ -520,7 +606,7 @@ class LearningRecordSnapshotServiceTest {
 		when(record.classGroupId()).thenReturn(CLASS);
 		when(record.recordType()).thenReturn(LearningRecordType.SOLVE);
 		when(record.occurredAt()).thenReturn(FROM.plusSeconds(1));
-		when(record.sourceType()).thenReturn("MANUAL");
+		when(record.sourceType()).thenReturn(sourceType);
 		return record;
 	}
 

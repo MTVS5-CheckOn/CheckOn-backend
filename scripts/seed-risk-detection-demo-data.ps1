@@ -71,7 +71,7 @@ INSERT INTO learning_records
      passage_word_count, area_tag, subject_track, type_tag, item_format,
      created_at, updated_at)
 VALUES ('$recordId', '$teacherId', '$studentId', '$classId', 'SOLVE', '$occurredAt',
-        'studentHome', 'kafka-demo-$AnalysisDate', true, 180,
+        'MANUAL', 'kafka-demo-$AnalysisDate', true, 180,
         800, 'reading', 'common', 'infer', 'mcq', '$now', '$now')
 ON CONFLICT (id) DO UPDATE
 SET occurred_at = EXCLUDED.occurred_at,

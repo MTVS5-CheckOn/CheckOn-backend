@@ -86,6 +86,19 @@ public abstract class MemberPostgresSupport {
 	public static void clearMemberFixtures(JdbcTemplate admin) {
 		String[] ordered = {
 			"authentication_sessions",
+			// 🔴 V42 월별 집계 계열 — 자식 → 부모 순서. teacher_profiles·student_profiles 를 참조하므로
+			//    두 profile 앞에 있어야 한다. clear 는 학생 컨텍스트가 없어 RLS 로 안 지워질 것 같지만
+			//    admin 커넥션은 superuser 라 통과한다(MB-34).
+			"member_metric_refresh_outbox",
+			"member_monthly_weakness_metrics",
+			"member_monthly_student_metrics",
+			// 🔴 V41 알림·질문 계열 — 자식 → 부모 순서. member_notifications 는 accounts 만 참조,
+			//    member_question_messages 는 member_questions 를 참조, member_questions 는
+			//    student/teacher/assignment/member_attempts 를 참조한다.
+			"member_notifications",
+			"member_notification_preferences",
+			"member_question_messages",
+			"member_questions",
 			// 🔴 V40 attempt 계열 — 자식 → 부모 순서. member_attempts 가 problem_assignments·
 			//    student_profiles·teacher_profiles 를 참조하므로 그 앞에 있어야 정리가 통과한다.
 			"member_learning_sessions",
@@ -124,6 +137,20 @@ public abstract class MemberPostgresSupport {
 		return restricted.queryForObject(
 			"SELECT rolsuper||'/'||rolbypassrls FROM pg_roles WHERE rolname = current_user",
 			String.class);
+	}
+
+	/**
+	 * 🔴 한 학생의 {@code member_learning_sessions} 만 지운다. 「기록 0건」 분기를 만드는 데 쓴다.
+	 *
+	 * <p>왜 헬퍼가 되나 — 테스트 클래스가 자기 안에 {@code DELETE} 를 쓰면 정리 순서·FK 규약이
+	 * 여러 곳으로 흩어진다({@link #clearMemberFixtures} 헤더 참조). 지우는 대상 테이블은 한 곳에
+	 * 몰아둔다.</p>
+	 *
+	 * <p>🔴 {@code member_learning_sessions} 만 지운다 — {@code member_attempts} 는 남긴다.
+	 * 세션은 attempt 를 참조(FK)하지만 그 반대는 아니라, 세션만 지워도 FK 는 안 깨진다.</p>
+	 */
+	public static void deleteLearningSessionsForStudent(JdbcTemplate admin, UUID studentId) {
+		admin.update("DELETE FROM member_learning_sessions WHERE student_id = ?", studentId);
 	}
 
 	/**

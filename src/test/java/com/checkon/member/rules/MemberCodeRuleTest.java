@@ -49,6 +49,8 @@ class MemberCodeRuleTest {
 	private static final Path MIGRATIONS = Path.of("src/main/resources/db/migration");
 	private static final Path ERROR_CODE_SOURCE =
 		MEMBER.resolve("common/error/MemberErrorCode.java");
+	private static final Path MEMBER_EXCEPTION_HANDLER =
+		MEMBER.resolve("common/error/MemberExceptionHandler.java");
 
 	/** G15 가 「컨텍스트를 열었다」로 인정하는 호출. 셋 다 MemberDatabaseContext 를 거친다. */
 	private static final Pattern CONTEXT_OPENERS =
@@ -402,6 +404,40 @@ class MemberCodeRuleTest {
 		}
 		assertThat(offenders)
 			.as("승인 조합에 없는 @SpringBootTest properties 를 새로 쓸 때는 approved 에 먼저 넣는다")
+			.isEmpty();
+	}
+
+	@Test
+	@DisplayName("G18. MemberExceptionHandler 가 Spring MVC 표준 예외 4종을 전부 잡는다")
+	void memberAdviceCoversStandardMvcExceptions() throws IOException {
+		// 🔴 왜 이 게이트가 필요한가 — PR7 실측: `MissingServletRequestParameterException` 핸들러가
+		//    비어 있어 required 쿼리 파라미터를 쓰는 member 엔드포인트가 전부 500 을 냈다.
+		//    G1~G17 중 어느 것도 이 구멍을 안 봤다 — 여섯 PR 동안 무증상으로 통과했다.
+		//
+		// 🔴 이 판정은 **느슨하다.** "핸들러 애노테이션이 적혀 있다"이지 "낸 응답이 계약과 맞다"가
+		//    아니다. 응답 몸통·상태·헤더까지 보려면 실제 요청을 쏘는 통합 테스트가 필요하다 —
+		//    그 지점은 AnalyticsIntegrationTest 의 `parentAnalysisMonthMissing` 같은 케이스가 맡는다.
+		//    여기 게이트는 "핸들러가 통째로 사라졌는가"만 잡아 조기 경보를 낸다.
+		//
+		// 🔴 4종은 계약이 400 INVALID_REQUEST 로 규정한 표준 실패 경로다:
+		//    · @Valid 실패 → MethodArgumentNotValidException
+		//    · required 쿼리 파라미터 부재 → MissingServletRequestParameterException
+		//    · 경로 변수/쿼리 타입 미스매치 → MethodArgumentTypeMismatchException
+		//    · JSON 파싱 실패 → HttpMessageNotReadableException
+		String handlerSource = Files.readString(MEMBER_EXCEPTION_HANDLER);
+		List<String> required = List.of(
+			"MethodArgumentNotValidException",
+			"MissingServletRequestParameterException",
+			"MethodArgumentTypeMismatchException",
+			"HttpMessageNotReadableException"
+		);
+		List<String> missing = required.stream()
+			.filter(name -> !Pattern.compile(
+					"@ExceptionHandler\\s*\\([^)]*" + Pattern.quote(name) + "\\.class")
+				.matcher(handlerSource).find())
+			.toList();
+		assertThat(missing)
+			.as("MemberExceptionHandler 에서 다음 표준 예외 핸들러가 사라졌다 — 500 으로 새 나간다")
 			.isEmpty();
 	}
 

@@ -16,6 +16,8 @@ import com.checkon.member.common.error.MemberException;
 import com.checkon.member.common.persistence.MemberDatabaseContext;
 import com.checkon.member.common.security.MemberRole;
 import com.checkon.member.common.security.MemberSubject;
+import com.checkon.member.profile.application.MemberProfileProperties;
+import com.checkon.member.profile.infrastructure.persistence.NotificationPreferenceRepository;
 
 /**
  * 앱 bootstrap 과 활성화 상태 폴링을 담당한다.
@@ -42,19 +44,25 @@ public class MemberSessionService {
 	private final PublicStudentIdRepository publicStudentIdRepository;
 	private final MemberTeacherRepository teacherRepository;
 	private final MemberDatabaseContext databaseContext;
+	private final NotificationPreferenceRepository preferenceRepository;
+	private final MemberProfileProperties profileProperties;
 
 	public MemberSessionService(
 		MemberDisplayNameRepository displayNameRepository,
 		MemberActivationRepository activationRepository,
 		PublicStudentIdRepository publicStudentIdRepository,
 		MemberTeacherRepository teacherRepository,
-		MemberDatabaseContext databaseContext
+		MemberDatabaseContext databaseContext,
+		NotificationPreferenceRepository preferenceRepository,
+		MemberProfileProperties profileProperties
 	) {
 		this.displayNameRepository = displayNameRepository;
 		this.activationRepository = activationRepository;
 		this.publicStudentIdRepository = publicStudentIdRepository;
 		this.teacherRepository = teacherRepository;
 		this.databaseContext = databaseContext;
+		this.preferenceRepository = preferenceRepository;
+		this.profileProperties = profileProperties;
 	}
 
 	@Transactional(readOnly = true)
@@ -67,6 +75,10 @@ public class MemberSessionService {
 			.orElseThrow(() -> new MemberException(
 				MemberErrorCode.INTERNAL, "display name row is missing"));
 
+		// 🔴 MB-32 CLOSED — V41 이 원본 테이블을 만들었다. 부재 시 Settings 기본값.
+		boolean notificationsEnabled = preferenceRepository.find(subject.accountId())
+			.orElse(profileProperties.defaultEnabled());
+
 		if (subject.role() == MemberRole.PARENT) {
 			return new MemberSessionView(
 				subject.accountId(),
@@ -77,7 +89,8 @@ public class MemberSessionService {
 				// 🔴 학부모는 활성화·공개 ID 가 "없는" 값이다. 키는 두고 값만 null.
 				null,
 				null,
-				teacherRepository.findForParent(subject.requireParentProfileId()));
+				teacherRepository.findForParent(subject.requireParentProfileId()),
+				notificationsEnabled);
 		}
 
 		UUID studentProfileId = subject.requireStudentProfileId();
@@ -90,7 +103,8 @@ public class MemberSessionService {
 			subject.activationStatus(),
 			publicStudentIdRepository.findByStudent(studentProfileId).orElse(null),
 			// 🔴 대기 학생은 강사 관계가 아직 없다. 예외가 아니라 빈 배열이 맞다.
-			teacherRepository.findForStudent(studentProfileId));
+			teacherRepository.findForStudent(studentProfileId),
+			notificationsEnabled);
 	}
 
 	/**

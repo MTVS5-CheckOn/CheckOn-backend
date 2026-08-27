@@ -92,7 +92,7 @@ class KafkaDetectionResultConsumerIntegrationTest {
 			INSERT INTO learning_records
 			(id, teacher_id, student_id, record_type, occurred_at, source_type,
 			 correct, duration_sec, created_at, updated_at)
-			VALUES (uuidv7(), ?, ?, 'SOLVE', '2026-07-20T01:00:00Z', 'test', true, 120, now(), now())
+			VALUES (uuidv7(), ?, ?, 'SOLVE', '2026-07-20T01:00:00Z', 'MANUAL', true, 120, now(), now())
 			""", TEACHER, STUDENT);
 	}
 

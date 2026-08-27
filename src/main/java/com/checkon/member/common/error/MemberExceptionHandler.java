@@ -9,11 +9,13 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import com.checkon.member.MemberPackageMarker;
+import com.checkon.member.common.persistence.MemberScopeDeniedException;
 import com.checkon.member.common.presentation.RateLimitDetails;
 
 import jakarta.validation.ConstraintViolationException;
@@ -79,6 +81,28 @@ public class MemberExceptionHandler {
 	) {
 		FieldViolation violation = new FieldViolation(exception.getName(), "type mismatch");
 		return invalidRequest("request parameter type mismatch", List.of(violation));
+	}
+
+	@ExceptionHandler(MissingServletRequestParameterException.class)
+	public ResponseEntity<MemberErrorResponse> handleMissingParam(
+		MissingServletRequestParameterException exception
+	) {
+		FieldViolation violation = new FieldViolation(exception.getParameterName(), "required");
+		return invalidRequest("required request parameter is missing", List.of(violation));
+	}
+
+	/**
+	 * 🔴 scope 확인 실패 → {@code 404 RESOURCE_NOT_FOUND}. 관계 없음도 부재로 처리한다(설계 §6-4
+	 * 불변식 3). 없이 두면 이 예외가 {@link #handleUnexpected} 로 떨어져 <b>500 이 나간다</b> —
+	 * 학부모 자녀 관계 없음이 계약과 다른 상태 코드로 관측된다.
+	 */
+	@ExceptionHandler(MemberScopeDeniedException.class)
+	public ResponseEntity<MemberErrorResponse> handleScopeDenied(
+		MemberScopeDeniedException exception
+	) {
+		MemberErrorCode code = MemberErrorCode.RESOURCE_NOT_FOUND;
+		return ResponseEntity.status(code.status())
+			.body(MemberErrorResponse.of(code, "resource not found", null));
 	}
 
 	@ExceptionHandler(Exception.class)
