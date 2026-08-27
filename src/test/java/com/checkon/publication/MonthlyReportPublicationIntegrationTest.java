@@ -10,6 +10,7 @@ import java.time.OffsetDateTime;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -19,10 +20,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.JdbcTransactionManager;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.checkon.account.domain.AccountRole;
 import com.checkon.member.common.presentation.MemberRateLimiter;
@@ -30,6 +33,7 @@ import com.checkon.member.membership.MembershipRlsEnforcedSupport;
 import com.checkon.member.support.MemberPostgresSupport;
 import com.checkon.publication.application.MonthlyReportPublicationRunner;
 import com.checkon.publication.domain.PublicationOutcome;
+import com.checkon.publication.infrastructure.QueuedDeliveryReader;
 
 /**
  * 🔴 <b>끝에서 끝까지</b> — 승우님 배달 행을 넣고 배치를 돌린 뒤, <b>학부모 컨텍스트로</b>
@@ -329,6 +333,62 @@ class MonthlyReportPublicationIntegrationTest extends MembershipRlsEnforcedSuppo
 
 		PublicationOutcome second = runner.runOnce();
 		assertThat(second.handled()).as("표시했는데 다시 집었다").isZero();
+	}
+
+	/**
+	 * 🔴 <b>{@code SKIP LOCKED} 가 실제로 건너뛰는지</b> 결정적으로 잰다 — 스레드 경쟁이 아니라
+	 * <b>커넥션 둘</b>로 본다. 경쟁 테스트는 타이밍에 기대 flaky 가 되고, 그런 테스트는
+	 * 「가끔 초록」이라 아무것도 증명하지 못한다.
+	 *
+	 * <p>커넥션 A 가 배달을 잠근 채 트랜잭션을 유지하는 동안, 커넥션 B 가 같은 질의를 한다:</p>
+	 * <ul>
+	 *   <li>{@code SKIP LOCKED} 가 있으면 → <b>즉시 빈 결과</b>. 다른 인스턴스가 잡은 것을
+	 *       건너뛰고 제 갈 길을 간다</li>
+	 *   <li>없으면 → <b>블록</b>된다. 그래서 B 에 짧은 {@code lock_timeout} 을 걸어
+	 *       매달리는 대신 예외로 드러나게 한다 — 테스트가 <b>멈추지 않고 실패</b>해야 한다</li>
+	 * </ul>
+	 *
+	 * <p>🔴 두 커넥션 다 관리자 자격이라 RLS 는 우회된다. 여기서 재는 것은 <b>잠금 동작</b>이고
+	 * 격리는 다른 테스트들이 제한 역할로 잰다 — 한 테스트가 두 가지를 재면 무엇이 깨졌는지
+	 * 흐려진다.</p>
+	 */
+	@Test
+	@DisplayName("🔴 SKIP LOCKED — 한 인스턴스가 잠근 배달을 다른 인스턴스가 건너뛴다")
+	void skipLockedLetsAnotherRunnerMoveOn() {
+		insertDelivery(reportId, artifactId, "QUEUED");
+
+		JdbcTemplate first = new JdbcTemplate(newAdminDataSource());
+		JdbcTemplate second = new JdbcTemplate(newAdminDataSource());
+		QueuedDeliveryReader readerA = new QueuedDeliveryReader(first);
+		QueuedDeliveryReader readerB = new QueuedDeliveryReader(second);
+		TransactionTemplate txA = new TransactionTemplate(
+			new JdbcTransactionManager(first.getDataSource()));
+		TransactionTemplate txB = new TransactionTemplate(
+			new JdbcTransactionManager(second.getDataSource()));
+
+		Boolean secondSawNothing = txA.execute(outer -> {
+			assertThat(readerA.lockNextQueued(Set.of()))
+				.as("A 가 배달을 못 집었다 — 이 테스트의 전제가 깨졌다")
+				.isPresent();
+			return txB.execute(inner -> {
+				// 🔴 SKIP LOCKED 가 없으면 여기서 블록된다. 매달리지 않고 터지게 한다.
+				second.execute("SET LOCAL lock_timeout = '500ms'");
+				return readerB.lockNextQueued(Set.of()).isEmpty();
+			});
+		});
+
+		assertThat(secondSawNothing)
+			.as("B 가 A 가 잠근 배달을 함께 집었다 — 두 인스턴스가 같은 배달을 발행한다")
+			.isTrue();
+	}
+
+	private javax.sql.DataSource newAdminDataSource() {
+		org.springframework.jdbc.datasource.DriverManagerDataSource dataSource =
+			new org.springframework.jdbc.datasource.DriverManagerDataSource();
+		dataSource.setUrl(POSTGRES.getJdbcUrl());
+		dataSource.setUsername(POSTGRES.getUsername());
+		dataSource.setPassword(POSTGRES.getPassword());
+		return dataSource;
 	}
 
 	// ──────────────────────────── 픽스처 ────────────────────────────
