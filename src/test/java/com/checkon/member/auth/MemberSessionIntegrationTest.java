@@ -105,14 +105,13 @@ class MemberSessionIntegrationTest extends MemberPostgresSupport {
 	}
 
 	@Test
-	@DisplayName("🔴 MB-32 — 세션 응답에 notificationsEnabled 키가 아예 없다")
-	void sessionOmitsNotificationsEnabledKey() throws Exception {
-		String body = mockMvc.perform(get(SESSION).with(student()))
+	@DisplayName("🔴 MB-32 CLOSED — 세션 응답이 notificationsEnabled 키를 채운다 (V41)")
+	void sessionIncludesNotificationsEnabled() throws Exception {
+		// 🔴 PR6/V41 이 member_notification_preferences 를 만들었다. 부재 시 Settings 기본값
+		//    (checkon.member.notification.default-enabled=true) 로 대체한다.
+		mockMvc.perform(get(SESSION).with(student()))
 			.andExpect(status().isOk())
-			.andReturn().getResponse().getContentAsString();
-
-		// 🔴 계약 :1748 이 nullable 이 아니라 null 로도 못 채운다. 지어내지 않고 키를 뺀다.
-		assertThat(body).doesNotContain("notificationsEnabled");
+			.andExpect(jsonPath("$.data.notificationsEnabled").value(true));
 	}
 
 	@Test

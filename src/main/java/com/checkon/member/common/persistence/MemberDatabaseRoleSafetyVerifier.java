@@ -31,7 +31,12 @@ public class MemberDatabaseRoleSafetyVerifier implements ApplicationRunner {
 		"member_attempt_items",
 		"member_attempt_answers",
 		"member_attempt_events",
-		"member_learning_sessions"
+		"member_learning_sessions",
+		// V41 · 질문·프로필·알림
+		"member_notification_preferences",
+		"member_questions",
+		"member_question_messages",
+		"member_notifications"
 	);
 
 	/**
