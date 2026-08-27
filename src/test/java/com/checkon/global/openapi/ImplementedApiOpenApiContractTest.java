@@ -36,9 +36,14 @@ class ImplementedApiOpenApiContractTest {
 
 		scanner.findCandidateComponents("com.checkon").forEach(candidate -> {
 			Class<?> controller = loadClass(candidate.getBeanClassName());
-			// member 경계는 별도 계약(openapi/member-api.yaml)을 가진다.
-			// 그쪽 「구현 ↔ 계약」 대조는 MemberImplementedApiOpenApiContractTest 가 한다.
-			if (controller.getPackageName().startsWith("com.checkon.member")) {
+			// member·publication 경계는 별도 계약을 가진다.
+			//   member      → openapi/member-api.yaml        · MemberImplementedApiOpenApiContractTest
+			//   publication → openapi/member-teacher-api.yaml · PublicationImplementedApiOpenApiContractTest
+			// 🔴 예외를 늘리려면 **그 경계의 양방향 대조 테스트를 먼저 만들어야 한다.**
+			//    예외만 늘리면 여기서 잃은 보증을 아무도 메우지 않는다.
+			String packageName = controller.getPackageName();
+			if (packageName.startsWith("com.checkon.member")
+				|| packageName.startsWith("com.checkon.publication")) {
 				return;
 			}
 			RequestMapping classMapping = AnnotatedElementUtils.findMergedAnnotation(

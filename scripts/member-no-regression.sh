@@ -25,7 +25,10 @@
 #        docker exec -i "$PGC" pg_dump -U checkon_app -d "$DBNAME" \
 #          --schema-only --no-owner --no-privileges | grep -vE '^\\(un)?restrict ' \
 #          > .member-baseline/schema.sql
-#        find src/main/java -name '*.java' -not -path 'src/main/java/com/checkon/member/*' -print0 \
+#        OURS='member|publication'   # 🔴 §4 R5 와 **같은 값**이어야 한다
+#        find src/main/java -name '*.java' \
+#          | grep -Ev "^src/main/java/com/checkon/(${OURS})/" \
+#          | tr '\n' '\0' \
 #          | xargs -0 grep -hoE '@(Get|Post|Put|Patch|Delete|Request)Mapping\("[^"]*"\)' \
 #          | sort > .member-baseline/endpoints.txt
 #   3) 고치기 전에 한 번 돌려서 R3~R8 이 전부 exit 0 인지 확인한다:
@@ -49,6 +52,13 @@ DBNAME=$(grep -E '^POSTGRES_DB=' .env | cut -d= -f2)   # 🔴 checkon 아니다.
 dpsql() { docker exec -i "$PGC" psql -U checkon_app -d "$DBNAME" "$@"; }
 export SPRING_DOCKER_COMPOSE_ENABLED=false
 step() { printf '%-28s exit=%s\n' "$1" "$2"; [ "$2" -ne 0 ] && FAIL=1; }
+
+# 🔴 **우리 경계의 정본.** R5(엔드포인트)와 R8(파일 무변경)이 **같은 값**을 쓴다.
+#    경계가 늘면 여기 한 곳만 고친다 — 두 곳에 적으면 언젠가 갈린다.
+#    🔴 W2 실측: R5 는 member 만 제외하고 있어서 publication 이 엔드포인트를 처음 만든
+#       순간 red 가 났다. R8 은 이미 구조 판정으로 고쳐 뒀는데 R5 는 안 고쳐져 있었다 —
+#       같은 병이 게이트 안에서 **한 칸 옆으로** 남아 있었다.
+OURS='member|publication'
 
 # 🔴 기준선 이후 내가 만들거나 고친 파일 전량 — **커밋 여부와 무관하게**.
 #    `git diff base..HEAD` 만 쓰면 커밋 전 워킹트리 파일이 안 보인다.
@@ -160,7 +170,10 @@ diff "$BASE/schema.sql" /tmp/after-schema.sql | grep '^<' > /tmp/schema.diff
 
 # R5. 기존 엔드포인트가 사라지거나 바뀌지 않았는가
 # 🔴 §3 B5 와 **똑같아야 한다.** 경로 문자열이 아니라 파일 위치로 가른다(§3-13).
-find src/main/java -name '*.java' -not -path 'src/main/java/com/checkon/member/*' -print0 \
+# 🔴 제외 대상을 손으로 적지 않는다 — `$OURS` 하나로 R8 과 같은 값을 쓴다.
+find src/main/java -name '*.java' \
+  | grep -Ev "^src/main/java/com/checkon/(${OURS})/" \
+  | tr '\n' '\0' \
   | xargs -0 grep -hoE '@(Get|Post|Put|Patch|Delete|Request)Mapping\("[^"]*"\)' \
   | sort > /tmp/after-endpoints.txt
 diff "$BASE/endpoints.txt" /tmp/after-endpoints.txt > /tmp/endpoint.diff
@@ -186,7 +199,7 @@ changed \
   >> /tmp/touched.txt
 [ ! -s /tmp/touched.txt ]; step "R7 무접촉" $?
 
-# R8. 기존 패키지 파일이 변경되지 않았는가
+# R8. 기존 패키지 파일이 변경되지 않았는가 (main + test)
 # 🔴 여기서 ..HEAD 를 쓰면 **커밋 전에 승우님 파일을 고쳐놓고도 통과**한다.
 #    R3-b·R6·R7 과 같은 병인데 R8 이 가장 위험하다 — 절대 규칙 1번을 지키는 게이트다.
 #
@@ -199,18 +212,56 @@ changed \
 #
 # 🔴 그래서 **구조로 판정한다** — 실제 패키지 목록을 읽고 거기서 **우리 것만 뺀다.**
 #    새 패키지가 생기면 자동으로 무접촉 대상이 되고, 우리 경계가 늘면 OURS 만 고친다.
-OURS='member|publication'
-FOREIGN=$(ls -d src/main/java/com/checkon/*/ 2>/dev/null | xargs -n1 basename \
-  | grep -Ev "^(${OURS})$" | paste -sd'|' -)
-# 🔴 조용한 절단 금지(§3-9). 무엇을 무접촉으로 봤는지 찍는다 —
+# 🔴 **`src/main/java` 만 보면 승우님 *테스트* 를 고쳐도 아무도 모른다.** W2 에서 우리가
+#    바로 그 구멍으로 들어갔다(계약 스캐너 예외 한 줄). 들어가면서 문을 단다 —
+#    main 과 test 를 **함께** 본다.
+# 🔴 패키지 목록도 두 트리의 **합집합**이다. `src/test/java/com/checkon/support` 처럼
+#    테스트에만 있는 패키지가 실재한다(승우님 `RosterTestFixture`) — main 만 읽으면 빠진다.
+FOREIGN=$( { ls -d src/main/java/com/checkon/*/ 2>/dev/null
+             ls -d src/test/java/com/checkon/*/ 2>/dev/null; } | xargs -n1 basename \
+  | sort -u | grep -Ev "^(${OURS})$" | paste -sd'|' -)
+
+# 🔴 **승인받은 예외를 여기에 적는다. 접두사가 아니라 전체 경로 완전 일치다.**
+#    접두사로 적으면 같은 디렉터리의 다른 파일까지 조용히 열린다.
+FOREIGN_EXCEPTIONS=(
+  # publication 예외 추가 · 승우님 승인 2026-08-27 · W2
+  # (계약 스캐너 패키지 예외에 com.checkon.publication 한 줄. 잃는 보증은
+  #  PublicationImplementedApiOpenApiContractTest 가 양방향 대조로 메운다)
+  'src/test/java/com/checkon/global/openapi/ImplementedApiOpenApiContractTest.java'
+)
+# 🔴 **목록이 둘이 되면 그 자리에서 FAIL 한다.** 예외 목록이 자라기 시작하면 게이트가 죽는다 —
+#    「목록에 있으니까 괜찮다」가 「왜 있는지 아무도 모른다」와 같은 뜻이 된다.
+#    둘째가 필요하면 게이트를 고치기 전에 **왜 필요한지부터** 답해야 한다.
+if [ "${#FOREIGN_EXCEPTIONS[@]}" -gt 1 ]; then
+  echo "R8 예외가 ${#FOREIGN_EXCEPTIONS[@]} 개다 — 하나를 넘으면 승인 절차를 다시 밟아라"
+  FAIL=1
+fi
+# 🔴 **항목이 「파일 하나」인지 구조로 확인한다.** 고의 파괴로 실측했다(W2):
+#    예외를 디렉터리(`.../global/openapi/`)로 바꾸고 그 안의 **다른** 파일을 고쳤더니
+#    게이트가 **green** 이었다 — 개수 검사(위)도 완전 일치 비교(아래)도 통과한다.
+#    「하나만 둔다」는 규칙이 「한 줄만 적는다」로 지켜지면 그 한 줄이 폴더 전체일 수 있다.
+#    실재하는 파일인지도 함께 본다 — 파일이 사라지면 목록이 썩은 것이고, 썩은 예외는
+#    아무것도 안 지키면서 게이트를 통과시킨다.
+for exception in "${FOREIGN_EXCEPTIONS[@]}"; do
+  case "$exception" in
+    */) echo "R8 예외가 디렉터리다 — 파일 전체 경로로 적어라: $exception"; FAIL=1 ;;
+  esac
+  if [ ! -f "$exception" ]; then
+    echo "R8 예외 파일이 실재하지 않는다 — 목록이 썩었다: $exception"; FAIL=1
+  fi
+done
+
+# 🔴 조용한 절단 금지(§3-9). 무엇을 무접촉으로 봤고 무엇을 뺐는지 찍는다 —
 #    "0건이라 통과"와 "검사해서 통과"는 다른 말이다.
 printf '%-28s %s\n' "무접촉 대상 패키지" "${FOREIGN:-(없음)}"
+printf '%-28s %s\n' "R8 승인 예외" "${FOREIGN_EXCEPTIONS[*]:-(없음)}"
 if [ -z "$FOREIGN" ]; then
   # 🔴 목록이 비면 grep 패턴이 () 가 되어 **아무것도 안 잡고 통과**한다. 그건 통과가 아니다.
   echo "R8 대상 패키지를 하나도 못 찾았다 — 판정이 헛돈다"; FAIL=1
 fi
 changed \
-  | grep -E "^src/main/java/com/checkon/(${FOREIGN})/" \
+  | grep -E "^src/(main|test)/java/com/checkon/(${FOREIGN})/" \
+  | grep -Fxvf <(printf '%s\n' "${FOREIGN_EXCEPTIONS[@]}") \
   > /tmp/pkg.txt
 [ ! -s /tmp/pkg.txt ]; step "R8 기존 패키지 무변경" $?
 

@@ -169,6 +169,7 @@ rebase 를 쓰면 이미 push 한 브랜치에 **force-push** 가 필요하고, 
 | `docs/MEMBER_CONSULTATION_HITL_CONTRACT.md` | `docs/member-backend/04_consultation_hitl_contract.md` |
 | 🔴 `docs/MEMBER_REPORT_PUBLICATION_CONTRACT.md` | `docs/member-backend/05_report_publication_contract.md` | (PR9 추가 · 여섯째)
 | 🔴 `docs/MEMBER_REGRESSION_GUARD.md` | `docs/member-backend/02_regression_guard.md` | (W1 추가 · 일곱째 — 게이트를 저장소에 올리면서)
+| 🔴 `src/main/resources/openapi/member-teacher-api.yaml` | `docs/member-backend/member-teacher-api.yaml` | (W2 추가 · 여덟째 — 강사 발행 계약)
 | `docs/MEMBER_ERROR_CODES.md` | 설계 §7-2 |
 | `docs/MEMBER_OPEN_ITEMS.md` | 설계 §17 + 지시서의 MB-xx |
 | 🔴 `src/main/resources/openapi/member-api.yaml` | `docs/member-backend/member-api.yaml` |
@@ -182,6 +183,7 @@ for pair in "docs/MEMBER_DESIGN.md:docs/member-backend/00_member_backend_design.
             "docs/MEMBER_CONSULTATION_HITL_CONTRACT.md:docs/member-backend/04_consultation_hitl_contract.md" \
             "docs/MEMBER_REPORT_PUBLICATION_CONTRACT.md:docs/member-backend/05_report_publication_contract.md" \
             "docs/MEMBER_REGRESSION_GUARD.md:docs/member-backend/02_regression_guard.md" \
+            "src/main/resources/openapi/member-teacher-api.yaml:docs/member-backend/member-teacher-api.yaml" \
             "src/main/resources/openapi/member-api.yaml:docs/member-backend/member-api.yaml"; do
   a=${pair%%:*}; b=${pair##*:}
   cmp -s "$a" "$b" && echo "✅ $a" || echo "🔴 다름 $a"
@@ -197,7 +199,7 @@ done
 🔴 **계약 쌍이 목록에 없던 이유가 중요하다.** PR0~PR4 는 계약을 <b>고치지 않아서</b> 드리프트가
 드러나지 않았다. **PR5 가 계약을 고치는 첫 PR** 이고, 그 순간 바로 갈렸다 —
 §3-9 「게이트는 실제로 무언가를 막아본 뒤에야 검증된다」와 정확히 같은 자리다.
-쌍이 **일곱**으로 늘었으니(PR9 이 발행 계약을, W1 이 이 문서 자체를 추가했다) 새 문서를 만들 때는 **여기 먼저 등록**한다.
+쌍이 **여덟**로 늘었으니(PR9 이 발행 계약을, W1 이 이 문서 자체를, W2 가 강사 계약을 추가했다) 새 문서를 만들 때는 **여기 먼저 등록**한다.
 🔴 PR9 실측 — 새 문서는 커밋 사본만 만들고 작업 원본이 없었다. 그러면 **드리프트가 날 수는 없지만
    다음 사람이 어느 쪽을 고쳐야 하는지 모른다.** 원본을 만들고 여기 등록해서 방향을 고정했다.
 
@@ -306,7 +308,12 @@ docker exec -i "$PGC" pg_dump -U checkon_app -d "$DBNAME" \
 #    필터를 빠져나가 기준선에 섞이고, 나중에 그 엔드포인트를 지우면 R5 가 오탐 red 를 낸다
 #    (PR3 실측 — @GetMapping("/ping") 1줄). §3-13.
 #    대신 **파일 위치**로 가른다. 이름이 아니라 구조다. R5 와 이 블록은 항상 같아야 한다.
-find src/main/java -name '*.java' -not -path 'src/main/java/com/checkon/member/*' -print0 \
+# 🔴 제외 대상을 손으로 적지 않는다 — `$OURS` 하나로 §4 R5·R8 과 같은 값을 쓴다(W2).
+#    이전 판은 member 만 적었고, publication 이 엔드포인트를 처음 만든 순간 R5 가 red 였다.
+OURS='member|publication'
+find src/main/java -name '*.java' \
+  | grep -Ev "^src/main/java/com/checkon/(${OURS})/" \
+  | tr '\n' '\0' \
   | xargs -0 grep -hoE '@(Get|Post|Put|Patch|Delete|Request)Mapping\("[^"]*"\)' \
   | sort > .member-baseline/endpoints.txt
 ```
@@ -413,7 +420,7 @@ MB-29 로 그 엔드포인트를 지우자 R5 가 **「기존 엔드포인트가
 
 🔴 **PR2 에서 R5 를 「필터 양쪽 정렬」로 고친 처방이 불완전했다는 뜻이다.**
 필터를 맞춰도 애노테이션 분리는 남는다. §3-11 이 이미 말한 그대로다 — **이름으로 거른 게 원인**이다.
-→ **파일 위치로 가른다**(`-not -path '.../member/*'`). §3-12 의 원칙과 같다.
+→ **파일 위치로 가른다**(`grep -Ev "^src/main/java/com/checkon/(${OURS})/"`). §3-12 의 원칙과 같다.
 
 ### ② R3 는 bare `psql`, R4 는 `docker exec` — 같은 스크립트 안에서 갈렸다
 
@@ -439,7 +446,7 @@ PR2 가 §3 만 고치고 §4 를 안 따라가서 생긴 구멍이다. → §4 
 | 곳 | 전 | 후 |
 |---|---|---|
 | §3 B2 · §4 R2 | 히스토그램 + `grep -v member` | 클래스별 + 패키지 경로 제외 + `^<` |
-| §3 B5 · §4 R5 · 재기준선 | `grep -v '/api/v1/member'` | `find -not -path '.../member/*'` |
+| §3 B5 · §4 R5 · 재기준선 | `grep -v '/api/v1/member'` | `find` + `grep -Ev "…/(${OURS})/"` (W2 에서 `$OURS` 로 통일) |
 | §4 R3 · 재기준선 | bare `psql` | `dpsql()` (§3 과 동일) |
 
 🔴 **B(기준선)와 R(검사)은 항상 쌍이다.** 한쪽만 고치면 §3-11 의 3번·5번이 다시 난다.
@@ -666,7 +673,10 @@ R2 만 돌리면 XML 이 이 회차의 member 것뿐이라 **기존 클래스가
 #        docker exec -i "$PGC" pg_dump -U checkon_app -d "$DBNAME" \
 #          --schema-only --no-owner --no-privileges | grep -vE '^\\(un)?restrict ' \
 #          > .member-baseline/schema.sql
-#        find src/main/java -name '*.java' -not -path 'src/main/java/com/checkon/member/*' -print0 \
+#        OURS='member|publication'   # 🔴 §4 R5 와 **같은 값**이어야 한다
+#        find src/main/java -name '*.java' \
+#          | grep -Ev "^src/main/java/com/checkon/(${OURS})/" \
+#          | tr '\n' '\0' \
 #          | xargs -0 grep -hoE '@(Get|Post|Put|Patch|Delete|Request)Mapping\("[^"]*"\)' \
 #          | sort > .member-baseline/endpoints.txt
 #   3) 고치기 전에 한 번 돌려서 R3~R8 이 전부 exit 0 인지 확인한다:
@@ -690,6 +700,13 @@ DBNAME=$(grep -E '^POSTGRES_DB=' .env | cut -d= -f2)   # 🔴 checkon 아니다.
 dpsql() { docker exec -i "$PGC" psql -U checkon_app -d "$DBNAME" "$@"; }
 export SPRING_DOCKER_COMPOSE_ENABLED=false
 step() { printf '%-28s exit=%s\n' "$1" "$2"; [ "$2" -ne 0 ] && FAIL=1; }
+
+# 🔴 **우리 경계의 정본.** R5(엔드포인트)와 R8(파일 무변경)이 **같은 값**을 쓴다.
+#    경계가 늘면 여기 한 곳만 고친다 — 두 곳에 적으면 언젠가 갈린다.
+#    🔴 W2 실측: R5 는 member 만 제외하고 있어서 publication 이 엔드포인트를 처음 만든
+#       순간 red 가 났다. R8 은 이미 구조 판정으로 고쳐 뒀는데 R5 는 안 고쳐져 있었다 —
+#       같은 병이 게이트 안에서 **한 칸 옆으로** 남아 있었다.
+OURS='member|publication'
 
 # 🔴 기준선 이후 내가 만들거나 고친 파일 전량 — **커밋 여부와 무관하게**.
 #    `git diff base..HEAD` 만 쓰면 커밋 전 워킹트리 파일이 안 보인다.
@@ -801,7 +818,10 @@ diff "$BASE/schema.sql" /tmp/after-schema.sql | grep '^<' > /tmp/schema.diff
 
 # R5. 기존 엔드포인트가 사라지거나 바뀌지 않았는가
 # 🔴 §3 B5 와 **똑같아야 한다.** 경로 문자열이 아니라 파일 위치로 가른다(§3-13).
-find src/main/java -name '*.java' -not -path 'src/main/java/com/checkon/member/*' -print0 \
+# 🔴 제외 대상을 손으로 적지 않는다 — `$OURS` 하나로 R8 과 같은 값을 쓴다.
+find src/main/java -name '*.java' \
+  | grep -Ev "^src/main/java/com/checkon/(${OURS})/" \
+  | tr '\n' '\0' \
   | xargs -0 grep -hoE '@(Get|Post|Put|Patch|Delete|Request)Mapping\("[^"]*"\)' \
   | sort > /tmp/after-endpoints.txt
 diff "$BASE/endpoints.txt" /tmp/after-endpoints.txt > /tmp/endpoint.diff
@@ -827,7 +847,7 @@ changed \
   >> /tmp/touched.txt
 [ ! -s /tmp/touched.txt ]; step "R7 무접촉" $?
 
-# R8. 기존 패키지 파일이 변경되지 않았는가
+# R8. 기존 패키지 파일이 변경되지 않았는가 (main + test)
 # 🔴 여기서 ..HEAD 를 쓰면 **커밋 전에 승우님 파일을 고쳐놓고도 통과**한다.
 #    R3-b·R6·R7 과 같은 병인데 R8 이 가장 위험하다 — 절대 규칙 1번을 지키는 게이트다.
 #
@@ -840,18 +860,56 @@ changed \
 #
 # 🔴 그래서 **구조로 판정한다** — 실제 패키지 목록을 읽고 거기서 **우리 것만 뺀다.**
 #    새 패키지가 생기면 자동으로 무접촉 대상이 되고, 우리 경계가 늘면 OURS 만 고친다.
-OURS='member|publication'
-FOREIGN=$(ls -d src/main/java/com/checkon/*/ 2>/dev/null | xargs -n1 basename \
-  | grep -Ev "^(${OURS})$" | paste -sd'|' -)
-# 🔴 조용한 절단 금지(§3-9). 무엇을 무접촉으로 봤는지 찍는다 —
+# 🔴 **`src/main/java` 만 보면 승우님 *테스트* 를 고쳐도 아무도 모른다.** W2 에서 우리가
+#    바로 그 구멍으로 들어갔다(계약 스캐너 예외 한 줄). 들어가면서 문을 단다 —
+#    main 과 test 를 **함께** 본다.
+# 🔴 패키지 목록도 두 트리의 **합집합**이다. `src/test/java/com/checkon/support` 처럼
+#    테스트에만 있는 패키지가 실재한다(승우님 `RosterTestFixture`) — main 만 읽으면 빠진다.
+FOREIGN=$( { ls -d src/main/java/com/checkon/*/ 2>/dev/null
+             ls -d src/test/java/com/checkon/*/ 2>/dev/null; } | xargs -n1 basename \
+  | sort -u | grep -Ev "^(${OURS})$" | paste -sd'|' -)
+
+# 🔴 **승인받은 예외를 여기에 적는다. 접두사가 아니라 전체 경로 완전 일치다.**
+#    접두사로 적으면 같은 디렉터리의 다른 파일까지 조용히 열린다.
+FOREIGN_EXCEPTIONS=(
+  # publication 예외 추가 · 승우님 승인 2026-08-27 · W2
+  # (계약 스캐너 패키지 예외에 com.checkon.publication 한 줄. 잃는 보증은
+  #  PublicationImplementedApiOpenApiContractTest 가 양방향 대조로 메운다)
+  'src/test/java/com/checkon/global/openapi/ImplementedApiOpenApiContractTest.java'
+)
+# 🔴 **목록이 둘이 되면 그 자리에서 FAIL 한다.** 예외 목록이 자라기 시작하면 게이트가 죽는다 —
+#    「목록에 있으니까 괜찮다」가 「왜 있는지 아무도 모른다」와 같은 뜻이 된다.
+#    둘째가 필요하면 게이트를 고치기 전에 **왜 필요한지부터** 답해야 한다.
+if [ "${#FOREIGN_EXCEPTIONS[@]}" -gt 1 ]; then
+  echo "R8 예외가 ${#FOREIGN_EXCEPTIONS[@]} 개다 — 하나를 넘으면 승인 절차를 다시 밟아라"
+  FAIL=1
+fi
+# 🔴 **항목이 「파일 하나」인지 구조로 확인한다.** 고의 파괴로 실측했다(W2):
+#    예외를 디렉터리(`.../global/openapi/`)로 바꾸고 그 안의 **다른** 파일을 고쳤더니
+#    게이트가 **green** 이었다 — 개수 검사(위)도 완전 일치 비교(아래)도 통과한다.
+#    「하나만 둔다」는 규칙이 「한 줄만 적는다」로 지켜지면 그 한 줄이 폴더 전체일 수 있다.
+#    실재하는 파일인지도 함께 본다 — 파일이 사라지면 목록이 썩은 것이고, 썩은 예외는
+#    아무것도 안 지키면서 게이트를 통과시킨다.
+for exception in "${FOREIGN_EXCEPTIONS[@]}"; do
+  case "$exception" in
+    */) echo "R8 예외가 디렉터리다 — 파일 전체 경로로 적어라: $exception"; FAIL=1 ;;
+  esac
+  if [ ! -f "$exception" ]; then
+    echo "R8 예외 파일이 실재하지 않는다 — 목록이 썩었다: $exception"; FAIL=1
+  fi
+done
+
+# 🔴 조용한 절단 금지(§3-9). 무엇을 무접촉으로 봤고 무엇을 뺐는지 찍는다 —
 #    "0건이라 통과"와 "검사해서 통과"는 다른 말이다.
 printf '%-28s %s\n' "무접촉 대상 패키지" "${FOREIGN:-(없음)}"
+printf '%-28s %s\n' "R8 승인 예외" "${FOREIGN_EXCEPTIONS[*]:-(없음)}"
 if [ -z "$FOREIGN" ]; then
   # 🔴 목록이 비면 grep 패턴이 () 가 되어 **아무것도 안 잡고 통과**한다. 그건 통과가 아니다.
   echo "R8 대상 패키지를 하나도 못 찾았다 — 판정이 헛돈다"; FAIL=1
 fi
 changed \
-  | grep -E "^src/main/java/com/checkon/(${FOREIGN})/" \
+  | grep -E "^src/(main|test)/java/com/checkon/(${FOREIGN})/" \
+  | grep -Fxvf <(printf '%s\n' "${FOREIGN_EXCEPTIONS[@]}") \
   > /tmp/pkg.txt
 [ ! -s /tmp/pkg.txt ]; step "R8 기존 패키지 무변경" $?
 
@@ -875,7 +933,7 @@ exit $FAIL
 | R5 | 기존 엔드포인트가 사라지거나 경로가 바뀌었는가 |
 | R6 | 신규 마이그레이션에 파괴적 SQL 이 들어갔는가 |
 | R7 | 공유 설정 파일을 건드렸는가 · 🔴 **기존 마이그레이션을 *수정*했는가**(추가는 허용). 버전 번호를 하드코딩하지 않는다 |
-| R8 | 기존 패키지 자바 파일을 건드렸는가 |
+| R8 | 기존 패키지 자바 파일을 건드렸는가 — 🔴 **`src/main` 과 `src/test` 를 함께** 본다. 승인 예외는 **전체 경로 완전 일치**로 하나만 두고, 둘이 되면 게이트가 FAIL 한다 |
 
 🔴 R3 이 이 스크립트의 존재 이유다. "정책을 추가만 했다"는 주장을 **정책 본문 diff** 로 증명한다.
 
@@ -928,8 +986,10 @@ git merge origin/dev        # 🔴 rebase 금지 — 팀 관행이 merge 다 (§
 git worktree add /tmp/checkon-dev origin/dev
 
 # 2. 거기서 코드 기준선을 다시 뜬다
+OURS='member|publication'   # 🔴 §3 B5 · §4 R5 와 **같은 값**이어야 한다
 ( cd /tmp/checkon-dev && find src/main/java -name '*.java' \
-      -not -path 'src/main/java/com/checkon/member/*' -print0 \
+    | grep -Ev "^src/main/java/com/checkon/(${OURS})/" \
+    | tr '\n' '\0' \
     | xargs -0 grep -hoE '@(Get|Post|Put|Patch|Delete|Request)Mapping\("[^"]*"\)' \
     | sort > "$OLDPWD/.member-baseline/endpoints.txt" )
 
@@ -1052,6 +1112,25 @@ git commit -m "fix: gradlew·initdb 스크립트에 실행 비트를 부여한�
 | **T1** | 공유 설정 — `.gitignore` · `.github/**` · `compose*.yaml` · `docker/**` | 아래 T1 절차 | **영향 판정 결과에 따라** |
 | **T2** | member 자바 코드 · member 마이그레이션 | R1~R8 전량 | 필수 |
 | **T3** | 🔴 **기존 테이블 정책**(V38) | R1~R8 + 제한 role RLS 매트릭스 + 고의 파괴 | 필수 |
+| **T4** | 🔴 **`com.checkon.member` 밖에 `@RestController` 추가·경로 변경** | R1~R8 + **`com.checkon.global.openapi.*`** | 필수 |
+
+### 🔴 T4 — 왜 별도 티어인가 (W2 · 2026-08-28 실측)
+
+R5 는 「**승우님 엔드포인트가 그대로인가**」만 본다. 우리가 **새 엔드포인트를 만들었을 때
+승우님 테스트가 그걸 자기 것으로 보고 깨지는 경우**는 R1~R8 어디에도 없다.
+
+`global/openapi/ImplementedApiOpenApiContractTest` 는 `com.checkon` 전체의
+`@RestController` 를 훑어 `/api/v1/**` 오퍼레이션이 **전부 `dashboard-api.yaml` 에 있어야
+한다**고 단언한다. 예외는 `com.checkon.member` **하나뿐**이다(`:41-43`).
+W2 에서 `com.checkon.publication` 이 엔드포인트를 처음 만들자 **CI 가 9분 11초에 red** 였고,
+로컬은 §0-2 영향 범위 규칙대로 member·publication 만 돌려 **못 봤다.**
+
+🔴 **로컬 비용은 초 단위다**(Spring 컨텍스트가 없는 순수 스캔 테스트 · 실측 11초).
+「CI 가 알려주겠지」로 미룰 이유가 없다.
+
+```bash
+./gradlew test --rerun-tasks --tests 'com.checkon.global.openapi.*'
+```
 
 ### T1 절차 — 공유 설정 파일
 
