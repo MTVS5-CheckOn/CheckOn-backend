@@ -44,7 +44,13 @@ final class WeaknessImprovementTest {
 			Arguments.of("9-반올림 HALF_UP", cell(10, 30), cell(15, 30),
 				Status.AVAILABLE, "-16.7"),
 			Arguments.of("10-반올림 하한", cell(1, 30), cell(0, 30),
-				Status.AVAILABLE, "3.3")
+				Status.AVAILABLE, "3.3"),
+			// 🔴 11 — 반올림 순서에 민감한 케이스. 정본은 「원본 count 로 비율을 만들고
+			//    마지막에 한 번만 반올림」(§10-2) 이라 -33.3. 만일 코드가 비율을 먼저
+			//    1dp 로 반올림한 뒤 뺀다면 33.3 - 66.7 = -33.4 가 되어 이 케이스에서 red.
+			//    회차 ⑨-2 판정: 파괴 #3(반올림 순서 반전) 이 안 잡히던 구멍을 이 한 줄로 메운다.
+			Arguments.of("11-반올림 순서 민감 (-33.3)", cell(10, 30), cell(20, 30),
+				Status.AVAILABLE, "-33.3")
 		);
 	}
 

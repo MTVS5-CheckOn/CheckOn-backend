@@ -39,7 +39,6 @@ public class ParentLearningRecordQueryService {
 	private static final Pattern MONTH_PATTERN = Pattern.compile("^\\d{4}-\\d{2}$");
 	private static final int MAX_LIMIT = 50;
 	private static final int RATIO_SCALE = 10;
-	private static final int TREND_MONTHS = 6;
 
 	private final MemberLearningSessionRepository sessions;
 	private final MemberDatabaseContext databaseContext;
@@ -107,7 +106,7 @@ public class ParentLearningRecordQueryService {
 	private LearningRecordResponse toDetail(MemberLearningSession session, UUID studentId) {
 		ZoneId zone = ZoneId.of(properties.monthZone());
 		YearMonth anchor = MonthWindow.resolveMonth(session.occurredAt(), zone);
-		LearningRecordTrend.MonthRange range = LearningRecordTrend.window(anchor, TREND_MONTHS);
+		LearningRecordTrend.MonthRange range = LearningRecordTrend.window(anchor, properties.trendMonths());
 		List<TrendPoint> trend = LearningRecordTrend.compute(
 			metrics.findStudentByMonthRange(studentId, range.fromMonth(), range.toMonth()),
 			properties.minimumSampleSize()
