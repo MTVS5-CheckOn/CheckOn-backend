@@ -386,6 +386,14 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 
 학생판(§2)과 동일하되, ④ 판정에 **자녀 연결 검증**이 먼저 온다. 연결되지 않은 자녀의 recordId 는 `404`.
 
+| 분기 | 조건 | 응답 |
+|---|---|---|
+| `teacherId` 필터 지정했는데 관계 없음 | parent↔teacher **또는** student↔teacher 없음 | `404 RESOURCE_NOT_FOUND` |
+| `teacherId` 필터 지정 (관계 있음) | 목록만 해당 | `200` + 그 강사 세션만. 🔴 생략하면 활성 강사 전체다 |
+
+🔴 `teacherId` 는 필터이지 권한이 아니다. 계약이 이 경로에도 `TeacherIdFilter` 를 선언한다
+(`member-api.yaml:918`).
+
 ### `GET .../children/{studentId}/analysis?month=`
 
 | 분기 | 조건 | 응답 |
@@ -398,6 +406,9 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | 표본 부족 | 월 문항 < 최소치 | `200` + `status: INSUFFICIENT`, `accuracyRate: null` |
 | 전월 없음 | | `200` + `improvement.status: NO_PREVIOUS_PERIOD`, `accuracyDeltaPp: null` |
 | 태그 없는 문항만 | §1-4 ④ | `200` + `weaknessRanking: []`, `primaryWeakness: null` |
+| `teacherId` 필터 지정했는데 관계 없음 | parent↔teacher **또는** student↔teacher 없음 | `404 RESOURCE_NOT_FOUND` |
+| `teacherId` 필터 지정 (관계 있음) | | `200` + 🔴 **그 강사 셀만 합산.** 생략하면 활성 강사 전체 (`member-api.yaml:984`) |
+| `teacherId` 필터 지정했는데 그 강사 데이터 0건 | | `200` + `status: NO_DATA`, 값 `null`. 🔴 0 으로 채우지 않는다 |
 
 🔴 **전국 백분위 필드는 응답에 존재하지 않는다.** 스키마에도 없다.
 
@@ -410,6 +421,8 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | 대문자 입력 | `CONCEPT` | 🔴 `400 INVALID_REQUEST`. 소문자가 정본 |
 | 해당 셀 데이터 없음 | | `200` + `status: NO_DATA`, `recentItems: []` |
 | 상한으로 잘림 | `recentItems` 가 상한 초과 | `200` + `truncated: {applied:true, limit, orderedBy}` — 🔴 무엇을 왜 잘랐는지 반드시 |
+| `teacherId` 필터 지정했는데 관계 없음 | parent↔teacher **또는** student↔teacher 없음 | `404 RESOURCE_NOT_FOUND` |
+| `teacherId` 필터 지정 (관계 있음) | | `200` + 그 강사 셀만 (`member-api.yaml:1012`) |
 
 ---
 

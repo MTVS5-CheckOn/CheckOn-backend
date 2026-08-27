@@ -7,6 +7,7 @@ import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -22,6 +23,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.type.filter.AnnotationTypeFilter;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -50,6 +52,15 @@ class MemberImplementedApiOpenApiContractTest {
 	private static final int CONTRACT_OPERATION_COUNT = 46;
 
 	private static final Path OPEN_ITEM_DOCUMENT = Path.of("docs/MEMBER_OPEN_ITEMS.md");
+
+	/**
+	 * 🔴 계약이 선언했지만 컨트롤러가 받지 않는 쿼리 파라미터. <b>지금은 비어 있다.</b>
+	 *
+	 * <p>🔴 여기에 넣으려면 {@code "METHOD /path ?name"} 형식으로 적고 <b>MB 번호를 사유로
+	 * 남겨라.</b> 번호 없는 예외를 만들면 이 게이트가 쓰레기통이 된다 — 「목록에 있으니까
+	 * 괜찮다」가 「왜 없는지 아무도 모른다」와 같은 뜻이 된다.</p>
+	 */
+	private static final Set<String> IGNORED_QUERY_PARAMETERS = Set.of();
 
 	/**
 	 * 🔴 <b>의도적으로 구현하지 않은 오퍼레이션과 그 사유 안건 번호.</b>
@@ -124,6 +135,50 @@ class MemberImplementedApiOpenApiContractTest {
 		assertThat(stale).as("구현됐는데 예외 목록에 남아 있다 — 목록에서 빼라").isEmpty();
 	}
 
+	/**
+	 * 🔴 <b>한 층 아래 — 선언된 쿼리 파라미터를 컨트롤러가 실제로 받는가.</b>
+	 *
+	 * <p>🔴 <b>이 게이트가 없어서 {@code teacherId} 가 세 경로에서 조용히 무시됐다.</b>
+	 * 위 「문서 ⊆ 구현」은 <b>오퍼레이션이 있는가</b>만 본다 — 오퍼레이션은 있는데 계약이
+	 * 선언한 파라미터를 안 받는 것은 통과한다. {@code /home} 누락과 같은 병이 한 층 아래에서
+	 * 반복된 것이다.</p>
+	 *
+	 * <p>🔴 <b>이 판정은 느슨하다.</b> 「같은 이름의 {@code @RequestParam} 을 선언했는가」이지
+	 * <b>「그 값이 실제로 필터로 걸리는가」가 아니다.</b> 파라미터를 받아 놓고 버려도 여기는
+	 * 통과한다 — 그 층은 통합 테스트가 맡는다(값이 다른지 단언하는 형태).
+	 * 느슨한 걸 엄격한 척하지 않는다. 이 게이트가 잡는 것은 <b>선언조차 없는 경우</b>뿐이다.</p>
+	 *
+	 * <p>🔴 {@code in: path} 는 보지 않는다 — 경로 매핑이 이미 강제한다.
+	 * {@code in: header}({@code Idempotency-Key} 등)도 보지 않는다.
+	 * {@code @RequestHeader} 없이 {@code HttpServletRequest} 로 읽는 선례가 있어
+	 * 이름 대조가 오탐을 낸다.</p>
+	 */
+	@Test
+	@DisplayName("🔴 계약이 선언한 쿼리 파라미터를 컨트롤러가 받는다")
+	void everyDocumentedQueryParameterIsAccepted() {
+		Map<String, Set<String>> documented = documentedQueryParameters();
+		Map<String, Set<String>> accepted = acceptedQueryParameters();
+
+		List<String> missing = new java.util.ArrayList<>();
+		documented.forEach((operation, params) -> {
+			if (UNIMPLEMENTED_BY_DECISION.containsKey(operation)) {
+				return;
+			}
+			Set<String> taken = accepted.getOrDefault(operation, Set.of());
+			for (String param : params) {
+				if (!taken.contains(param) && !IGNORED_QUERY_PARAMETERS
+					.contains(operation + " ?" + param)) {
+					missing.add(operation + " ?" + param);
+				}
+			}
+		});
+
+		assertThat(missing)
+			.as("계약이 선언한 쿼리 파라미터를 컨트롤러가 안 받는다 —"
+				+ " 🔴 예외 목록을 늘리지 말고 왜 안 받는지 먼저 답해라")
+			.isEmpty();
+	}
+
 	@Test
 	@DisplayName("🔴 계약 오퍼레이션 수가 고정값과 같다 — 계약이 조용히 줄지 않는다")
 	void contractOperationCountIsPinned() {
@@ -180,6 +235,86 @@ class MemberImplementedApiOpenApiContractTest {
 		}
 	}
 
+	/** 계약이 오퍼레이션마다 선언한 {@code in: query} 파라미터 이름. */
+	private Map<String, Set<String>> documentedQueryParameters() {
+		Map<String, Object> components = asMap(loadDocument().get("components"));
+		Map<String, Object> shared = asMap(components.get("parameters"));
+		Map<String, Object> paths = asMap(loadDocument().get("paths"));
+		Map<String, Set<String>> result = new java.util.LinkedHashMap<>();
+		paths.forEach((path, pathItemValue) -> asMap(pathItemValue).forEach(
+			(method, operationValue) -> {
+				String normalizedMethod = method.toLowerCase(Locale.ROOT);
+				if (!HTTP_METHODS.contains(normalizedMethod)) {
+					return;
+				}
+				String key = normalizedMethod.toUpperCase(Locale.ROOT) + " " + path;
+				Set<String> names = new TreeSet<>();
+				for (Object parameter : asList(asMap(operationValue).get("parameters"))) {
+					Map<String, Object> resolved = resolveParameter(parameter, shared);
+					if ("query".equals(resolved.get("in"))) {
+						names.add(String.valueOf(resolved.get("name")));
+					}
+				}
+				if (!names.isEmpty()) {
+					result.put(key, names);
+				}
+			}));
+		return result;
+	}
+
+	/** {@code $ref: '#/components/parameters/X'} 를 실제 정의로 편다. */
+	private Map<String, Object> resolveParameter(Object parameter, Map<String, Object> shared) {
+		Map<String, Object> node = asMap(parameter);
+		Object ref = node.get("$ref");
+		if (ref == null) {
+			return node;
+		}
+		String name = String.valueOf(ref);
+		return asMap(shared.get(name.substring(name.lastIndexOf('/') + 1)));
+	}
+
+	/** 컨트롤러 메서드가 실제로 선언한 {@code @RequestParam} 이름. */
+	private Map<String, Set<String>> acceptedQueryParameters() {
+		var scanner = new ClassPathScanningCandidateComponentProvider(false);
+		scanner.addIncludeFilter(new AnnotationTypeFilter(RestController.class));
+		Map<String, Set<String>> result = new java.util.LinkedHashMap<>();
+
+		scanner.findCandidateComponents(MEMBER_PACKAGE).forEach(candidate -> {
+			Class<?> controller = loadClass(candidate.getBeanClassName());
+			RequestMapping classMapping =
+				AnnotatedElementUtils.findMergedAnnotation(controller, RequestMapping.class);
+			if (classMapping == null) {
+				return;
+			}
+			for (Method method : controller.getDeclaredMethods()) {
+				RequestMapping methodMapping =
+					AnnotatedElementUtils.findMergedAnnotation(method, RequestMapping.class);
+				if (methodMapping == null) {
+					continue;
+				}
+				Set<String> names = requestParameterNames(method);
+				Set<String> operations = new LinkedHashSet<>();
+				collect(operations, classMapping, methodMapping);
+				operations.forEach(operation ->
+					result.computeIfAbsent(operation, ignored -> new TreeSet<>()).addAll(names));
+			}
+		});
+		return result;
+	}
+
+	private Set<String> requestParameterNames(Method method) {
+		Set<String> names = new TreeSet<>();
+		for (java.lang.reflect.Parameter parameter : method.getParameters()) {
+			RequestParam annotation = parameter.getAnnotation(RequestParam.class);
+			if (annotation == null) {
+				continue;
+			}
+			String declared = annotation.name().isEmpty() ? annotation.value() : annotation.name();
+			names.add(declared.isEmpty() ? parameter.getName() : declared);
+		}
+		return names;
+	}
+
 	private Set<String> documentedOperations() {
 		Map<String, Object> paths = asMap(loadDocument().get("paths"));
 		Set<String> operations = new LinkedHashSet<>();
@@ -223,5 +358,15 @@ class MemberImplementedApiOpenApiContractTest {
 	private Map<String, Object> asMap(Object value) {
 		assertThat(value).isInstanceOf(Map.class);
 		return (Map<String, Object>) value;
+	}
+
+	/** 🔴 {@code parameters} 가 없는 오퍼레이션이 흔하다 — 그때는 빈 목록이지 실패가 아니다. */
+	@SuppressWarnings("unchecked")
+	private List<Object> asList(Object value) {
+		if (value == null) {
+			return List.of();
+		}
+		assertThat(value).isInstanceOf(List.class);
+		return (List<Object>) value;
 	}
 }
