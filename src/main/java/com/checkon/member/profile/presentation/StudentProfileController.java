@@ -23,7 +23,8 @@ import com.checkon.member.profile.application.dto.StudentProfileResponse;
  * 학생 프로필 API — 계약 operationId:
  * <ul>
  *   <li>{@code getStudentProfile} — {@code GET /profile}</li>
- *   <li>{@code updateStudentNotificationPreference} — {@code PATCH /profile/notification-preference}</li>
+ *   <li>{@code updateStudentNotificationPreference} —
+ *       {@code PATCH /profile/notification-preference}</li>
  * </ul>
  *
  * <p>🔴 역할별 폴더를 만들지 않고 <b>파일명으로 가른다</b>(설계 §3-1). 서비스는 subject 만 보고

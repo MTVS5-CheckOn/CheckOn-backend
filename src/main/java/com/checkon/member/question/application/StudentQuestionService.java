@@ -191,7 +191,8 @@ public class StudentQuestionService {
 		if (request.assignmentId() == null) {
 			throw invalidField("assignmentId", "assignmentId is required");
 		}
-		if (request.title() == null || request.title().isEmpty() || request.title().length() > 200) {
+		if (request.title() == null || request.title().isEmpty()
+			|| request.title().length() > 200) {
 			throw invalidField("title", "title length must be between 1 and 200");
 		}
 		if (request.content() == null || request.content().isEmpty()
