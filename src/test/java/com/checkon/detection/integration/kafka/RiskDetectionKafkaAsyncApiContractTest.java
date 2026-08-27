@@ -45,4 +45,19 @@ class RiskDetectionKafkaAsyncApiContractTest {
 			.contains("enrolled_seconds: { type: integer, minimum: 1, maximum: 604800 }")
 			.contains("A missing weekly_activity row means the week is not eligible for evaluation");
 	}
+
+	@Test
+	@DisplayName("Kafka Detection 계약은 신규 AI source와 signal type 허용값을 고정한다")
+	void restrictsLearningEventSourceAndSignalTypeEnums() throws Exception {
+		String asyncApi = Files.readString(
+			Path.of("docs/contracts/risk-detection-kafka.asyncapi.yaml")
+		);
+
+		assertThat(asyncApi)
+			.contains("required: [record_id, student_ref, type, occurred_at, source]")
+			.contains("enum: [trackA, trackB, studentHome, MANUAL]")
+			.contains(
+				"enum: [acc_drop, submit_drop, volume_gap, hidden_risk, return_care, type_bias]"
+			);
+	}
 }

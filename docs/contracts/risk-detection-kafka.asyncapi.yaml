@@ -204,7 +204,7 @@ components:
           type: array
           items:
             type: object
-            required: [record_id, student_ref, type, occurred_at]
+            required: [record_id, student_ref, type, occurred_at, source]
             properties:
               record_id: { type: string }
               student_ref: { type: string, pattern: '^st_[0-9a-f]{32}$' }
@@ -218,7 +218,7 @@ components:
               type_tag: { type: [string, 'null'] }
               item_format: { type: [string, 'null'] }
               assignment_title_text: { type: [string, 'null'] }
-              source: { type: [string, 'null'] }
+              source: { type: string, enum: [trackA, trackB, studentHome, MANUAL] }
         alert_context:
           type: array
           items:
@@ -226,7 +226,7 @@ components:
             required: [student_ref, signal_type, status, followed_up]
             properties:
               student_ref: { type: string }
-              signal_type: { type: string }
+              signal_type: { type: string, enum: [acc_drop, submit_drop, volume_gap, hidden_risk, return_care, type_bias] }
               status: { type: string }
               resolved_at: { type: [string, 'null'], format: date-time }
               followed_up: { type: boolean }
@@ -307,7 +307,7 @@ components:
                   student_ref: { type: string }
                   class_ref: { type: string }
                   rule_id: { type: string }
-                  signal_type: { type: string }
+                  signal_type: { type: string, enum: [acc_drop, submit_drop, volume_gap, hidden_risk, return_care, type_bias] }
                   display_label: { type: string }
                   metric:
                     type: [string, 'null']

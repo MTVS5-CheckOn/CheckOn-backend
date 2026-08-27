@@ -494,7 +494,7 @@
 - 빈 기록 처리: 56일 `learning_events`가 비어도 활성·전송 가능 학생이 있으면 관계 시작 주부터 최대 10주 `detection_evidence`를 포함해 분석한다. 활성·전송 가능 학생이 전혀 없을 때만 기존 `NO_LEARNING_RECORDS` 응답으로 거절한다.
 - 학생 상태: 현재 강사와의 관계가 `ACTIVE` 또는 `PAUSED`인 학생을 AI 요청에 포함한다. `PAUSED` 관계는 `paused`로 보내 AI 판정에서 제외하고, `ACTIVE` 관계는 분석 주에 `paused → returned` 이력이 있으면 `returned`, 없으면 `enrolled`로 보낸다. `ENDED` 관계는 제외하며 반 미배정을 `paused`로 해석하지 않는다. 반 미배정 학생의 `class_ref`는 `cl_unassigned`다.
 - 재원 기간: `students[].enrolled_weeks`는 반 등록 시각이 아니라 현재 강사-학생 관계의 `teacher_student_relationships.started_at`부터 계산한다. 반 변경·미배정으로 재원 기간을 초기화하지 않으며 결과는 0 이상이다.
-- 학습기록 source: v1 학습기록 유입 경로는 강사 수기 입력뿐이며 저장된 `MANUAL`을 변환하지 않고 `learning_events[].source`로 보낸다. source whitelist나 임의 제외 규칙을 Backend에 추가하지 않는다.
+- 학습기록 source: 이 항목의 기존 “수기 입력 `MANUAL`만 변환 없이 전송” 정책은 member 학습기록 유입 경로와 충돌하여 `DET-006`으로 대체한다. 내부 provenance와 외부 AI enum의 경계를 분리하고, 확정 매핑과 unknown 처리 규칙은 `DET-006`을 따른다.
 - 코드 근거:
   - `src/main/java/com/checkon/detection/application/OperationalDetectionRunService.java`
   - `src/main/java/com/checkon/detection/application/DetectionTenantKey.java`
@@ -528,6 +528,24 @@
   - `src/main/java/com/checkon/detection/application/DetectionResponseStorageService.java`
   - `src/test/java/com/checkon/detection/application/DetectionResponseStorageServiceTest.java`
 - 마지막 검증일: 2026-08-14
+
+#### DET-006 Detection 외부 enum 경계와 감사 이력 보존
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
+- 학습기록 source 경계: `learning_records.source_type`은 Backend 내부 provenance이며 AI `learning_events[].source` enum과 동일한 컬럼이 아니다. v1 최소 확정 매핑은 `MANUAL → MANUAL`, `member_attempt_item → studentHome`, `member_attempt → studentHome`이다. 매핑되지 않은 내부 source는 제외하거나 `MANUAL`로 위장하지 않고 Detection snapshot 및 Outbox 생성 전에 실행을 실패시킨다.
+- 위험신호 경계: AI 요청 `alert_context[].signal_type`과 신규 AI 결과는 `acc_drop`, `submit_drop`, `volume_gap`, `hidden_risk`, `return_care`, `type_bias`만 허용한다. 기존 Alert의 legacy·오염 signal type은 원본 행을 수정하지 않고 새 요청 조립에서 제외한다.
+- 감사 이력: 기존 Detection run, 저장 snapshot, signal/evidence/alert 행은 당시 실행의 감사 이력이므로 재작성·삭제하지 않는다. `detection_signal_results`의 신규 행 제약은 기존 legacy 행 검증을 유예하는 `NOT VALID` CHECK로 추가하고, 과거 행을 정책 근거 없이 이행하지 않는다.
+- learning_records DB 경계: 내부 provenance와 외부 AI enum이 다르므로 `learning_records.source_type`을 AI의 네 source 값으로 제한하지 않는다. 현재 실제 내부 source 집합의 운영 영향이 별도로 검증되기 전에는 신규 DB CHECK를 추가하지 않는다.
+- 계약 동기화: source 매핑과 alert 필터는 canonical snapshot 생성 전에 적용하므로 저장 snapshot, `snapshot_hash`, Kafka requested Outbox payload에 동일하게 반영한다. 공개 조회 API는 legacy signal 이력을 읽을 수 있어야 하므로 응답 `signalType`을 신규 6개 enum으로 축소하지 않는다.
+- 코드 근거:
+  - `src/main/java/com/checkon/learning/application/AiLearningEventSourceMapper.java`
+  - `src/main/java/com/checkon/learning/application/LearningRecordSnapshotService.java`
+  - `src/main/java/com/checkon/detection/integration/ai/AiDetectionSignalTypes.java`
+  - `src/main/java/com/checkon/detection/application/DetectionResponseStorageService.java`
+  - `src/main/resources/db/migration/V42__restrict_new_detection_signal_types.sql`
+- 마지막 검증일: 2026-08-27
 
 #### DET-004 일일 Detection 자동 실행
 
@@ -904,6 +922,7 @@
 
 | 날짜 | 변경 | 검증 |
 | --- | --- | --- |
+| 2026-08-27 | DET-001의 MANUAL-only 충돌을 DET-006으로 대체하고 내부 learning source 매핑, AI signal type 경계, legacy 감사 이력 보존 정책 등록 | source 매핑·unknown 거절·alert_context 필터·응답 signal 거절 단위 테스트와 정적 Flyway 검토 |
 | 2026-08-25 | REP-001~004 월간 리포트 Kafka 실행, 월 정본, PDF artifact·발송 대기열, Backend source 조립 권장 정책 등록 | AI팀 MD와 와이어프레임 대조, Backend·Adapter 집중 BDD 및 라벨 V35·V36 병합 후 Backend 전체 428건 테스트 통과. 실제 Broker→AI E2E는 미검증 |
 | 2026-08-25 | GL-001~003의 실제 학부모 단위 라벨 정책과 AI 계약을 확정하고, 실제 학부모 alias·상담 이력 projection·제안 캐시·강사 판단·현재값·AI 단발 feedback 경계를 구현 | 공식 합성 ID 픽스처, Flyway V33·V35~V36, BDD 단위·PostgreSQL·RLS·OpenAPI 검증 |
 | 2026-08-23 | 문제 출제 5영역 자료 입력, 강사 node 선택, 비종단 reconciliation, terminal 참조·slot 상세 이벤트, 5영역 `ai_refine`, 학생 오답 환류 저장 경계를 PG-001~006에 확정 | AI 팀 명세 2종과 Backend 승인 결정을 정책에 반영. 코드·Flyway·BDD 테스트는 이슈 #69에서 구현 예정 |
