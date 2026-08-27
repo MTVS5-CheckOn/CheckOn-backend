@@ -847,7 +847,7 @@ changed \
   >> /tmp/touched.txt
 [ ! -s /tmp/touched.txt ]; step "R7 무접촉" $?
 
-# R8. 기존 패키지 파일이 변경되지 않았는가
+# R8. 기존 패키지 파일이 변경되지 않았는가 (main + test)
 # 🔴 여기서 ..HEAD 를 쓰면 **커밋 전에 승우님 파일을 고쳐놓고도 통과**한다.
 #    R3-b·R6·R7 과 같은 병인데 R8 이 가장 위험하다 — 절대 규칙 1번을 지키는 게이트다.
 #
@@ -860,17 +860,42 @@ changed \
 #
 # 🔴 그래서 **구조로 판정한다** — 실제 패키지 목록을 읽고 거기서 **우리 것만 뺀다.**
 #    새 패키지가 생기면 자동으로 무접촉 대상이 되고, 우리 경계가 늘면 OURS 만 고친다.
-FOREIGN=$(ls -d src/main/java/com/checkon/*/ 2>/dev/null | xargs -n1 basename \
-  | grep -Ev "^(${OURS})$" | paste -sd'|' -)
-# 🔴 조용한 절단 금지(§3-9). 무엇을 무접촉으로 봤는지 찍는다 —
+# 🔴 **`src/main/java` 만 보면 승우님 *테스트* 를 고쳐도 아무도 모른다.** W2 에서 우리가
+#    바로 그 구멍으로 들어갔다(계약 스캐너 예외 한 줄). 들어가면서 문을 단다 —
+#    main 과 test 를 **함께** 본다.
+# 🔴 패키지 목록도 두 트리의 **합집합**이다. `src/test/java/com/checkon/support` 처럼
+#    테스트에만 있는 패키지가 실재한다(승우님 `RosterTestFixture`) — main 만 읽으면 빠진다.
+FOREIGN=$( { ls -d src/main/java/com/checkon/*/ 2>/dev/null
+             ls -d src/test/java/com/checkon/*/ 2>/dev/null; } | xargs -n1 basename \
+  | sort -u | grep -Ev "^(${OURS})$" | paste -sd'|' -)
+
+# 🔴 **승인받은 예외를 여기에 적는다. 접두사가 아니라 전체 경로 완전 일치다.**
+#    접두사로 적으면 같은 디렉터리의 다른 파일까지 조용히 열린다.
+FOREIGN_EXCEPTIONS=(
+  # publication 예외 추가 · 승우님 승인 2026-08-27 · W2
+  # (계약 스캐너 패키지 예외에 com.checkon.publication 한 줄. 잃는 보증은
+  #  PublicationImplementedApiOpenApiContractTest 가 양방향 대조로 메운다)
+  'src/test/java/com/checkon/global/openapi/ImplementedApiOpenApiContractTest.java'
+)
+# 🔴 **목록이 둘이 되면 그 자리에서 FAIL 한다.** 예외 목록이 자라기 시작하면 게이트가 죽는다 —
+#    「목록에 있으니까 괜찮다」가 「왜 있는지 아무도 모른다」와 같은 뜻이 된다.
+#    둘째가 필요하면 게이트를 고치기 전에 **왜 필요한지부터** 답해야 한다.
+if [ "${#FOREIGN_EXCEPTIONS[@]}" -gt 1 ]; then
+  echo "R8 예외가 ${#FOREIGN_EXCEPTIONS[@]} 개다 — 하나를 넘으면 승인 절차를 다시 밟아라"
+  FAIL=1
+fi
+
+# 🔴 조용한 절단 금지(§3-9). 무엇을 무접촉으로 봤고 무엇을 뺐는지 찍는다 —
 #    "0건이라 통과"와 "검사해서 통과"는 다른 말이다.
 printf '%-28s %s\n' "무접촉 대상 패키지" "${FOREIGN:-(없음)}"
+printf '%-28s %s\n' "R8 승인 예외" "${FOREIGN_EXCEPTIONS[*]:-(없음)}"
 if [ -z "$FOREIGN" ]; then
   # 🔴 목록이 비면 grep 패턴이 () 가 되어 **아무것도 안 잡고 통과**한다. 그건 통과가 아니다.
   echo "R8 대상 패키지를 하나도 못 찾았다 — 판정이 헛돈다"; FAIL=1
 fi
 changed \
-  | grep -E "^src/main/java/com/checkon/(${FOREIGN})/" \
+  | grep -E "^src/(main|test)/java/com/checkon/(${FOREIGN})/" \
+  | grep -Fxvf <(printf '%s\n' "${FOREIGN_EXCEPTIONS[@]}") \
   > /tmp/pkg.txt
 [ ! -s /tmp/pkg.txt ]; step "R8 기존 패키지 무변경" $?
 
@@ -894,7 +919,7 @@ exit $FAIL
 | R5 | 기존 엔드포인트가 사라지거나 경로가 바뀌었는가 |
 | R6 | 신규 마이그레이션에 파괴적 SQL 이 들어갔는가 |
 | R7 | 공유 설정 파일을 건드렸는가 · 🔴 **기존 마이그레이션을 *수정*했는가**(추가는 허용). 버전 번호를 하드코딩하지 않는다 |
-| R8 | 기존 패키지 자바 파일을 건드렸는가 |
+| R8 | 기존 패키지 자바 파일을 건드렸는가 — 🔴 **`src/main` 과 `src/test` 를 함께** 본다. 승인 예외는 **전체 경로 완전 일치**로 하나만 두고, 둘이 되면 게이트가 FAIL 한다 |
 
 🔴 R3 이 이 스크립트의 존재 이유다. "정책을 추가만 했다"는 주장을 **정책 본문 diff** 로 증명한다.
 
