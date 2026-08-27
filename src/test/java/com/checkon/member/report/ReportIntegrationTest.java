@@ -346,10 +346,19 @@ class ReportIntegrationTest extends MembershipRlsEnforcedSupport {
 			.andExpect(status().isNotFound());
 	}
 
+	/**
+	 * 🔴 <b>변조 바이트는 원본과 길이가 같아야 한다.</b> 처음엔 길이가 다른 문자열을 썼는데,
+	 * 그러면 checksum 이 아니라 <b>크기 검사</b>가 먼저 잡는다 — 고의 파괴 #7 로 실측했다
+	 * (checksum 비교를 통째로 무력화해도 이 테스트가 green 이었다). 회귀 문서 §3-10
+	 * 「red 를 누가 냈는가」의 그 자리다. 크기 불일치는 {@link #sizeMismatchBlocksIssue} 가 따로 잰다.
+	 */
 	@Test
-	@DisplayName("🔴 checksum 불일치 → 503. url 을 주지 않는다")
+	@DisplayName("🔴 checksum 불일치 → 503. url 을 주지 않는다 (크기는 같다)")
 	void checksumMismatchBlocksIssue() throws Exception {
-		writeStoredPdf("%PDF-1.7 tampered bytes for tes".getBytes(StandardCharsets.UTF_8));
+		byte[] tampered = "%PDF-1.7 fake bytes for tesT".getBytes(StandardCharsets.UTF_8);
+		assertThat(tampered).as("크기가 다르면 크기 검사가 먼저 잡아 이 테스트가 헛돈다")
+			.hasSameSizeAs(PDF_BYTES);
+		writeStoredPdf(tampered);
 		MvcResult result = mockMvc.perform(
 			post(FILE_ACCESS, studentProfileId, publishedReportId).with(parent()))
 			.andExpect(status().isServiceUnavailable())
