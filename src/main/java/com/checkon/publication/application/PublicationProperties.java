@@ -16,11 +16,18 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *                         로그에 찍는다</b>(절대 규칙 6)
  * @param snapshotVersion  발행 스냅샷 형식 버전. 형식이 바뀌면 올린다.
  *                         {@code member_published_reports.snapshot_version} 에 그대로 들어간다
- * @param monthZone        🔴 {@code monthly_reports.report_month} 는 <b>zone 없는 DATE</b> 라
- *                         원본이 어느 zone 으로 달을 잘랐는지 알 수 없다. 이 값은 「우리가 그
- *                         날짜를 어느 zone 기준으로 읽었다고 기록하는가」이고
- *                         {@code month_zone}(NOT NULL) 에 남는다. 🔴 원본의 zone 을 안다고
- *                         주장하는 값이 아니다 — MB-63
+ * @param monthZone        🔴 <b>「학부모에게 이 달을 어느 시간대로 보여줄까」</b>이고
+ *                         {@code member_published_reports.month_zone}(NOT NULL) 에 남는다.
+ *                         <b>제품 결정</b>이지 원본 해석이 아니다.
+ *                         <p>🔴 원본에는 <b>시간대가 없다</b> — {@code report_month} 는
+ *                         {@code MonthlyReportController:22} 의
+ *                         {@code CreateRequest(@NotNull YearMonth reportMonth, ..)} 로
+ *                         <b>클라이언트가 준 값</b>이고 서버가 시계로 계산하지 않는다.
+ *                         ({@code MonthlyReportService:71} 의 {@code YearMonth.now(clock)} 은
+ *                         목록 필터 기본값일 뿐 저장값이 아니다.)
+ *                         즉 <b>시간대 변환이 개입한 적이 없어 달 경계 문제가 없다.</b>
+ *                         이전 주석은 「우리가 읽은 zone 을 기록한다」였는데 그건
+ *                         <b>없는 사실을 적은 것</b>이었다 — 읽으면서 해석한 적이 없다
  */
 @ConfigurationProperties("checkon.publication.monthly-report")
 public record PublicationProperties(
