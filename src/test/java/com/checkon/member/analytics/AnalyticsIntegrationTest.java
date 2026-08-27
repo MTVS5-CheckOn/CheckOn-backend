@@ -173,13 +173,36 @@ class AnalyticsIntegrationTest extends MembershipRlsEnforcedSupport {
 	}
 
 	@Test
-	@DisplayName("student detail — 자기 세션 200 (weaknessStatus:NO_DATA, itemIds:[])")
+	@DisplayName("student detail — 자기 세션 200 (weaknessStatus:NO_DATA, itemIds:[], trend:[])")
 	void studentDetailReturns200() throws Exception {
 		mockMvc.perform(get(STUDENT_DETAIL, sessionId).with(student()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.recordId").value(sessionId.toString()))
 			.andExpect(jsonPath("$.data.itemIds.length()").value(0))
-			.andExpect(jsonPath("$.data.weaknessStatus").value("NO_DATA"));
+			.andExpect(jsonPath("$.data.weaknessStatus").value("NO_DATA"))
+			// 🔴 집계 행이 없으면 trend 는 빈 배열이다. 하드코딩 과거값(52/61/68)을 만들지 않는다.
+			.andExpect(jsonPath("$.data.trend.length()").value(0));
+	}
+
+	@Test
+	@DisplayName("🔴 student detail — trend 는 실측 월만 · 표본부족은 INSUFFICIENT + accuracyRate:null")
+	void studentDetailTrendReflectsMonthlyAggregate() throws Exception {
+		// 세션 월(MONTH) = AVAILABLE 3개월치 · 전월 = 표본부족 · 3개월 전 = 데이터 없음(원소 없음).
+		insertStudentMetric(studentProfileId, MONTH, 20, 15, 1200);
+		insertStudentMetric(studentProfileId, PREV_MONTH, 3, 2, 200);
+		MvcResult result = mockMvc.perform(get(STUDENT_DETAIL, sessionId).with(student()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.trend.length()").value(2))
+			// 시간순 (오름차순) — 전월 먼저, 이번달 뒤.
+			.andExpect(jsonPath("$.data.trend[0].month").value(PREV_MONTH))
+			.andExpect(jsonPath("$.data.trend[0].status").value("INSUFFICIENT"))
+			.andExpect(jsonPath("$.data.trend[1].month").value(MONTH))
+			.andExpect(jsonPath("$.data.trend[1].status").value("AVAILABLE"))
+			.andExpect(jsonPath("$.data.trend[1].accuracyRate").value(0.75))
+			.andReturn();
+		// 🔴 표본부족 원소의 accuracyRate 는 null 이어야 한다 (0.67 로 채우면 「믿을 만한 값」의 거짓말).
+		assertThat(result.getResponse().getContentAsString())
+			.contains("\"month\":\"" + PREV_MONTH + "\",\"accuracyRate\":null,\"status\":\"INSUFFICIENT\"");
 	}
 
 	@Test
@@ -284,6 +307,23 @@ class AnalyticsIntegrationTest extends MembershipRlsEnforcedSupport {
 			.andExpect(jsonPath("$.data.overall.status").value("AVAILABLE"))
 			.andExpect(jsonPath("$.data.overall.scoredCount").value(20))
 			.andExpect(jsonPath("$.data.overall.averageActiveSeconds").value(60));
+	}
+
+	@Test
+	@DisplayName("🔴 parent analysis — overall 표본 부족 → status:INSUFFICIENT + accuracyRate:null")
+	void parentAnalysisOverallInsufficient() throws Exception {
+		// scored=3 < minimumSampleSize(=10). scored=0 이 아니라 진짜 표본 부족 분기여야 한다.
+		insertStudentMetric(studentProfileId, MONTH, 3, 2, 200);
+		MvcResult result = mockMvc.perform(get(CHILD_ANALYSIS, studentProfileId)
+				.param("month", MONTH).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.overall.status").value("INSUFFICIENT"))
+			.andExpect(jsonPath("$.data.overall.scoredCount").value(3))
+			.andReturn();
+		// 🔴 accuracyRate 를 0.4 나 0 으로 채우면 「신뢰 가능한 값」이라는 거짓말이 된다.
+		//    원문에 "accuracyRate":null 로 있는지 본다(§11-3 · jsonPath 는 null 도 통과).
+		assertThat(result.getResponse().getContentAsString())
+			.contains("\"accuracyRate\":null");
 	}
 
 	@Test
