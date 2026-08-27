@@ -206,7 +206,9 @@ class MonthlyReportPublicationIntegrationTest extends MembershipRlsEnforcedSuppo
 
 		PublicationOutcome second = runner.runOnce();
 		assertThat(second.published()).isZero();
-		assertThat(second.skipped()).isEqualTo(1);
+		// 🔴 DELIVERED 표시 덕분에 두 번째 회차는 그 배달을 아예 집지 않는다.
+		//    표시 전에는 skip 카운터가 회차마다 자랐다(MB-61 이 그 대가였다).
+		assertThat(second.handled()).isZero();
 		assertThat(countPublished()).isEqualTo(1);
 		assertThat(countSections()).isEqualTo(3);
 	}
@@ -222,12 +224,13 @@ class MonthlyReportPublicationIntegrationTest extends MembershipRlsEnforcedSuppo
 		PublicationOutcome outcome = runner.runOnce();
 
 		assertThat(outcome.published()).isZero();
-		// 🔴 <b>2</b> 다 — 첫 배달도 아직 QUEUED 라 매 회차 다시 검사된다.
-		//    승우님 원장에 DELIVERED 를 쓰지 않기로 한 결정의 실제 대가다: 처리한 배달이
-		//    영원히 대기 목록에 남아 skip 카운터가 계속 자란다. 그 사실을 숨기지 않고
-		//    단언으로 박아 둔다 — DELIVERED 표시 여부는 MB-61 이다.
-		assertThat(outcome.skipped()).isEqualTo(2);
+		// 🔴 <b>1</b> 이다 — 첫 배달은 이미 DELIVERED 라 안 집힌다. 정정본만 집혀서
+		//    「이미 그 달이 있다」로 건너뛴다(MB-10 미확정).
+		assertThat(outcome.skipped()).isEqualTo(1);
 		assertThat(countPublished()).isEqualTo(1);
+		// 🔴 건너뛴 배달도 표시한다 — 안 하면 회차마다 다시 집혀 skip 이 영원히 자란다.
+		assertThat(admin.queryForObject("SELECT status FROM monthly_report_deliveries"
+			+ " WHERE report_id = ?", String.class, correctedReport)).isEqualTo("DELIVERED");
 	}
 
 	// ══════════════════ 내용이 없을 때 ══════════════════
@@ -285,18 +288,47 @@ class MonthlyReportPublicationIntegrationTest extends MembershipRlsEnforcedSuppo
 
 	// ══════════════════ 상한 ══════════════════
 
+	/**
+	 * 🔴 승우님 원장에 쓰는 것은 <b>이 표시 하나뿐</b>이다(MB-61). 주인이 없음을 실측으로
+	 * 확인하고 넣었다 — 승우님 코드는 {@code QUEUED} 만 만들고 {@code DELIVERED} 를 쓰는
+	 * 코드가 밖에 0곳이며, 유일한 소비처가 둘을 똑같이 취급한다.
+	 */
 	@Test
-	@DisplayName("🔴 승우님 원장에 쓰지 않는다 — 배달 상태가 그대로 QUEUED 다")
-	void publisherLedgerIsNeverWritten() {
+	@DisplayName("🔴 발행 성공한 배달만 DELIVERED 로 표시한다 (delivered_at 함께)")
+	void successfulDeliveryIsMarkedDelivered() {
 		insertDelivery(reportId, artifactId, "QUEUED");
 		runner.runOnce();
 
 		assertThat(admin.queryForObject("SELECT status FROM monthly_report_deliveries"
-			+ " WHERE report_id = ?", String.class, reportId))
-			.as("우리가 승우님 배달 상태를 바꿨다")
-			.isEqualTo("QUEUED");
+			+ " WHERE report_id = ?", String.class, reportId)).isEqualTo("DELIVERED");
+		// 🔴 CHECK 가 DELIVERED ⟹ delivered_at NOT NULL AND failure_code NULL 을 요구한다.
 		assertThat(admin.queryForObject("SELECT count(*) FROM monthly_report_deliveries"
-			+ " WHERE delivered_at IS NOT NULL", Integer.class)).isZero();
+			+ " WHERE report_id = ? AND delivered_at IS NOT NULL AND failure_code IS NULL",
+			Integer.class, reportId)).isEqualTo(1);
+	}
+
+	@Test
+	@DisplayName("🔴 실패한 배달은 QUEUED 로 남는다 — 재시도 가능해야 한다")
+	void failedDeliveryStaysQueued() {
+		// 🔴 payload 가 비어 「발행할 내용 없음」이 되는 경우도 표시하지 않는다 —
+		//    AI 가 나중에 채울 수 있으므로 대기 상태를 유지한다.
+		UUID emptyReport = insertOnDemandReport(
+			"{\"data\":{\"status\":\"ready\",\"blocks\":[]}}");
+		insertDelivery(emptyReport, insertArtifact(emptyReport), "QUEUED");
+
+		assertThat(runner.runOnce().empty()).isEqualTo(1);
+		assertThat(admin.queryForObject("SELECT status FROM monthly_report_deliveries"
+			+ " WHERE report_id = ?", String.class, emptyReport)).isEqualTo("QUEUED");
+	}
+
+	@Test
+	@DisplayName("🔴 표시 덕분에 두 번째 회차는 그 배달을 다시 집지 않는다")
+	void markedDeliveryIsNotPickedAgain() {
+		insertDelivery(reportId, artifactId, "QUEUED");
+		assertThat(runner.runOnce().published()).isEqualTo(1);
+
+		PublicationOutcome second = runner.runOnce();
+		assertThat(second.handled()).as("표시했는데 다시 집었다").isZero();
 	}
 
 	// ──────────────────────────── 픽스처 ────────────────────────────

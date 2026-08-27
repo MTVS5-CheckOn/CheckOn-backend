@@ -92,13 +92,24 @@ public class MonthlyReportPublicationRunner {
 			}
 			// 🔴 한 건씩 집는다. 집는 것과 쓰는 것이 한 트랜잭션이어야 SKIP LOCKED 가 뜻을
 			//    가진다 — 서비스가 그 트랜잭션을 연다.
+			// 🔴 표시되지 않은 배달은 QUEUED 로 남아 **같은 행이 다시 집힌다.** 이번 회차
+			//    안에서만 제외해 앞으로 나아간다 — 다음 회차에는 다시 시도한다.
+			java.util.Set<UUID> attempted = new java.util.LinkedHashSet<>();
 			while (budget > 0) {
-				PublicationOutcome one = publicationService.publishNext(teacherId);
-				if (one.handled() == 0) {
+				MonthlyReportPublicationService.Attempt attempt =
+					publicationService.publishNext(teacherId, attempted);
+				if (!attempt.touched()) {
 					break;
 				}
-				total = total.plus(one);
+				total = total.plus(attempt.outcome());
 				budget--;
+				if (attempt.deliveryId() == null) {
+					// 예외라 어느 배달인지 모른다 — 이 강사는 다음 회차로 넘긴다.
+					break;
+				}
+				if (!attempt.marked()) {
+					attempted.add(attempt.deliveryId());
+				}
 			}
 			if (budget <= 0) {
 				remaining += countQueued(teacherId);

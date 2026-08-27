@@ -72,6 +72,7 @@ public class QueuedDeliveryReader {
 	 * 「잠금이 발행까지 유지된다」를 둘 다 지키는 방법이 이것뿐이다.</p>
 	 */
 	private static final String LOCK_NEXT_QUEUED = SELECT_COLUMNS + """
+		  AND (? = '' OR delivery.id <> ALL (string_to_array(?, ',')::uuid[]))
 		ORDER BY delivery.queued_at, delivery.id
 		FOR UPDATE OF delivery SKIP LOCKED
 		LIMIT 1
@@ -115,8 +116,19 @@ public class QueuedDeliveryReader {
 	 * 다음 배달 한 건을 <b>잠그고</b> 가져온다. 🔴 강사 컨텍스트가 열린 <b>쓰기</b> 트랜잭션
 	 * 안에서만 부른다 — 밖이면 조용히 빈 결과이고, 읽기 전용이면 {@code FOR UPDATE} 가 죽는다.
 	 */
-	public java.util.Optional<QueuedDelivery> lockNextQueued() {
-		return jdbcTemplate.query(LOCK_NEXT_QUEUED, QueuedDeliveryReader::map).stream().findFirst();
+	/**
+	 * @param excluded 🔴 <b>이번 회차에서 이미 시도했지만 표시되지 않은</b> 배달들.
+	 *                 발행할 내용이 없거나 실패한 배달은 {@code QUEUED} 로 남으므로(재시도
+	 *                 가능해야 한다) 제외하지 않으면 <b>같은 행을 계속 다시 집어 상한을 전부
+	 *                 태운다.</b> 실측으로 확인한 함정이다 — 한 건이 상한 50을 다 먹었다.
+	 *                 🔴 제외는 <b>이번 회차 안에서만</b>이다. 다음 회차에는 다시 시도한다
+	 */
+	public java.util.Optional<QueuedDelivery> lockNextQueued(java.util.Collection<UUID> excluded) {
+		String ids = excluded.isEmpty() ? ""
+			: excluded.stream().map(UUID::toString)
+				.collect(java.util.stream.Collectors.joining(","));
+		return jdbcTemplate.query(LOCK_NEXT_QUEUED, QueuedDeliveryReader::map, ids, ids)
+			.stream().findFirst();
 	}
 
 	/** 🔴 잠금 없이 센다. 상한에 걸려 남긴 수를 로그에 찍기 위한 <b>추정치</b>다. */

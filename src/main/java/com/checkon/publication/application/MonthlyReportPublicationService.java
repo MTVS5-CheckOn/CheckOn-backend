@@ -95,28 +95,55 @@ public class MonthlyReportPublicationService {
 	 * @return 처리 결과. 🔴 {@link PublicationOutcome#handled()} 가 0이면 <b>더 없다</b>는 뜻이고
 	 *         호출자가 그 강사에 대한 반복을 멈춘다
 	 */
-	public PublicationOutcome publishNext(java.util.UUID teacherId) {
+	public Attempt publishNext(java.util.UUID teacherId, java.util.Collection<java.util.UUID> excluded) {
 		try {
-			PublicationOutcome outcome =
-				transactionTemplate.execute(status -> publishNextInTransaction(teacherId));
-			return outcome == null ? PublicationOutcome.none() : outcome;
+			Attempt attempt =
+				transactionTemplate.execute(status -> publishNextInTransaction(teacherId, excluded));
+			return attempt == null ? Attempt.none() : attempt;
 		}
 		catch (RuntimeException error) {
 			// 🔴 실패를 삼키지 않는다. 무엇이 왜 실패했는지 남긴다 — 본문은 넣지 않는다.
 			//    🔴 롤백이므로 배달은 QUEUED 그대로다 — 다음 회차에 재시도된다.
 			log.error("publication.monthly-report.failed teacher={} err={}",
 				teacherId, error.getClass().getSimpleName(), error);
-			return new PublicationOutcome(0, 0, 0, 1, 0);
+			// 🔴 어느 배달이었는지 모르므로 제외할 수 없다. 호출자가 이 강사를 건너뛴다 —
+			//    그렇게 하지 않으면 같은 행에서 무한히 실패한다.
+			return new Attempt(new PublicationOutcome(0, 0, 0, 1, 0), null, false);
 		}
 	}
 
-	private PublicationOutcome publishNextInTransaction(java.util.UUID teacherId) {
+	private Attempt publishNextInTransaction(
+		java.util.UUID teacherId, java.util.Collection<java.util.UUID> excluded
+	) {
 		tenantContext.setCurrentTeacher(teacherId);
-		QueuedDelivery delivery = reader.lockNextQueued().orElse(null);
+		QueuedDelivery delivery = reader.lockNextQueued(excluded).orElse(null);
 		if (delivery == null) {
-			return PublicationOutcome.none();
+			return Attempt.none();
 		}
-		return publishLocked(delivery);
+		PublicationOutcome outcome = publishLocked(delivery);
+		// 🔴 표시되지 않은 배달(발행할 내용 없음)은 QUEUED 로 남는다 — 이번 회차에서
+		//    다시 집히지 않도록 제외 대상으로 돌려준다.
+		boolean marked = outcome.published() > 0 || outcome.skipped() > 0;
+		return new Attempt(outcome, delivery.deliveryId(), marked);
+	}
+
+	/**
+	 * 한 번의 시도 결과.
+	 *
+	 * @param deliveryId 집은 배달. 아무것도 못 집었거나 예외였으면 {@code null}
+	 * @param marked     🔴 {@code DELIVERED} 로 표시했는가. {@code false} 면 호출자가
+	 *                   이번 회차 제외 목록에 넣어야 한다
+	 */
+	public record Attempt(PublicationOutcome outcome, java.util.UUID deliveryId, boolean marked) {
+
+		public static Attempt none() {
+			return new Attempt(PublicationOutcome.none(), null, false);
+		}
+
+		/** 집을 것이 더 있었는가. */
+		public boolean touched() {
+			return outcome.handled() > 0;
+		}
 	}
 
 	private PublicationOutcome publishLocked(QueuedDelivery delivery) {
