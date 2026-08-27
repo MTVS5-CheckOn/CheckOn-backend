@@ -106,7 +106,8 @@ public class ParentLearningRecordQueryService {
 	private LearningRecordResponse toDetail(MemberLearningSession session, UUID studentId) {
 		ZoneId zone = ZoneId.of(properties.monthZone());
 		YearMonth anchor = MonthWindow.resolveMonth(session.occurredAt(), zone);
-		LearningRecordTrend.MonthRange range = LearningRecordTrend.window(anchor, properties.trendMonths());
+		LearningRecordTrend.MonthRange range =
+			LearningRecordTrend.window(anchor, properties.trendMonths());
 		List<TrendPoint> trend = LearningRecordTrend.compute(
 			metrics.findStudentByMonthRange(studentId, range.fromMonth(), range.toMonth()),
 			properties.minimumSampleSize()
