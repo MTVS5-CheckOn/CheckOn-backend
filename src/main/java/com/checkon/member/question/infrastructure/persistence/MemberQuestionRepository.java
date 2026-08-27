@@ -54,10 +54,13 @@ public class MemberQuestionRepository {
 		LIMIT ?
 		""".formatted(Q_COLUMNS);
 
+	// 🔴 student_id · teacher_id 는 V41 §3 복합 FK 열이다. INSERT 마다 반드시 함께 넣는다 —
+	//    누락하면 정책(§5-3)이 self 컬럼만 보므로 남의 컨텍스트에서 조용히 통과할 여지가 생긴다.
 	private static final String INSERT_MESSAGE = """
 		INSERT INTO member_question_messages
-			(question_id, author_role, author_account_id, content, published_at)
-		VALUES (?, ?, ?, ?, ?)
+			(question_id, student_id, teacher_id, author_role, author_account_id,
+			 content, published_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 		""";
 
@@ -130,11 +133,13 @@ public class MemberQuestionRepository {
 	}
 
 	public UUID insertMessage(
-		UUID questionId, QuestionAuthorRole role, UUID authorAccountId,
+		UUID questionId, UUID studentId, UUID teacherId,
+		QuestionAuthorRole role, UUID authorAccountId,
 		String content, Instant publishedAt
 	) {
 		return jdbcTemplate.queryForObject(INSERT_MESSAGE, UUID.class,
-			questionId, role.name(), authorAccountId, content, offset(publishedAt));
+			questionId, studentId, teacherId,
+			role.name(), authorAccountId, content, offset(publishedAt));
 	}
 
 	public List<QuestionMessageRecord> findMessages(UUID questionId) {

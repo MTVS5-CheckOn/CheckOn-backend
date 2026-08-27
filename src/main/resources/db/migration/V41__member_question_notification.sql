@@ -73,7 +73,14 @@ CREATE TABLE member_questions (
     CONSTRAINT ck_member_questions_title_length
         CHECK (char_length(title) BETWEEN 1 AND 200),
     CONSTRAINT ck_member_questions_content_length
-        CHECK (char_length(content) BETWEEN 1 AND 2000)
+        CHECK (char_length(content) BETWEEN 1 AND 2000),
+    -- 🔴 복합 유니크 — member_question_messages 가 복합 FK 로 (student_id · teacher_id) 를
+    --    자기 행에 잠근다. id 가 PK 라 실질 비용은 0. 선례: V34 problem_assignments
+    --    (id, teacher_id, student_id, problem_set_id) → problem_assignment_responses 복합 FK.
+    --    복합 FK 를 쓰면 자식 정책이 EXISTS 로 부모(RLS 켜진 member_questions)를 참조하지
+    --    않아도 되므로 불변식 4번(설계 §6-4)을 어기지 않는다.
+    CONSTRAINT uq_member_questions_student UNIQUE (id, student_id),
+    CONSTRAINT uq_member_questions_teacher UNIQUE (id, teacher_id)
 );
 
 CREATE INDEX ix_member_questions_student_created
@@ -86,15 +93,26 @@ CREATE INDEX ix_member_questions_teacher_status
 --    학생 INSERT WITH CHECK 에 author_role = 'STUDENT'
 --    강사 INSERT WITH CHECK 에 author_role = 'TEACHER'
 --    → 학생이 자기 컨텍스트로 'TEACHER' 를 INSERT 하려 하면 정책이 거절한다.
+--
+-- 🔴 student_id · teacher_id 는 <b>복합 FK 로 부모(member_questions)에서 잠근다</b>. 같은 값이
+--    두 곳에 있는 것이 아니라 DB 가 하나로 묶는다 — 부모와 어긋나는 것이 구조적으로 불가능하다.
+--    이 컬럼을 두는 이유는 정책(§5-3)이 EXISTS 로 부모 RLS 테이블을 참조하지 않아도 되게
+--    하기 위함이다(불변식 4번 · 설계 §6-4). 선례: V34 problem_assignment_responses.
 CREATE TABLE member_question_messages (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     question_id UUID NOT NULL,
+    student_id UUID NOT NULL,
+    teacher_id UUID NOT NULL,
     author_role VARCHAR(8) NOT NULL,
     author_account_id UUID NOT NULL,
     content TEXT NOT NULL,
     published_at TIMESTAMPTZ NOT NULL,
-    CONSTRAINT fk_member_question_messages_question
-        FOREIGN KEY (question_id) REFERENCES member_questions (id) ON DELETE RESTRICT,
+    CONSTRAINT fk_member_question_messages_student
+        FOREIGN KEY (question_id, student_id)
+        REFERENCES member_questions (id, student_id) ON DELETE RESTRICT,
+    CONSTRAINT fk_member_question_messages_teacher
+        FOREIGN KEY (question_id, teacher_id)
+        REFERENCES member_questions (id, teacher_id) ON DELETE RESTRICT,
     CONSTRAINT fk_member_question_messages_author
         FOREIGN KEY (author_account_id) REFERENCES accounts (id) ON DELETE RESTRICT,
     CONSTRAINT ck_member_question_messages_role
@@ -226,18 +244,15 @@ CREATE POLICY member_questions_member_teacher_update
     );
 
 -- ── 5-3. member_question_messages ──
--- 🔴 EXISTS 는 member_questions 를 참조한다 — <b>member_ 소유 테이블끼리</b>다.
---    불변식 4번(승우님 RLS 테이블 재귀 방지)은 위반하지 않는다.
---    같은 주체(student_id / teacher_id)로 격리되므로 정책 그래프가 발산하지 않는다.
+-- 🔴 정책은 자기 테이블 컬럼만 본다. 부모(member_questions)를 EXISTS·IN·JOIN 으로 참조하지
+--    않는다 — 그건 불변식 4번(설계 §6-4) 위반이다. 대신 §3 의 복합 FK 가 student_id·teacher_id
+--    를 부모와 묶는다: 남의 질문에 자기 id 로 붙일 수 없고, 자기 질문 id 에 남의 student_id·
+--    teacher_id 로 붙일 수도 없다. 선례: problem_assignment_responses(V34).
 CREATE POLICY member_question_messages_member_student_select
     ON member_question_messages
     FOR SELECT USING (
         current_checkon_student_id() IS NOT NULL
-        AND EXISTS (
-            SELECT 1 FROM member_questions q
-            WHERE q.id = member_question_messages.question_id
-              AND q.student_id = current_checkon_student_id()
-        )
+        AND student_id = current_checkon_student_id()
     );
 -- 🔴 author_role = 'STUDENT' 를 정책에 넣는다. 없으면 학생이 자기 질문에
 --    TEACHER 메시지를 INSERT 해 답변을 위조한다. 애플리케이션 검증이 아니라
@@ -246,33 +261,21 @@ CREATE POLICY member_question_messages_member_student_insert
     ON member_question_messages
     FOR INSERT WITH CHECK (
         current_checkon_student_id() IS NOT NULL
+        AND student_id = current_checkon_student_id()
         AND author_role = 'STUDENT'
-        AND EXISTS (
-            SELECT 1 FROM member_questions q
-            WHERE q.id = member_question_messages.question_id
-              AND q.student_id = current_checkon_student_id()
-        )
     );
 CREATE POLICY member_question_messages_member_teacher_select
     ON member_question_messages
     FOR SELECT USING (
         current_checkon_teacher_id() IS NOT NULL
-        AND EXISTS (
-            SELECT 1 FROM member_questions q
-            WHERE q.id = member_question_messages.question_id
-              AND q.teacher_id = current_checkon_teacher_id()
-        )
+        AND teacher_id = current_checkon_teacher_id()
     );
 CREATE POLICY member_question_messages_member_teacher_insert
     ON member_question_messages
     FOR INSERT WITH CHECK (
         current_checkon_teacher_id() IS NOT NULL
+        AND teacher_id = current_checkon_teacher_id()
         AND author_role = 'TEACHER'
-        AND EXISTS (
-            SELECT 1 FROM member_questions q
-            WHERE q.id = member_question_messages.question_id
-              AND q.teacher_id = current_checkon_teacher_id()
-        )
     );
 
 -- ── 5-4. member_notifications ──

@@ -182,9 +182,11 @@ class QuestionIntegrationTest extends MembershipRlsEnforcedSupport {
 		admin.update("UPDATE member_questions SET status='ANSWERED', answered_at=?"
 			+ " WHERE id = ?", now, questionId);
 		admin.update("INSERT INTO member_question_messages"
-			+ " (id, question_id, author_role, author_account_id, content, published_at)"
-			+ " VALUES (?, ?, 'TEACHER', ?, '답변', ?)",
-			UUID.randomUUID(), questionId, teacherAccountFor(teacherId), now);
+			+ " (id, question_id, student_id, teacher_id, author_role, author_account_id,"
+			+ "  content, published_at)"
+			+ " VALUES (?, ?, ?, ?, 'TEACHER', ?, '답변', ?)",
+			UUID.randomUUID(), questionId, studentProfileId, teacherId,
+			teacherAccountFor(teacherId), now);
 
 		mockMvc.perform(post(QUESTIONS + "/" + questionId + "/messages").with(student())
 				.header("Idempotency-Key", UUID.randomUUID().toString())
@@ -259,9 +261,11 @@ class QuestionIntegrationTest extends MembershipRlsEnforcedSupport {
 			UUID.class, studentProfileId, teacherId, assignmentId,
 			"기존 질문", "안녕하세요", now);
 		admin.update("INSERT INTO member_question_messages"
-			+ " (id, question_id, author_role, author_account_id, content, published_at)"
-			+ " VALUES (?, ?, 'STUDENT', ?, ?, ?)",
-			UUID.randomUUID(), id, studentAccountId, "안녕하세요", now);
+			+ " (id, question_id, student_id, teacher_id, author_role, author_account_id,"
+			+ "  content, published_at)"
+			+ " VALUES (?, ?, ?, ?, 'STUDENT', ?, ?, ?)",
+			UUID.randomUUID(), id, studentProfileId, teacherId, studentAccountId,
+			"안녕하세요", now);
 		return id;
 	}
 

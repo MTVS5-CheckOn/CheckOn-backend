@@ -252,8 +252,9 @@ public class StudentQuestionService {
 			QuestionStatus.WAITING, 0, now, null);
 		UUID id = questionRepository.insertQuestion(toInsert);
 		// 6. 첫 메시지 (author='STUDENT'). 정책이 최종 보장한다.
-		questionRepository.insertMessage(id, QuestionAuthorRole.STUDENT,
-			subject.accountId(), request.content(), now);
+		//    🔴 student_id · teacher_id 를 함께 넣는다(V41 §3 복합 FK).
+		questionRepository.insertMessage(id, studentId, teacherId,
+			QuestionAuthorRole.STUDENT, subject.accountId(), request.content(), now);
 
 		QuestionRecord persisted = questionRepository.findById(id)
 			.orElseThrow(() -> new MemberException(MemberErrorCode.INTERNAL,
@@ -284,8 +285,10 @@ public class StudentQuestionService {
 		}
 
 		Instant now = clock.instant();
+		// 🔴 부모 질문의 student_id · teacher_id 를 그대로 복합 FK 로 잠근다(V41 §3).
 		UUID messageId = questionRepository.insertMessage(
-			questionId, QuestionAuthorRole.STUDENT, subject.accountId(), content, now);
+			questionId, row.studentId(), row.teacherId(),
+			QuestionAuthorRole.STUDENT, subject.accountId(), content, now);
 		return new QuestionMessageResponse(
 			messageId, QuestionAuthorRole.STUDENT, content, now);
 	}
