@@ -164,6 +164,27 @@ public abstract class MemberPostgresSupport {
 	}
 
 	/**
+	 * 🔴 <b>보고서 한 건</b>과 그 자식 행만 지운다. 「발행 보고서 0건」 분기를 만드는 데 쓴다.
+	 *
+	 * <p>왜 헬퍼가 되나 — {@link #deleteLearningSessionsForStudent} 와 같은 이유다. 테스트
+	 * 클래스가 자기 안에 {@code DELETE} 를 쓰면 정리 순서·FK 규약이 여러 곳으로 흩어진다.</p>
+	 *
+	 * <p>🔴 <b>범위를 {@code reportId} 하나로 좁힌 것이 요점이다.</b> 처음엔 테스트 안에서
+	 * {@code WHERE status = 'PUBLISHED' AND student_id = ?} 로 지웠는데, 그러면 그 학생의
+	 * <b>다른 강사 보고서까지</b> 함께 사라진다. 컨테이너를 여러 클래스가 공유하므로 그런 넓은
+	 * 삭제는 언젠가 옆 테스트의 픽스처를 지운다 — 실행 순서에 따라 결과가 달라진다.</p>
+	 *
+	 * <p>🔴 자식 → 부모 순서다. V45 의 복합 FK 가 {@code RESTRICT} 라 순서를 어기면 조용히
+	 * 넘어가지 않고 정리 자체가 실패한다.</p>
+	 */
+	public static void deletePublishedReport(JdbcTemplate admin, UUID reportId) {
+		admin.update("DELETE FROM member_report_publication_outbox WHERE report_id = ?", reportId);
+		admin.update("DELETE FROM member_report_files WHERE report_id = ?", reportId);
+		admin.update("DELETE FROM member_published_report_sections WHERE report_id = ?", reportId);
+		admin.update("DELETE FROM member_published_reports WHERE id = ?", reportId);
+	}
+
+	/**
 	 * 🔴 {@code student_profiles} 한 행. member 통합 테스트가 <b>여러 지점</b>에서 학생을 만들어야
 	 * 하므로 헬퍼를 여기 둔다.
 	 *
