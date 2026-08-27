@@ -86,6 +86,12 @@ public abstract class MemberPostgresSupport {
 	public static void clearMemberFixtures(JdbcTemplate admin) {
 		String[] ordered = {
 			"authentication_sessions",
+			// 🔴 V42 월별 집계 계열 — 자식 → 부모 순서. teacher_profiles·student_profiles 를 참조하므로
+			//    두 profile 앞에 있어야 한다. clear 는 학생 컨텍스트가 없어 RLS 로 안 지워질 것 같지만
+			//    admin 커넥션은 superuser 라 통과한다(MB-34).
+			"member_metric_refresh_outbox",
+			"member_monthly_weakness_metrics",
+			"member_monthly_student_metrics",
 			// 🔴 V41 알림·질문 계열 — 자식 → 부모 순서. member_notifications 는 accounts 만 참조,
 			//    member_question_messages 는 member_questions 를 참조, member_questions 는
 			//    student/teacher/assignment/member_attempts 를 참조한다.
