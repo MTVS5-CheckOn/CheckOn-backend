@@ -40,7 +40,10 @@ public class MemberDatabaseRoleSafetyVerifier implements ApplicationRunner {
 		// V42 · 월별 집계 · 재계산 outbox
 		"member_monthly_student_metrics",
 		"member_monthly_weakness_metrics",
-		"member_metric_refresh_outbox"
+		"member_metric_refresh_outbox",
+		// V44 · 학부모 상담 원장과 발행 메시지
+		"member_consultations",
+		"member_consultation_messages"
 	);
 
 	/**
