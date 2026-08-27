@@ -43,6 +43,8 @@ import com.checkon.member.integration.roster.dto.TeacherSummaryView;
  * <p>🔴 관계 종료 후 과거 보고서 노출은 MB-08 로 미확정이다. 현재는 여기서 fail-closed 404 다.
  * 값을 바꿀 지점이 이 클래스 하나다.</p>
  */
+// TODO(MB-08): 관계 종료 후 과거 학습기록·보고서 열람이 확정되면 이 클래스에서만 고친다.
+//              현재 값은 분기표 §7 의 「불가(404)」다 — 잠정 행이라 구현하지 않았다.
 @Component
 public class ParentChildAccessGuard {
 
