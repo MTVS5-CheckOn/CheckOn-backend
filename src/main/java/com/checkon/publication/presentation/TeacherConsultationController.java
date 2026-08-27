@@ -85,9 +85,10 @@ public class TeacherConsultationController {
 	}
 
 	/**
-	 * 🔴 {@code teacherProfileId} 가 없으면 <b>401</b> 이다. 보안 체인이 이미 TEACHER 를
+	 * 🔴 {@code teacherProfileId} 가 없으면 <b>404</b> 다. 보안 체인이 이미 TEACHER 를
 	 * 요구하지만, 프로필이 없는 계정이 통과하는 경우를 여기서 한 번 더 막는다 —
-	 * {@code null} 로 조회하면 예외가 아니라 조용히 0행이 된다.
+	 * {@code null} 로 조회하면 예외가 아니라 조용히 0행이 된다. 「없는 상담」과 같은 응답을
+	 * 내는 이유는 상담의 존재 여부를 알려주지 않기 위해서다.
 	 */
 	private static UUID teacher(AuthenticatedAccount principal) {
 		UUID teacherId = principal == null ? null : principal.teacherProfileId();
