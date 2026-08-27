@@ -66,6 +66,15 @@ public class RosterRelationshipAdapter implements RosterRelationshipPort {
 		ORDER BY link.started_at
 		""";
 
+	/**
+	 * 🔴 {@code teacher_profiles} 를 조인하지 않는다 — 필터 판정에 필요한 것은 id 집합뿐이고,
+	 * 조인하면 강사 프로필 정책까지 걸려 판정이 흐려진다.
+	 */
+	private static final String FIND_TEACHER_IDS_OF_PARENT = """
+		SELECT teacher_id FROM parent_teacher_relationships
+		WHERE parent_id = ? AND status = ?
+		""";
+
 	private final JdbcTemplate jdbcTemplate;
 
 	public RosterRelationshipAdapter(JdbcTemplate jdbcTemplate) {
@@ -107,6 +116,14 @@ public class RosterRelationshipAdapter implements RosterRelationshipPort {
 		return jdbcTemplate.query(FIND_TEACHERS_OF_CHILD, (rs, rowNum) ->
 			TeacherSummaryView.of(rs.getObject(1, UUID.class), rs.getString(2)),
 			studentProfileId, RelationshipStatus.ACTIVE.name());
+	}
+
+	@Override
+	public List<UUID> findActiveTeacherIdsOfParent(UUID parentProfileId) {
+		// 🔴 WHERE 절의 parent_id 는 방어가 아니다 — V38 정책이 이미 격리한다.
+		//    인덱스를 타게 하려고 넣는다(findActiveChildren 과 같은 이유).
+		return jdbcTemplate.queryForList(FIND_TEACHER_IDS_OF_PARENT, UUID.class,
+			parentProfileId, RelationshipStatus.ACTIVE.name());
 	}
 
 	@Override

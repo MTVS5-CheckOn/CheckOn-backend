@@ -18,6 +18,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param batchStudentLimit      배치 1회 학생 상한.
  * @param batchMonthLimit        배치 1회 월 상한.
  * @param weaknessDetailItemLimit {@code WeaknessDetail.recentItems} 상한.
+ * @param homeRecentRecordLimit  자녀 홈의 {@code recentRecords} 개수. 계약이 개수를 규정하지
+ *                               않으므로 설정으로 둔다 — 🔴 상수 하드코딩 금지 원칙(§2)에 맞춘다.
+ *                               응답에 되돌리지 않는다(프론트가 배열 길이로 안다).
  * @param trendMonths            {@code LearningRecordDetail.trend} 배열 길이. 계약(§3-3)이
  *                               개수를 규정하지 않으므로 설정으로 둔다 — 상수 하드코딩 금지 원칙에 맞춘다.
  *                               응답에는 되돌리지 않는다(프론트가 배열 길이로 안다).
@@ -31,7 +34,8 @@ public record MemberMetricsProperties(
 	Integer batchStudentLimit,
 	Integer batchMonthLimit,
 	Integer weaknessDetailItemLimit,
-	Integer trendMonths
+	Integer trendMonths,
+	Integer homeRecentRecordLimit
 ) {
 
 	public MemberMetricsProperties {
@@ -43,6 +47,7 @@ public record MemberMetricsProperties(
 		batchMonthLimit = batchMonthLimit == null ? 3 : batchMonthLimit;
 		weaknessDetailItemLimit = weaknessDetailItemLimit == null ? 20 : weaknessDetailItemLimit;
 		trendMonths = trendMonths == null ? 6 : trendMonths;
+		homeRecentRecordLimit = homeRecentRecordLimit == null ? 5 : homeRecentRecordLimit;
 
 		if (minimumSampleSize < 1) {
 			throw new IllegalArgumentException("minimum-sample-size must be at least 1");
@@ -61,6 +66,9 @@ public record MemberMetricsProperties(
 		}
 		if (trendMonths < 1) {
 			throw new IllegalArgumentException("trend-months must be at least 1");
+		}
+		if (homeRecentRecordLimit < 1) {
+			throw new IllegalArgumentException("home-recent-record-limit must be at least 1");
 		}
 	}
 }

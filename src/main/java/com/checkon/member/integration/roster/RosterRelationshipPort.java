@@ -47,4 +47,21 @@ public interface RosterRelationshipPort {
 	 * PAUSED 관계는 강사가 아닌 학생·학부모 화면에 보일 이유가 없어 ACTIVE 만 반환한다.
 	 */
 	List<TeacherSummaryView> findTeachersOfChild(UUID studentProfileId);
+
+	/**
+	 * 학부모 자신과 활성 관계인 강사 id 전량.
+	 *
+	 * <p>🔴 <b>범위 세션 변수가 필요 없다</b> — {@code parent_teacher_relationships} 의
+	 * V38 정책이 {@code parent_id = current_checkon_parent_id()} 로 이미 격리한다.
+	 * {@link #findTeachersOfChild} 와 달리 {@code withVerifiedChildScope} 밖에서도 돈다.</p>
+	 *
+	 * <p>🔴 설계 §9-2 「{@code teacherId} 는 권한이 아니라 필터다. 서버가 {@code parent↔teacher}
+	 * 와 {@code student↔teacher} 관계 교집합을 매 요청 재검증한다」의 <b>앞쪽 절반</b>이다.
+	 * 뒤쪽 절반은 {@link #findTeachersOfChild} 가 낸다.</p>
+	 *
+	 * <p>🔴 {@code member/auth} 의 {@code MemberTeacherRepository#findForParent} 가 <b>같은
+	 * 테이블</b>을 읽는다. 그쪽은 세션 응답에 실을 표시 이름까지 가져오고 여기는 id 만 본다 —
+	 * 목적이 달라 합치지 않았지만 <b>한 테이블에 두 조회기</b>라는 위험은 남는다(MB-58).</p>
+	 */
+	List<UUID> findActiveTeacherIdsOfParent(UUID parentProfileId);
 }
