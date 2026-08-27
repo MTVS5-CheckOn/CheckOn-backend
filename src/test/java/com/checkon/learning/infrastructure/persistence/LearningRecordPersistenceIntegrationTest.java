@@ -211,7 +211,7 @@ class LearningRecordPersistenceIntegrationTest {
 
 	private LearningRecord.Draft draft(String external, Instant occurredAt, Boolean correct) {
 		return new LearningRecord.Draft(TEACHER, STUDENT, null, LearningRecordType.SOLVE,
-			occurredAt, "trackB", external, correct, 180, 800, "reading", "common",
+			occurredAt, "MANUAL", external, correct, 180, 800, "reading", "common",
 			"infer", "mcq", null);
 	}
 

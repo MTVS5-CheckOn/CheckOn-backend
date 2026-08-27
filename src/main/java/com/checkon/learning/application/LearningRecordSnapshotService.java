@@ -29,6 +29,7 @@ import com.checkon.detection.application.DetectionStudentStatusHistoryService.Re
 import com.checkon.detection.application.PrepareDetectionRunService;
 import com.checkon.detection.application.PrepareDetectionRunService.PreparedDetectionRun;
 import com.checkon.detection.integration.ai.dto.AiDetectionRequest;
+import com.checkon.detection.integration.ai.AiDetectionSignalTypes;
 import com.checkon.engagement.application.EngagementAlertContextService;
 import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 import com.checkon.learning.domain.LearningRecord;
@@ -180,6 +181,12 @@ public class LearningRecordSnapshotService {
 		var returnedStudentIds = returnedTransitions.stream()
 			.map(ReturnedTransition::studentId)
 			.collect(java.util.stream.Collectors.toUnmodifiableSet());
+		// Weekly activity covers a wider evidence window than learning_events.
+		// Validate provenance for every included record so an unknown source
+		// cannot influence aggregate evidence while bypassing event mapping.
+		activityRecords.stream()
+			.filter(record -> aliasByStudent.containsKey(record.studentId()))
+			.forEach(record -> AiLearningEventSourceMapper.toAiSource(record.sourceType()));
 
 		Map<UUID, LearningRecord> latestByStudent = new LinkedHashMap<>();
 		for (LearningRecord record : activityRecords) latestByStudent.put(record.studentId(), record);
@@ -211,7 +218,8 @@ public class LearningRecordSnapshotService {
 				record.recordType().aiValue(), record.occurredAt().atOffset(ZoneOffset.UTC),
 				record.correct(), record.durationSec(), record.passageWordCount(),
 				record.areaTag(), record.subjectTrack(), record.typeTag(), record.itemFormat(),
-				record.assignmentTitleText(), record.sourceType()))
+				record.assignmentTitleText(),
+				AiLearningEventSourceMapper.toAiSource(record.sourceType())))
 			.toList();
 		List<AiDetectionRequest.ClassReference> classes = students.stream()
 			.map(AiDetectionRequest.StudentSnapshot::classRef)
@@ -226,6 +234,7 @@ public class LearningRecordSnapshotService {
 		List<AiDetectionRequest.AlertContext> alertContext = alertContexts
 			.latestByStudentAndSignalType(teacherId).stream()
 			.filter(history -> aliasByStudent.containsKey(history.studentId()))
+			.filter(history -> AiDetectionSignalTypes.supports(history.signalType()))
 			.map(history -> new AiDetectionRequest.AlertContext(
 				aliasByStudent.get(history.studentId()), history.signalType(), history.status(),
 				history.resolvedAt() == null ? null

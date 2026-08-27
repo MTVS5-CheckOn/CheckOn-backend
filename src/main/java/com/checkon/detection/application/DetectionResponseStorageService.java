@@ -21,6 +21,7 @@ import com.checkon.detection.domain.DetectionRun;
 import com.checkon.detection.domain.DetectionSignalResult;
 import com.checkon.detection.infrastructure.persistence.DetectionRunRepository;
 import com.checkon.detection.infrastructure.persistence.DetectionSignalResultRepository;
+import com.checkon.detection.integration.ai.AiDetectionSignalTypes;
 import com.checkon.detection.integration.ai.dto.AiDetectionRequest;
 import com.checkon.detection.integration.ai.dto.AiDetectionResponse;
 import com.checkon.global.persistence.TeacherTenantDatabaseContext;
@@ -310,6 +311,11 @@ public class DetectionResponseStorageService {
 	}
 
 	private void validateStructuredSignal(AiDetectionResponse.Signal signal) {
+		if (!AiDetectionSignalTypes.supports(signal.signalType())) {
+			throw new DetectionResponseStorageException(
+				"Unsupported AI signal_type: " + signal.signalType()
+			);
+		}
 		if (isBlank(signal.ruleId())) {
 			throw new DetectionResponseStorageException(
 				"AI signal rule_id must not be blank"
