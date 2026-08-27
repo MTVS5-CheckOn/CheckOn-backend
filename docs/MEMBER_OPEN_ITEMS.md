@@ -20,7 +20,7 @@
 | MB-06 | progress autosave 주기와 시간 이상치 상한 | **PROPOSED** — 30초 주기 · 단일 delta 상한 600초 | A | PR5 착수 전 |
 | MB-07 | 월별 최소 표본 수와 월 경계 timezone | **PROPOSED** — 최소 표본 10 · 월 경계 `Asia/Seoul` | A | PR7 착수 전 |
 | MB-08 | 관계 종료 후 과거 학습기록·보고서를 학부모가 계속 볼 수 있나 | **OPEN** | A | PR7 착수 전 |
-| MB-09 | 상담 취소 가능 시점과 강사 답변 후 추가 질문 허용 횟수 | **OPEN** | A | PR8 착수 전 |
+| MB-09 | 상담 취소 가능 시점과 강사 답변 후 추가 질문 허용 횟수 | **OPEN** — V44에는 학부모 UPDATE 정책을 넣지 않았다. 머지된 V44는 고칠 수 없으므로 확정 시 새 마이그레이션(V46+)으로 정책을 추가한다 | A | 사람 결정 후 |
 | MB-10 | PDF 보존 기간, 공유 링크, 정정 보고서 정책 | **OPEN** | A | PR9 착수 전 |
 | MB-11 | 월별 보고서 AI 생성 transport 와 운영 영속 저장 계약 | **OPEN** — AI 의 `/v1/reports` 는 인메모리라 그대로는 운영 원장으로 쓸 수 없다 | A | PR9 착수 전 |
 | MB-12 | `member_*` 테이블을 `TenantDatabaseRoleSafetyVerifier` 목록에 합칠지, 별도 verifier 로 둘지 | **PROPOSED** — 별도 verifier. 팀원 파일 무접촉이 이유다 | A | PR2 착수 전 |
@@ -47,6 +47,10 @@
 | MB-45 | `LEARNING_SUBMITTED` 알림을 학생 컨텍스트에서 발행할 수 없다 | **OPEN** — 수신자(학부모)의 accountId 를 알려면 학생 컨텍스트에서 `parent_student_relationships` 를 조회해야 하는데, 그 테이블은 학생 SELECT 정책이 없다(V38 전수 #6 · MB-43 과 같은 뿌리). 기존 테이블 정책 추가는 예약표 규칙 1 상 V38 뿐이다. 🔴 대체 저장(학생 자신에게 발행)은 하지 않는다 — 학생 알림 목록 API 가 없어서 수신자가 볼 수 없고 계약 위반이다. 강사 답변 알림(MB-44)과 같은 시점에 처리 | A · 승우님 | 강사 답변 기능 착수 전 |
 | MB-46 | 후속 질문 개수 상한 기본값이 미확정 | **OPEN** — 설계 정본 §17 #9. `MemberQuestionProperties.maxFollowUps` 기본 3 으로 두었다(잠정). 팀 확정 후 값 갱신 | A | 강사 답변 기능 착수 전 |
 | MB-47 | `StudentProfile.grade` 가 계약 required 지만 원본은 nullable | **OPEN** — 계약 `member-api.yaml:2073` 이 `grade` 를 required 로 뒀지만, `student_profiles.grade`(V6:24) 는 nullable 이다. NULL 이면 지어내지 않고 그대로 null 을 반환한다(응답 키는 남는다). 🔴 계약을 `nullable: true` 로 고쳐야 하지만 yaml 은 PR0 공동 산출물이라 이 PR 은 손대지 않는다(무접촉) | A | 계약 변경 세션 |
+| MB-48 | 반 없는 상담의 `class_ref` 생성 규약 | **OPEN** — 더미 `cl_` 별칭은 만들지 않고 AI 변환을 생략한다. 실제 생성 규약은 AI 팀·승우님과 공동 확정한다 | AI 팀 · 승우님 | 상담 AI 연결 전 |
+| MB-49 | 상담 AI 결과 listener 소유 경계 | **OPEN** — member 소유가 아니다. 결과를 반영하려면 teacher RLS 컨텍스트가 필요하고 member가 이를 열면 절대 규칙 3 위반이다 | 승우님 | listener 연결 전 |
+| MB-50 | AI 장애 시 상담 `UNAVAILABLE` 기록 소유 | **OPEN** — MB-49와 같은 이유로 member가 기록하지 않는다. teacher RLS 컨텍스트 소유 경계에서 승우님과 협의한다 | 승우님 | 장애 결과 연결 전 |
+| MB-51 | 상담 ANALYSIS/REPORT context 정본 저장소 | **OPEN** — 안정적인 UUID 정본이 없어 현재 404로 닫는다. REPORT 정본은 PR9에서 만든다 | A | PR9 |
 
 ## PR3 착수 전 반드시 확정해야 하는 것
 
@@ -83,6 +87,7 @@
 - MB-28 은 PR5b/S4 에서 **CONFIRMED · 둘 다 쓴다**로 확정했다(스키마 실측으로 대체 불가 근거 확보).
 - MB-42 는 PR5b/S4 에서 신규 부여했고 PR #102 가 닫았다(게이트가 OS 경로 구분자 의존 · `inPackage` 헬퍼 도입).
 - MB-43 ~ MB-47 은 PR6 에서 신규 부여했다. 🔴 넷 다 「기능이 없다」가 아니라 「V38 예약표 규칙 상 지금 정책을 못 붙인다」(43·45) 또는 「강사 답변 API 가 없다」(44·46) 또는 「계약 vs 원본 스키마 불일치」(47) 다.
+- MB-48 ~ MB-51 은 PR8 에서 신규 부여했다. class_ref·listener·장애 상태 기록·context 정본처럼 member 단독으로 확정하거나 teacher RLS 컨텍스트를 열어 해결할 수 없는 경계 안건이다.
 - MB-32 는 PR3 이 열고 PR6/V41 이 닫았다(`notificationsEnabled` 원본 부재).
 - MB-14 ~ MB-27 은 **아직 비어 있다** — 결번이며 재사용하지 않는다.
 - 🔴 코드에 `TODO(MB-nn)` 을 쓰면 **이 표에 그 번호가 있어야 한다.** 코드 규칙 G9 는 TODO 의

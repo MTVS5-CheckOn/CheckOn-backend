@@ -86,6 +86,9 @@ public abstract class MemberPostgresSupport {
 	public static void clearMemberFixtures(JdbcTemplate admin) {
 		String[] ordered = {
 			"authentication_sessions",
+			// V44 상담 계열 — 발행 메시지가 상담 원장을 복합 FK 로 참조한다.
+			"member_consultation_messages",
+			"member_consultations",
 			// 🔴 V42 월별 집계 계열 — 자식 → 부모 순서. teacher_profiles·student_profiles 를 참조하므로
 			//    두 profile 앞에 있어야 한다. clear 는 학생 컨텍스트가 없어 RLS 로 안 지워질 것 같지만
 			//    admin 커넥션은 superuser 라 통과한다(MB-34).

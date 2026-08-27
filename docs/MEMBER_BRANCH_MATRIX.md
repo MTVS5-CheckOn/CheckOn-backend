@@ -470,10 +470,13 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | 분기 | 조건 | 응답 |
 |---|---|---|
 | 정상 | | `200` — 🔴 `published_at` 이 있는 메시지만 |
-| 답변 전 | | `200` + `messages` 에 학부모 원문만, `answeredAt: null` |
+| 답변 전 | | `200` + 학부모 원문은 `content`, 발행 전에는 `messages: []`, `answeredAt: null` |
 | AI 초안 존재하나 미승인 | | 🔴 `200` + `messages` 에 **포함되지 않음** |
 | 상담 0건 | | `200` + `items: []` |
 | 남의 상담 | | `404 RESOURCE_NOT_FOUND` |
+
+🔴 `member-api.yaml`이 스키마 정본이다. `messages`는 `published_at`이 있는 발행 메시지만 담고,
+학부모 원문은 `ConsultationDetail.content`에 둔다.
 
 ### `POST .../consultations/{id}/cancellation` — 취소
 
