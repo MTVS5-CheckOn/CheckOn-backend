@@ -179,6 +179,38 @@ class MemberImplementedApiOpenApiContractTest {
 			.isEmpty();
 	}
 
+	/**
+	 * 🔴 <b>게이트가 무엇을 봤는지 스스로 센다.</b>
+	 *
+	 * <p>🔴 <b>왜 필요한가 — 고의 파괴로 실측했다.</b> 파라미터 대조 게이트에서 오퍼레이션
+	 * 하나를 훑지 않게 만들고 <b>그 오퍼레이션에 실제 구멍</b>을 함께 넣었더니 게이트가
+	 * <b>green 이었다</b>. 이빨이 아니라 <b>시야</b>의 구멍이다 — 훑는 범위를 좁히면 게이트
+	 * 자신은 아무 말도 못 한다.</p>
+	 *
+	 * <p>대조 기준을 <b>파서를 거치지 않은 원문</b>에서 따로 뽑는다. 계약 원문에서
+	 * {@code parameters/TeacherIdFilter} 를 참조한 횟수와, 파서가 {@code teacherId} 를 찾아낸
+	 * 오퍼레이션 수가 같아야 한다. 파서 쪽을 좁히면 두 수가 갈려 red 가 난다.</p>
+	 */
+	@Test
+	@DisplayName("🔴 파라미터 게이트가 계약 전체를 실제로 훑었다 (시야 자체를 검증)")
+	void queryParameterGateActuallyScansTheWholeContract() throws IOException {
+		// 🔴 파서를 거치지 않은 **원문**을 읽는다. 같은 코드 경로로 세면 대조가 아니다.
+		String raw = Files.readString(
+			Path.of("src/main/resources/openapi/member-api.yaml"));
+		long referencedInContract = Pattern.compile("parameters/TeacherIdFilter")
+			.matcher(raw).results().count();
+		long seenByParser = documentedQueryParameters().values().stream()
+			.filter(names -> names.contains("teacherId")).count();
+
+		assertThat(referencedInContract)
+			.as("계약 원문에서 TeacherIdFilter 참조를 하나도 못 찾았다면 이 대조가 헛돈다")
+			.isPositive();
+		assertThat(seenByParser)
+			.as("파서가 훑은 오퍼레이션 수가 계약 원문의 참조 수와 다르다 —"
+				+ " 🔴 게이트의 시야가 좁아졌다")
+			.isEqualTo(referencedInContract);
+	}
+
 	@Test
 	@DisplayName("🔴 계약 오퍼레이션 수가 고정값과 같다 — 계약이 조용히 줄지 않는다")
 	void contractOperationCountIsPinned() {
