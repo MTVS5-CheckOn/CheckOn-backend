@@ -308,7 +308,12 @@ docker exec -i "$PGC" pg_dump -U checkon_app -d "$DBNAME" \
 #    필터를 빠져나가 기준선에 섞이고, 나중에 그 엔드포인트를 지우면 R5 가 오탐 red 를 낸다
 #    (PR3 실측 — @GetMapping("/ping") 1줄). §3-13.
 #    대신 **파일 위치**로 가른다. 이름이 아니라 구조다. R5 와 이 블록은 항상 같아야 한다.
-find src/main/java -name '*.java' -not -path 'src/main/java/com/checkon/member/*' -print0 \
+# 🔴 제외 대상을 손으로 적지 않는다 — `$OURS` 하나로 §4 R5·R8 과 같은 값을 쓴다(W2).
+#    이전 판은 member 만 적었고, publication 이 엔드포인트를 처음 만든 순간 R5 가 red 였다.
+OURS='member|publication'
+find src/main/java -name '*.java' \
+  | grep -Ev "^src/main/java/com/checkon/(${OURS})/" \
+  | tr '\n' '\0' \
   | xargs -0 grep -hoE '@(Get|Post|Put|Patch|Delete|Request)Mapping\("[^"]*"\)' \
   | sort > .member-baseline/endpoints.txt
 ```
@@ -415,7 +420,7 @@ MB-29 로 그 엔드포인트를 지우자 R5 가 **「기존 엔드포인트가
 
 🔴 **PR2 에서 R5 를 「필터 양쪽 정렬」로 고친 처방이 불완전했다는 뜻이다.**
 필터를 맞춰도 애노테이션 분리는 남는다. §3-11 이 이미 말한 그대로다 — **이름으로 거른 게 원인**이다.
-→ **파일 위치로 가른다**(`-not -path '.../member/*'`). §3-12 의 원칙과 같다.
+→ **파일 위치로 가른다**(`grep -Ev "^src/main/java/com/checkon/(${OURS})/"`). §3-12 의 원칙과 같다.
 
 ### ② R3 는 bare `psql`, R4 는 `docker exec` — 같은 스크립트 안에서 갈렸다
 
@@ -441,7 +446,7 @@ PR2 가 §3 만 고치고 §4 를 안 따라가서 생긴 구멍이다. → §4 
 | 곳 | 전 | 후 |
 |---|---|---|
 | §3 B2 · §4 R2 | 히스토그램 + `grep -v member` | 클래스별 + 패키지 경로 제외 + `^<` |
-| §3 B5 · §4 R5 · 재기준선 | `grep -v '/api/v1/member'` | `find -not -path '.../member/*'` |
+| §3 B5 · §4 R5 · 재기준선 | `grep -v '/api/v1/member'` | `find` + `grep -Ev "…/(${OURS})/"` (W2 에서 `$OURS` 로 통일) |
 | §4 R3 · 재기준선 | bare `psql` | `dpsql()` (§3 과 동일) |
 
 🔴 **B(기준선)와 R(검사)은 항상 쌍이다.** 한쪽만 고치면 §3-11 의 3번·5번이 다시 난다.
@@ -668,7 +673,10 @@ R2 만 돌리면 XML 이 이 회차의 member 것뿐이라 **기존 클래스가
 #        docker exec -i "$PGC" pg_dump -U checkon_app -d "$DBNAME" \
 #          --schema-only --no-owner --no-privileges | grep -vE '^\\(un)?restrict ' \
 #          > .member-baseline/schema.sql
-#        find src/main/java -name '*.java' -not -path 'src/main/java/com/checkon/member/*' -print0 \
+#        OURS='member|publication'   # 🔴 §4 R5 와 **같은 값**이어야 한다
+#        find src/main/java -name '*.java' \
+#          | grep -Ev "^src/main/java/com/checkon/(${OURS})/" \
+#          | tr '\n' '\0' \
 #          | xargs -0 grep -hoE '@(Get|Post|Put|Patch|Delete|Request)Mapping\("[^"]*"\)' \
 #          | sort > .member-baseline/endpoints.txt
 #   3) 고치기 전에 한 번 돌려서 R3~R8 이 전부 exit 0 인지 확인한다:
@@ -692,6 +700,13 @@ DBNAME=$(grep -E '^POSTGRES_DB=' .env | cut -d= -f2)   # 🔴 checkon 아니다.
 dpsql() { docker exec -i "$PGC" psql -U checkon_app -d "$DBNAME" "$@"; }
 export SPRING_DOCKER_COMPOSE_ENABLED=false
 step() { printf '%-28s exit=%s\n' "$1" "$2"; [ "$2" -ne 0 ] && FAIL=1; }
+
+# 🔴 **우리 경계의 정본.** R5(엔드포인트)와 R8(파일 무변경)이 **같은 값**을 쓴다.
+#    경계가 늘면 여기 한 곳만 고친다 — 두 곳에 적으면 언젠가 갈린다.
+#    🔴 W2 실측: R5 는 member 만 제외하고 있어서 publication 이 엔드포인트를 처음 만든
+#       순간 red 가 났다. R8 은 이미 구조 판정으로 고쳐 뒀는데 R5 는 안 고쳐져 있었다 —
+#       같은 병이 게이트 안에서 **한 칸 옆으로** 남아 있었다.
+OURS='member|publication'
 
 # 🔴 기준선 이후 내가 만들거나 고친 파일 전량 — **커밋 여부와 무관하게**.
 #    `git diff base..HEAD` 만 쓰면 커밋 전 워킹트리 파일이 안 보인다.
@@ -803,7 +818,10 @@ diff "$BASE/schema.sql" /tmp/after-schema.sql | grep '^<' > /tmp/schema.diff
 
 # R5. 기존 엔드포인트가 사라지거나 바뀌지 않았는가
 # 🔴 §3 B5 와 **똑같아야 한다.** 경로 문자열이 아니라 파일 위치로 가른다(§3-13).
-find src/main/java -name '*.java' -not -path 'src/main/java/com/checkon/member/*' -print0 \
+# 🔴 제외 대상을 손으로 적지 않는다 — `$OURS` 하나로 R8 과 같은 값을 쓴다.
+find src/main/java -name '*.java' \
+  | grep -Ev "^src/main/java/com/checkon/(${OURS})/" \
+  | tr '\n' '\0' \
   | xargs -0 grep -hoE '@(Get|Post|Put|Patch|Delete|Request)Mapping\("[^"]*"\)' \
   | sort > /tmp/after-endpoints.txt
 diff "$BASE/endpoints.txt" /tmp/after-endpoints.txt > /tmp/endpoint.diff
@@ -842,7 +860,6 @@ changed \
 #
 # 🔴 그래서 **구조로 판정한다** — 실제 패키지 목록을 읽고 거기서 **우리 것만 뺀다.**
 #    새 패키지가 생기면 자동으로 무접촉 대상이 되고, 우리 경계가 늘면 OURS 만 고친다.
-OURS='member|publication'
 FOREIGN=$(ls -d src/main/java/com/checkon/*/ 2>/dev/null | xargs -n1 basename \
   | grep -Ev "^(${OURS})$" | paste -sd'|' -)
 # 🔴 조용한 절단 금지(§3-9). 무엇을 무접촉으로 봤는지 찍는다 —
@@ -930,8 +947,10 @@ git merge origin/dev        # 🔴 rebase 금지 — 팀 관행이 merge 다 (§
 git worktree add /tmp/checkon-dev origin/dev
 
 # 2. 거기서 코드 기준선을 다시 뜬다
+OURS='member|publication'   # 🔴 §3 B5 · §4 R5 와 **같은 값**이어야 한다
 ( cd /tmp/checkon-dev && find src/main/java -name '*.java' \
-      -not -path 'src/main/java/com/checkon/member/*' -print0 \
+    | grep -Ev "^src/main/java/com/checkon/(${OURS})/" \
+    | tr '\n' '\0' \
     | xargs -0 grep -hoE '@(Get|Post|Put|Patch|Delete|Request)Mapping\("[^"]*"\)' \
     | sort > "$OLDPWD/.member-baseline/endpoints.txt" )
 

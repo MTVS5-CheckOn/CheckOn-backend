@@ -25,7 +25,10 @@
 #        docker exec -i "$PGC" pg_dump -U checkon_app -d "$DBNAME" \
 #          --schema-only --no-owner --no-privileges | grep -vE '^\\(un)?restrict ' \
 #          > .member-baseline/schema.sql
-#        find src/main/java -name '*.java' -not -path 'src/main/java/com/checkon/member/*' -print0 \
+#        OURS='member|publication'   # 🔴 §4 R5 와 **같은 값**이어야 한다
+#        find src/main/java -name '*.java' \
+#          | grep -Ev "^src/main/java/com/checkon/(${OURS})/" \
+#          | tr '\n' '\0' \
 #          | xargs -0 grep -hoE '@(Get|Post|Put|Patch|Delete|Request)Mapping\("[^"]*"\)' \
 #          | sort > .member-baseline/endpoints.txt
 #   3) 고치기 전에 한 번 돌려서 R3~R8 이 전부 exit 0 인지 확인한다:
@@ -49,6 +52,13 @@ DBNAME=$(grep -E '^POSTGRES_DB=' .env | cut -d= -f2)   # 🔴 checkon 아니다.
 dpsql() { docker exec -i "$PGC" psql -U checkon_app -d "$DBNAME" "$@"; }
 export SPRING_DOCKER_COMPOSE_ENABLED=false
 step() { printf '%-28s exit=%s\n' "$1" "$2"; [ "$2" -ne 0 ] && FAIL=1; }
+
+# 🔴 **우리 경계의 정본.** R5(엔드포인트)와 R8(파일 무변경)이 **같은 값**을 쓴다.
+#    경계가 늘면 여기 한 곳만 고친다 — 두 곳에 적으면 언젠가 갈린다.
+#    🔴 W2 실측: R5 는 member 만 제외하고 있어서 publication 이 엔드포인트를 처음 만든
+#       순간 red 가 났다. R8 은 이미 구조 판정으로 고쳐 뒀는데 R5 는 안 고쳐져 있었다 —
+#       같은 병이 게이트 안에서 **한 칸 옆으로** 남아 있었다.
+OURS='member|publication'
 
 # 🔴 기준선 이후 내가 만들거나 고친 파일 전량 — **커밋 여부와 무관하게**.
 #    `git diff base..HEAD` 만 쓰면 커밋 전 워킹트리 파일이 안 보인다.
@@ -160,7 +170,10 @@ diff "$BASE/schema.sql" /tmp/after-schema.sql | grep '^<' > /tmp/schema.diff
 
 # R5. 기존 엔드포인트가 사라지거나 바뀌지 않았는가
 # 🔴 §3 B5 와 **똑같아야 한다.** 경로 문자열이 아니라 파일 위치로 가른다(§3-13).
-find src/main/java -name '*.java' -not -path 'src/main/java/com/checkon/member/*' -print0 \
+# 🔴 제외 대상을 손으로 적지 않는다 — `$OURS` 하나로 R8 과 같은 값을 쓴다.
+find src/main/java -name '*.java' \
+  | grep -Ev "^src/main/java/com/checkon/(${OURS})/" \
+  | tr '\n' '\0' \
   | xargs -0 grep -hoE '@(Get|Post|Put|Patch|Delete|Request)Mapping\("[^"]*"\)' \
   | sort > /tmp/after-endpoints.txt
 diff "$BASE/endpoints.txt" /tmp/after-endpoints.txt > /tmp/endpoint.diff
@@ -199,7 +212,6 @@ changed \
 #
 # 🔴 그래서 **구조로 판정한다** — 실제 패키지 목록을 읽고 거기서 **우리 것만 뺀다.**
 #    새 패키지가 생기면 자동으로 무접촉 대상이 되고, 우리 경계가 늘면 OURS 만 고친다.
-OURS='member|publication'
 FOREIGN=$(ls -d src/main/java/com/checkon/*/ 2>/dev/null | xargs -n1 basename \
   | grep -Ev "^(${OURS})$" | paste -sd'|' -)
 # 🔴 조용한 절단 금지(§3-9). 무엇을 무접촉으로 봤는지 찍는다 —
