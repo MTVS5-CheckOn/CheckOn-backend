@@ -1073,6 +1073,25 @@ git commit -m "fix: gradlew·initdb 스크립트에 실행 비트를 부여한�
 | **T1** | 공유 설정 — `.gitignore` · `.github/**` · `compose*.yaml` · `docker/**` | 아래 T1 절차 | **영향 판정 결과에 따라** |
 | **T2** | member 자바 코드 · member 마이그레이션 | R1~R8 전량 | 필수 |
 | **T3** | 🔴 **기존 테이블 정책**(V38) | R1~R8 + 제한 role RLS 매트릭스 + 고의 파괴 | 필수 |
+| **T4** | 🔴 **`com.checkon.member` 밖에 `@RestController` 추가·경로 변경** | R1~R8 + **`com.checkon.global.openapi.*`** | 필수 |
+
+### 🔴 T4 — 왜 별도 티어인가 (W2 · 2026-08-28 실측)
+
+R5 는 「**승우님 엔드포인트가 그대로인가**」만 본다. 우리가 **새 엔드포인트를 만들었을 때
+승우님 테스트가 그걸 자기 것으로 보고 깨지는 경우**는 R1~R8 어디에도 없다.
+
+`global/openapi/ImplementedApiOpenApiContractTest` 는 `com.checkon` 전체의
+`@RestController` 를 훑어 `/api/v1/**` 오퍼레이션이 **전부 `dashboard-api.yaml` 에 있어야
+한다**고 단언한다. 예외는 `com.checkon.member` **하나뿐**이다(`:41-43`).
+W2 에서 `com.checkon.publication` 이 엔드포인트를 처음 만들자 **CI 가 9분 11초에 red** 였고,
+로컬은 §0-2 영향 범위 규칙대로 member·publication 만 돌려 **못 봤다.**
+
+🔴 **로컬 비용은 초 단위다**(Spring 컨텍스트가 없는 순수 스캔 테스트 · 실측 11초).
+「CI 가 알려주겠지」로 미룰 이유가 없다.
+
+```bash
+./gradlew test --rerun-tasks --tests 'com.checkon.global.openapi.*'
+```
 
 ### T1 절차 — 공유 설정 파일
 
