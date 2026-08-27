@@ -43,7 +43,12 @@ public class MemberDatabaseRoleSafetyVerifier implements ApplicationRunner {
 		"member_metric_refresh_outbox",
 		// V44 · 학부모 상담 원장과 발행 메시지
 		"member_consultations",
-		"member_consultation_messages"
+		"member_consultation_messages",
+		// V45 · 월별 보고서 발행 스냅샷 · PDF 메타 · 발행 알림 outbox
+		"member_published_reports",
+		"member_published_report_sections",
+		"member_report_files",
+		"member_report_publication_outbox"
 	);
 
 	/**
