@@ -31,9 +31,15 @@ public class ParentStudentRelationshipWriter {
 		this.jdbcTemplate = jdbcTemplate;
 	}
 
-	public void insertActive(UUID parentProfileId, UUID studentProfileId, Instant now) {
+	/**
+	 * @return 새로 만든 관계 행의 id. 호출자가 알림 발행의 {@code sourceId} 로 쓴다 —
+	 *         같은 관계는 unique key 로 재발행이 무시된다.
+	 */
+	public UUID insertActive(UUID parentProfileId, UUID studentProfileId, Instant now) {
 		OffsetDateTime at = OffsetDateTime.ofInstant(now, ZoneOffset.UTC);
-		jdbcTemplate.update(INSERT, UUID.randomUUID(), parentProfileId, studentProfileId,
+		UUID id = UUID.randomUUID();
+		jdbcTemplate.update(INSERT, id, parentProfileId, studentProfileId,
 			RelationshipStatus.ACTIVE.name(), at, at);
+		return id;
 	}
 }
