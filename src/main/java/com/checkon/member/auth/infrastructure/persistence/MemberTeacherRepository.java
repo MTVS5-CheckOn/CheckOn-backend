@@ -13,6 +13,11 @@ import com.checkon.member.auth.application.MemberTeacherSummary;
  *
  * <p>🔴 조회는 반드시 RLS 컨텍스트가 설정된 트랜잭션 안에서 돈다. 컨텍스트 없이 읽으면
  * 예외가 아니라 <b>조용히 빈 배열</b>이 나온다 — PR2 §2-4 정책에 의존한다.</p>
+ *
+ * <p>🔴 {@link com.checkon.member.integration.roster.RosterRelationshipPort
+ * #findActiveTeacherIdsOfParent} 가 {@code parent_teacher_relationships} 를 <b>같은 목적이
+ * 아닌 이유로</b> 다시 읽는다 — 그쪽은 {@code teacherId} 필터 판정용이라 id 만 본다.
+ * 관계 상태 어휘가 바뀌면 <b>둘 다</b> 고쳐야 한다(MB-59).</p>
  */
 @Repository
 public class MemberTeacherRepository {
