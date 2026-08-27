@@ -18,7 +18,7 @@ class ConsultationSensitiveLoggingTest {
 
 	@Test
 	void 상담_원문을_로그나_표준출력에_남기지_않는다() throws IOException {
-		assertThat(Files.readString(SOURCE))
-			.doesNotMatch(RAW_CONTENT_LOG);
+		assertThat(RAW_CONTENT_LOG.matcher(Files.readString(SOURCE)).find())
+			.isFalse();
 	}
 }
