@@ -68,6 +68,13 @@ public class MemberMonthlyMetricsRepository {
 	private static final String FIND_STUDENT_MONTH_TEACHER = FIND_STUDENT_BY_MONTH
 		+ " AND teacher_id = ?";
 
+	// 🔴 trend 조회: [fromMonth, toMonth] 양끝 포함. month 컬럼이 'YYYY-MM' 문자열이라
+	//    사전순 비교가 시간순과 같다. 정렬은 읽는 쪽에서.
+	private static final String FIND_STUDENT_MONTH_RANGE = """
+		SELECT %s FROM member_monthly_student_metrics
+		WHERE student_id = ? AND month >= ? AND month <= ?
+		""".formatted(STUDENT_COLS);
+
 	private static final String WEAKNESS_COLS =
 		"teacher_id, student_id, month, month_zone, area_tag, type_tag,"
 			+ " scored_count, correct_count, status, calculation_version, calculated_at";
@@ -120,6 +127,13 @@ public class MemberMonthlyMetricsRepository {
 		return jdbcTemplate.query(FIND_STUDENT_MONTH_TEACHER,
 			(rs, rowNum) -> mapStudent(rs), studentId, month, teacherId)
 			.stream().findFirst();
+	}
+
+	public List<MonthlyStudentMetric> findStudentByMonthRange(
+		UUID studentId, String fromMonth, String toMonth
+	) {
+		return jdbcTemplate.query(FIND_STUDENT_MONTH_RANGE,
+			(rs, rowNum) -> mapStudent(rs), studentId, fromMonth, toMonth);
 	}
 
 	public List<MonthlyWeaknessMetric> findWeaknessByMonth(UUID studentId, String month) {

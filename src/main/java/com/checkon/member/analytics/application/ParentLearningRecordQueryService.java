@@ -16,7 +16,10 @@ import org.springframework.transaction.annotation.Transactional;
 import com.checkon.member.analytics.application.StudentLearningRecordQueryService.Cursor;
 import com.checkon.member.analytics.application.dto.LearningRecordListPage;
 import com.checkon.member.analytics.application.dto.LearningRecordResponse;
+import com.checkon.member.analytics.application.dto.LearningRecordResponse.TrendPoint;
+import com.checkon.member.analytics.domain.LearningRecordTrend;
 import com.checkon.member.analytics.domain.MonthWindow;
+import com.checkon.member.analytics.infrastructure.persistence.MemberMonthlyMetricsRepository;
 import com.checkon.member.common.error.MemberErrorCode;
 import com.checkon.member.common.error.MemberException;
 import com.checkon.member.common.persistence.MemberDatabaseContext;
@@ -36,19 +39,23 @@ public class ParentLearningRecordQueryService {
 	private static final Pattern MONTH_PATTERN = Pattern.compile("^\\d{4}-\\d{2}$");
 	private static final int MAX_LIMIT = 50;
 	private static final int RATIO_SCALE = 10;
+	private static final int TREND_MONTHS = 6;
 
 	private final MemberLearningSessionRepository sessions;
 	private final MemberDatabaseContext databaseContext;
 	private final MemberMetricsProperties properties;
+	private final MemberMonthlyMetricsRepository metrics;
 
 	public ParentLearningRecordQueryService(
 		MemberLearningSessionRepository sessions,
 		MemberDatabaseContext databaseContext,
-		MemberMetricsProperties properties
+		MemberMetricsProperties properties,
+		MemberMonthlyMetricsRepository metrics
 	) {
 		this.sessions = sessions;
 		this.databaseContext = databaseContext;
 		this.properties = properties;
+		this.metrics = metrics;
 	}
 
 	@Transactional(readOnly = true)
@@ -93,11 +100,28 @@ public class ParentLearningRecordQueryService {
 			MemberLearningSession session = found.orElseThrow(() ->
 				new MemberException(MemberErrorCode.RESOURCE_NOT_FOUND,
 					"learning record not found"));
-			return toSummary(session);
+			return toDetail(session, studentId);
 		});
 	}
 
+	private LearningRecordResponse toDetail(MemberLearningSession session, UUID studentId) {
+		ZoneId zone = ZoneId.of(properties.monthZone());
+		YearMonth anchor = MonthWindow.resolveMonth(session.occurredAt(), zone);
+		LearningRecordTrend.MonthRange range = LearningRecordTrend.window(anchor, TREND_MONTHS);
+		List<TrendPoint> trend = LearningRecordTrend.compute(
+			metrics.findStudentByMonthRange(studentId, range.fromMonth(), range.toMonth()),
+			properties.minimumSampleSize()
+		).stream().map(p -> new TrendPoint(p.month(), p.accuracyRate(), p.status())).toList();
+		return toResponse(session, trend);
+	}
+
 	private LearningRecordResponse toSummary(MemberLearningSession session) {
+		return toResponse(session, List.of());
+	}
+
+	private LearningRecordResponse toResponse(
+		MemberLearningSession session, List<TrendPoint> trend
+	) {
 		BigDecimal accuracy = session.itemCount() == 0
 			? BigDecimal.ZERO.setScale(RATIO_SCALE, RoundingMode.HALF_UP)
 			: new BigDecimal(session.correctCount()).divide(
@@ -116,7 +140,8 @@ public class ParentLearningRecordQueryService {
 			accuracy,
 			session.activeElapsedSec(),
 			List.of(),
-			"NO_DATA");
+			"NO_DATA",
+			trend);
 	}
 
 	private int clamp(int limit) {

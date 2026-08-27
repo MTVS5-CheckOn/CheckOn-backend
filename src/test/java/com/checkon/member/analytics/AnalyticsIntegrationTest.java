@@ -130,7 +130,9 @@ class AnalyticsIntegrationTest extends MembershipRlsEnforcedSupport {
 	@Test
 	@DisplayName("student list — 정상 200, items 에 자기 세션 하나 (id·month·정확도)")
 	void studentListReturnsOwnSessions() throws Exception {
-		mockMvc.perform(get(STUDENT_LIST).with(student()))
+		// 🔴 nextCursor 는 계약이 nullable — jsonPath doesNotExist 는 값이 null 이어도 통과하므로
+		//    §11-3 위반이 된다. 원문 body 에 "nextCursor":null 이 실제로 있는지 본다.
+		MvcResult result = mockMvc.perform(get(STUDENT_LIST).with(student()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.items.length()").value(1))
 			.andExpect(jsonPath("$.data.items[0].recordId").value(sessionId.toString()))
@@ -139,7 +141,8 @@ class AnalyticsIntegrationTest extends MembershipRlsEnforcedSupport {
 			.andExpect(jsonPath("$.data.items[0].correctCount").value(3))
 			.andExpect(jsonPath("$.data.items[0].weaknessStatus").value("NO_DATA"))
 			.andExpect(jsonPath("$.data.hasNext").value(false))
-			.andExpect(jsonPath("$.data.nextCursor").doesNotExist());
+			.andReturn();
+		assertThat(result.getResponse().getContentAsString()).contains("\"nextCursor\":null");
 	}
 
 	@Test
@@ -163,7 +166,7 @@ class AnalyticsIntegrationTest extends MembershipRlsEnforcedSupport {
 	@Test
 	@DisplayName("student list — 기록 0건 → 200 + items:[]")
 	void studentListZeroRecords() throws Exception {
-		admin.update("DELETE FROM member_learning_sessions WHERE student_id = ?", studentProfileId);
+		MemberPostgresSupport.deleteLearningSessionsForStudent(admin, studentProfileId);
 		mockMvc.perform(get(STUDENT_LIST).with(student()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.items.length()").value(0));

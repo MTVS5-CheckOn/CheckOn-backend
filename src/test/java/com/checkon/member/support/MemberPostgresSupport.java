@@ -140,6 +140,20 @@ public abstract class MemberPostgresSupport {
 	}
 
 	/**
+	 * 🔴 한 학생의 {@code member_learning_sessions} 만 지운다. 「기록 0건」 분기를 만드는 데 쓴다.
+	 *
+	 * <p>왜 헬퍼가 되나 — 테스트 클래스가 자기 안에 {@code DELETE} 를 쓰면 정리 순서·FK 규약이
+	 * 여러 곳으로 흩어진다({@link #clearMemberFixtures} 헤더 참조). 지우는 대상 테이블은 한 곳에
+	 * 몰아둔다.</p>
+	 *
+	 * <p>🔴 {@code member_learning_sessions} 만 지운다 — {@code member_attempts} 는 남긴다.
+	 * 세션은 attempt 를 참조(FK)하지만 그 반대는 아니라, 세션만 지워도 FK 는 안 깨진다.</p>
+	 */
+	public static void deleteLearningSessionsForStudent(JdbcTemplate admin, UUID studentId) {
+		admin.update("DELETE FROM member_learning_sessions WHERE student_id = ?", studentId);
+	}
+
+	/**
 	 * 🔴 {@code student_profiles} 한 행. member 통합 테스트가 <b>여러 지점</b>에서 학생을 만들어야
 	 * 하므로 헬퍼를 여기 둔다.
 	 *

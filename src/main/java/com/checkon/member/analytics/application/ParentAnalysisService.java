@@ -100,6 +100,12 @@ public class ParentAnalysisService {
 		if (scored == 0) {
 			return new Overall("NO_DATA", null, null, null);
 		}
+		// 🔴 표본이 임계값 미만이면 INSUFFICIENT. improvement 와 같은 임계값을 쓴다(§10-2).
+		//    accuracyRate 를 0 이나 실측으로 채우면 「신뢰 가능한 값」이라는 거짓말이 된다.
+		if (scored < properties.minimumSampleSize()) {
+			int average = (int) (totalSec / scored);
+			return new Overall("INSUFFICIENT", null, scored, average);
+		}
 		BigDecimal accuracy = ratio(correct, scored);
 		int average = (int) (totalSec / scored);
 		return new Overall("AVAILABLE", accuracy, scored, average);

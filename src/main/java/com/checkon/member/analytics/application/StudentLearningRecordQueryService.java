@@ -18,7 +18,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.checkon.member.analytics.application.dto.LearningRecordListPage;
 import com.checkon.member.analytics.application.dto.LearningRecordResponse;
+import com.checkon.member.analytics.application.dto.LearningRecordResponse.TrendPoint;
+import com.checkon.member.analytics.domain.LearningRecordTrend;
 import com.checkon.member.analytics.domain.MonthWindow;
+import com.checkon.member.analytics.infrastructure.persistence.MemberMonthlyMetricsRepository;
 import com.checkon.member.common.error.MemberErrorCode;
 import com.checkon.member.common.error.MemberException;
 import com.checkon.member.common.persistence.MemberDatabaseContext;
@@ -40,11 +43,13 @@ public class StudentLearningRecordQueryService {
 	private static final Pattern MONTH_PATTERN = Pattern.compile("^\\d{4}-\\d{2}$");
 	private static final int MAX_LIMIT = 50;
 	private static final int RATIO_SCALE = 10;
+	private static final int TREND_MONTHS = 6;
 
 	private final MemberLearningSessionRepository sessions;
 	private final MetricRefreshOutboxDrainer drainer;
 	private final MemberDatabaseContext databaseContext;
 	private final MemberMetricsProperties properties;
+	private final MemberMonthlyMetricsRepository metrics;
 	private final TransactionTemplate readOnlyTransactionTemplate;
 
 	public StudentLearningRecordQueryService(
@@ -52,12 +57,14 @@ public class StudentLearningRecordQueryService {
 		MetricRefreshOutboxDrainer drainer,
 		MemberDatabaseContext databaseContext,
 		MemberMetricsProperties properties,
+		MemberMonthlyMetricsRepository metrics,
 		PlatformTransactionManager transactionManager
 	) {
 		this.sessions = sessions;
 		this.drainer = drainer;
 		this.databaseContext = databaseContext;
 		this.properties = properties;
+		this.metrics = metrics;
 		this.readOnlyTransactionTemplate = new TransactionTemplate(transactionManager);
 		// 🔴 drain 이후의 read 트랜잭션이라 REQUIRES_NEW. read-only 힌트로 커넥션에 반영한다.
 		this.readOnlyTransactionTemplate.setPropagationBehavior(
@@ -111,10 +118,27 @@ public class StudentLearningRecordQueryService {
 		Optional<MemberLearningSession> found = sessions.findById(recordId, studentId);
 		MemberLearningSession session = found.orElseThrow(() -> new MemberException(
 			MemberErrorCode.RESOURCE_NOT_FOUND, "learning record not found"));
-		return toSummary(session);
+		return toDetail(session, studentId);
+	}
+
+	private LearningRecordResponse toDetail(MemberLearningSession session, UUID studentId) {
+		ZoneId zone = ZoneId.of(properties.monthZone());
+		YearMonth anchor = MonthWindow.resolveMonth(session.occurredAt(), zone);
+		LearningRecordTrend.MonthRange range = LearningRecordTrend.window(anchor, TREND_MONTHS);
+		List<TrendPoint> trend = LearningRecordTrend.compute(
+			metrics.findStudentByMonthRange(studentId, range.fromMonth(), range.toMonth()),
+			properties.minimumSampleSize()
+		).stream().map(p -> new TrendPoint(p.month(), p.accuracyRate(), p.status())).toList();
+		return toResponse(session, trend);
 	}
 
 	private LearningRecordResponse toSummary(MemberLearningSession session) {
+		return toResponse(session, List.of());
+	}
+
+	private LearningRecordResponse toResponse(
+		MemberLearningSession session, List<TrendPoint> trend
+	) {
 		BigDecimal accuracy = session.itemCount() == 0
 			? BigDecimal.ZERO.setScale(RATIO_SCALE, RoundingMode.HALF_UP)
 			: new BigDecimal(session.correctCount()).divide(
@@ -134,7 +158,8 @@ public class StudentLearningRecordQueryService {
 			session.activeElapsedSec(),
 			List.of(),
 			// 🔴 weakness 는 여기서 태그별로 계산하려면 문항별 태그가 필요하다 — MB-07 확정 후.
-			"NO_DATA");
+			"NO_DATA",
+			trend);
 	}
 
 	private int clamp(int limit) {
