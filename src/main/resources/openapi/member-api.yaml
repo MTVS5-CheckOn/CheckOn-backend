@@ -69,7 +69,11 @@ paths:
                 properties:
                   data: { $ref: '#/components/schemas/SignUpResult' }
         '400': { $ref: '#/components/responses/InvalidRequest' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: '`EMAIL_ALREADY_EXISTS` — 이미 등록된 이메일이다.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/InternalError' }
 
@@ -98,7 +102,11 @@ paths:
                 properties:
                   data: { $ref: '#/components/schemas/SignUpResult' }
         '400': { $ref: '#/components/responses/InvalidRequest' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: '`EMAIL_ALREADY_EXISTS` — 이미 등록된 이메일이다.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/InternalError' }
 
@@ -315,6 +323,14 @@ paths:
         '403': { $ref: '#/components/responses/StudentActivationRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: |
+            `WORKSHEET_NOT_GRADABLE` — 스냅샷의 `correctNo`·`areaTag`·`typeTag`·`skillNodeId` 중
+            하나라도 null 이라 답안을 기록할 수 없다. `details.itemIds[]` 에 해당 문항을 담는다.
+            🔴 attempt 를 만들지 않는다.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/RateLimited' }
@@ -331,6 +347,7 @@ paths:
         '200':
           description: |
             `status`가 `IN_PROGRESS`면 `AttemptInProgress`,
+            `SUBMITTED`면 정답·해설 없는 `AttemptSubmitted`,
             `SCORED`면 `AttemptResult`.
           content:
             application/json:
@@ -341,6 +358,7 @@ paths:
                   data:
                     oneOf:
                       - $ref: '#/components/schemas/AttemptInProgress'
+                      - $ref: '#/components/schemas/AttemptSubmitted'
                       - $ref: '#/components/schemas/AttemptResult'
                     discriminator:
                       propertyName: status
@@ -1926,6 +1944,16 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/AttemptItemResult' }
+
+    AttemptSubmitted:
+      type: object
+      required: [attemptId, assignmentId, status, version, submittedAt]
+      properties:
+        attemptId: { type: string, format: uuid }
+        assignmentId: { type: string, format: uuid }
+        status: { type: string, enum: [SUBMITTED] }
+        version: { type: integer }
+        submittedAt: { type: string, format: date-time }
 
     AttemptItemResult:
       allOf:

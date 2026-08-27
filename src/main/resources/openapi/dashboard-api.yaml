@@ -37,7 +37,7 @@ tags:
   - name: Problem Generation
     description: 문제 출제 요청과 Problem Studio 검토·저장·발행 흐름
   - name: Counsel
-    description: apidog_counsel_3endpoints_20260819.md 기준 학부모 상담 초안 흐름. 백엔드가 AI 서버를 직접 동기 호출한다.
+    description: 학부모·문의 조회와 상담 초안 흐름. 생성 요청은 Kafka 비동기이며 202 Location을 폴링한다. 조회·다듬기는 준비된 AI job을 REST로 읽는다.
   - name: Monthly Report
     description: 월간 리포트 생성 원장, 스튜디오 조회, PDF artifact와 학부모 앱 발송 대기열
   - name: Guardian Labels
@@ -451,10 +451,11 @@ paths:
     get:
       tags: [Dashboard]
       operationId: getDashboardCalendar
-      summary: 주간 대시보드 캘린더 조회
+      summary: 대시보드 캘린더 기간 조회
       description: |
-        startedAt 월요일부터 같은 주 endedAt 일요일까지 정확히 7일을 날짜 오름차순으로 반환한다.
-        미래 주도 허용하며 빈 날짜는 eventCount 0이다. eventCount는 detection_runs.analysis_date에
+        startedAt과 endedAt을 모두 포함한 임의 기간을 날짜 오름차순으로 반환한다.
+        endedAt은 응답에 포함되는 마지막 날짜이며 요일, 주 경계, 월 경계에 제한이 없다.
+        미래 기간도 허용하며 빈 날짜는 eventCount 0이다. eventCount는 detection_runs.analysis_date에
         연결된 Alert 수로, 상태와 Evidence 수에 무관하게 Alert 한 건을 한 번 센다. Todo, Reminder,
         상담 일정 등은 포함하지 않는다.
       parameters:
@@ -462,30 +463,27 @@ paths:
         - $ref: '#/components/parameters/EndedAt'
       responses:
         '200':
-          description: 7일 캘린더 조회 성공
+          description: 캘린더 기간 조회 성공
           content:
             application/json:
               schema: {$ref: '#/components/schemas/DashboardCalendar'}
               example:
-                startedAt: '2026-08-03'
-                endedAt: '2026-08-09'
+                startedAt: '2026-08-30'
+                endedAt: '2026-09-02'
                 items:
-                  - {date: '2026-08-03', eventCount: 2}
-                  - {date: '2026-08-04', eventCount: 0}
-                  - {date: '2026-08-05', eventCount: 1}
-                  - {date: '2026-08-06', eventCount: 0}
-                  - {date: '2026-08-07', eventCount: 0}
-                  - {date: '2026-08-08', eventCount: 0}
-                  - {date: '2026-08-09', eventCount: 0}
+                  - {date: '2026-08-30', eventCount: 2}
+                  - {date: '2026-08-31', eventCount: 0}
+                  - {date: '2026-09-01', eventCount: 1}
+                  - {date: '2026-09-02', eventCount: 0}
         '400':
-          description: 누락, 날짜 형식 오류 또는 잘못된 주간 범위
+          description: 누락, 날짜 형식 오류 또는 역방향 날짜 범위
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
               examples:
                 missing: {value: {code: MISSING_REQUEST_PARAMETER, message: 필수 요청 파라미터를 확인해 주세요.}}
                 format: {value: {code: INVALID_DATE_FORMAT, message: 날짜는 yyyy-MM-dd 형식이어야 합니다.}}
-                range: {value: {code: INVALID_CALENDAR_RANGE, message: The calendar range must be one Monday-through-Sunday week.}}
+                range: {value: {code: INVALID_CALENDAR_RANGE, message: startedAt must not be after endedAt.}}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/alerts:
@@ -903,6 +901,48 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {description: 요청 없음, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
         '409': {description: 선택 문항 없음, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /counsel/inquiries:
+    get:
+      tags: [Counsel]
+      operationId: listCounselInquiries
+      summary: 상담 시작 가능한 문의 목록 조회
+      description: |
+        인증 강사와 학부모·학생·반이 모두 현재 ACTIVE인 저장 문의만 receivedAt 내림차순으로 반환한다.
+        facts는 학습 기록을 새로 조합한 값이 아니라 백엔드의 기존 counsel_inquiries에 저장된 원본 상담
+        컨텍스트다. 이 응답의 실제 UUID·문의·labels·periodLabel·facts를 POST /counsel/drafts에 사용한다.
+        최신 draft job이 없으면 draftJobCreated=false이고 jobId와 jobPhase는 null이다. 빈 페이지는 200과 items=[]다.
+      parameters:
+        - {name: page, in: query, schema: {type: integer, minimum: 0, default: 0}}
+        - {name: size, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+      responses:
+        '200':
+          description: 상담 문의 페이지
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CounselInquiryPage'}
+              example:
+                metadata: {pageNumber: 0, pageSize: 20, itemCount: 1, totalItemCount: 1, totalPageCount: 1, isFirst: true, isLast: true}
+                items:
+                  - inquiryRef: demo-counsel-start
+                    parentId: 0198f000-0000-7000-8000-000000000010
+                    studentId: 0198f000-0000-7000-8000-000000000020
+                    studentName: 김체크
+                    classId: 0198f000-0000-7000-8000-000000000021
+                    className: 상담 데모 고2 수학반
+                    topic: grade
+                    urgency: normal
+                    receivedAt: '2026-08-25T01:00:00Z'
+                    rawText: 다음 상담에서 최근 성적과 보완 계획을 함께 안내해 주세요.
+                    labels: [data, direct]
+                    periodLabel: 2026년 8월
+                    facts: [{recordId: demo-learning-start, summary: 최근 평가 3회 평균은 84점이고 오답 복습 완료율은 80퍼센트입니다.}]
+                    draftJobCreated: false
+                    jobId: null
+                    jobPhase: null
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 현재 구현은 목록을 빈 배열로 반환하며 개별 대상 404는 사용하지 않음, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
   /counsel/drafts:
     post:
       tags: [Counsel]
@@ -1193,6 +1233,78 @@ paths:
         '401': {description: 인증 필요}
         '403': {description: 강사 권한 필요}
 
+  /guardians:
+    get:
+      tags: [Counsel]
+      operationId: listGuardians
+      summary: 강사의 활성 학부모 목록 조회
+      description: |
+        인증 principal의 teacherProfileId와 ACTIVE 학부모-강사·학부모-학생·강사-학생 관계만 사용한다.
+        최근 상담 시각 내림차순(null은 마지막), parentId 오름차순으로 정렬한다. 현재 강사가 안전하게 읽을 수 있는
+        학부모 표시 이름 정본이 없으므로 displayName은 null이며 AI alias로 대체하지 않는다. 학생 실명과 활성 반이
+        없으면 각각 studentName, classId, className을 null로 유지한다. 종료 관계와 다른 테넌트는 목록에 나타나지 않는다.
+      parameters:
+        - {name: page, in: query, schema: {type: integer, minimum: 0, default: 0}}
+        - {name: size, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+      responses:
+        '200':
+          description: 활성 학부모 페이지. 결과가 없거나 범위를 벗어난 페이지도 200과 items=[]다.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuardianPage'}
+              example:
+                metadata: {pageNumber: 0, pageSize: 20, itemCount: 1, totalItemCount: 1, totalPageCount: 1, isFirst: true, isLast: true}
+                items:
+                  - parentId: 0198f000-0000-7000-8000-000000000010
+                    displayName: null
+                    students: [{studentId: 0198f000-0000-7000-8000-000000000020, studentName: 김체크, classId: 0198f000-0000-7000-8000-000000000021, className: 상담 데모 고2 수학반}]
+                    labels: [{axis: comm, value: data, updatedAt: '2026-08-26T00:00:00Z'}]
+                    communicationCount: 11
+                    latestCommunicationAt: '2026-08-25T01:00:00Z'
+                    latestInquiry: {topic: grade, urgency: normal, jobId: null, jobPhase: null}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 목록은 접근 불가능 대상을 제외하므로 개별 404를 사용하지 않음, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  /guardians/{parentId}/communications:
+    get:
+      tags: [Counsel]
+      operationId: listGuardianCommunications
+      summary: 학부모별 상담 이력 조회
+      description: |
+        현재 ACTIVE 학부모와 현재 ACTIVE로 함께 연결된 학생의 수신 문의와 강사가 실제 발송한 문구만 합친다.
+        occurredAt 내림차순, recordId 내림차순이다. inbound의 actuallySent는 false이고 연결된 최신 job이 없으면
+        jobId와 jobPhase가 null이다. outbound는 sent_text/sent_at이 모두 저장된 실제 발송문이라 actuallySent=true다.
+        학생 실명 미등록 시 studentName은 null이다. 다른 강사 또는 없는 학부모는 동일한 404로 숨긴다.
+      parameters:
+        - $ref: '#/components/parameters/GuardianParentId'
+        - {name: page, in: query, schema: {type: integer, minimum: 0, default: 0}}
+        - {name: size, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+      responses:
+        '200':
+          description: 최신순 상담 이력 페이지. 이력이 없으면 200과 items=[]다.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuardianCommunicationPage'}
+              example:
+                metadata: {pageNumber: 0, pageSize: 20, itemCount: 1, totalItemCount: 1, totalPageCount: 1, isFirst: true, isLast: true}
+                items:
+                  - recordId: sent:demo-counsel-job-05
+                    direction: outbound
+                    occurredAt: '2026-08-24T01:03:00Z'
+                    body: 학원 생활에 특별한 문제는 없으며 꾸준히 학습하고 있습니다.
+                    studentId: 0198f000-0000-7000-8000-000000000020
+                    studentName: 김체크
+                    inquiryRef: demo-counsel-05
+                    topic: etc
+                    urgency: normal
+                    actuallySent: true
+                    jobId: demo-counsel-job-05
+                    jobPhase: succeeded
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 없거나 다른 테넌트의 학부모, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}, example: {code: GUARDIAN_NOT_FOUND, message: 학부모를 찾을 수 없습니다.}}}}
   /guardians/{parentId}/label-suggestions:
     post:
       tags: [Guardian Labels]
@@ -1254,8 +1366,8 @@ components:
       description: 실제 쿠키 이름은 서버의 REFRESH_COOKIE_NAME 설정으로 변경할 수 있다.
   parameters:
     BriefingDate: {name: date, in: query, required: true, schema: {type: string, format: date}, example: '2026-08-05'}
-    StartedAt: {name: startedAt, in: query, required: true, description: 월요일, schema: {type: string, format: date}, example: '2026-08-03'}
-    EndedAt: {name: endedAt, in: query, required: true, description: 같은 주 일요일, schema: {type: string, format: date}, example: '2026-08-09'}
+    StartedAt: {name: startedAt, in: query, required: true, description: 응답에 포함되는 첫 날짜, schema: {type: string, format: date}, example: '2026-08-13'}
+    EndedAt: {name: endedAt, in: query, required: true, description: 응답에 포함되는 마지막 날짜(inclusive), schema: {type: string, format: date}, example: '2026-09-10'}
     AlertId: {name: alertId, in: path, required: true, schema: {type: string, format: uuid}}
     InterventionId: {name: interventionId, in: path, required: true, schema: {type: string, format: uuid}}
     ReminderId: {name: reminderId, in: path, required: true, schema: {type: string, format: uuid}}
@@ -1738,7 +1850,7 @@ components:
       properties:
         startedAt: {type: string, format: date}
         endedAt: {type: string, format: date}
-        items: {type: array, minItems: 7, maxItems: 7, items: {$ref: '#/components/schemas/DashboardCalendarItem'}}
+        items: {type: array, minItems: 1, items: {$ref: '#/components/schemas/DashboardCalendarItem'}}
     DashboardCalendarItem:
       type: object
       required: [date, eventCount]
@@ -2144,6 +2256,95 @@ components:
       properties:
         recordId: {type: string, nullable: true, description: 집계·기준선 파생 사실은 null이 정상이다. 가짜 id를 채우지 않는다.}
         summary: {type: string}
+    GuardianPage:
+      type: object
+      required: [metadata, items]
+      properties:
+        metadata: {$ref: '#/components/schemas/PaginationMetadata'}
+        items: {type: array, items: {$ref: '#/components/schemas/GuardianSummary'}}
+    GuardianSummary:
+      type: object
+      required: [parentId, displayName, students, labels, communicationCount, latestCommunicationAt, latestInquiry]
+      properties:
+        parentId: {type: string, format: uuid, description: 실제 parent_profiles.id. AI guardianRef/parentRef가 아니다.}
+        displayName: {type: string, nullable: true, description: 강사용 표시 이름 정본이 없어 현재는 null. alias로 대체하지 않는다.}
+        students: {type: array, items: {$ref: '#/components/schemas/GuardianLinkedStudent'}}
+        labels: {type: array, items: {$ref: '#/components/schemas/GuardianCurrentLabel'}}
+        communicationCount: {type: integer, format: int64, minimum: 0}
+        latestCommunicationAt: {type: string, format: date-time, nullable: true}
+        latestInquiry:
+          nullable: true
+          allOf: [{$ref: '#/components/schemas/GuardianLatestInquiry'}]
+    GuardianLinkedStudent:
+      type: object
+      required: [studentId, studentName, classId, className]
+      properties:
+        studentId: {type: string, format: uuid}
+        studentName: {type: string, nullable: true, description: 저장된 실명이 없으면 null. 학생 alias를 대체값으로 쓰지 않는다.}
+        classId: {type: string, format: uuid, nullable: true, description: 현재 ACTIVE 반 소속이 없으면 null.}
+        className: {type: string, nullable: true, description: 현재 ACTIVE 반 소속이 없으면 null.}
+    GuardianLatestInquiry:
+      type: object
+      required: [topic, urgency, jobId, jobPhase]
+      properties:
+        topic: {$ref: '#/components/schemas/CounselTopic'}
+        urgency: {$ref: '#/components/schemas/CounselUrgency'}
+        jobId: {type: string, nullable: true}
+        jobPhase:
+          nullable: true
+          allOf: [{$ref: '#/components/schemas/CounselJobPhase'}]
+    GuardianCommunicationPage:
+      type: object
+      required: [metadata, items]
+      properties:
+        metadata: {$ref: '#/components/schemas/PaginationMetadata'}
+        items: {type: array, items: {$ref: '#/components/schemas/GuardianCommunication'}}
+    GuardianCommunication:
+      type: object
+      required: [recordId, direction, occurredAt, body, studentId, studentName, inquiryRef, topic, urgency, actuallySent, jobId, jobPhase]
+      properties:
+        recordId: {type: string, description: 'inquiry:{inquiryRef} 또는 sent:{jobId} 형식의 안정적인 화면용 ID'}
+        direction: {type: string, enum: [inbound, outbound]}
+        occurredAt: {type: string, format: date-time}
+        body: {type: string}
+        studentId: {type: string, format: uuid}
+        studentName: {type: string, nullable: true}
+        inquiryRef: {type: string, maxLength: 200}
+        topic: {$ref: '#/components/schemas/CounselTopic'}
+        urgency: {$ref: '#/components/schemas/CounselUrgency'}
+        actuallySent: {type: boolean, description: true는 counsel_draft_jobs.sent_text/sent_at에 기록된 실제 발송문이다.}
+        jobId: {type: string, nullable: true}
+        jobPhase:
+          nullable: true
+          allOf: [{$ref: '#/components/schemas/CounselJobPhase'}]
+    CounselInquiryPage:
+      type: object
+      required: [metadata, items]
+      properties:
+        metadata: {$ref: '#/components/schemas/PaginationMetadata'}
+        items: {type: array, items: {$ref: '#/components/schemas/CounselInquiryContext'}}
+    CounselInquiryContext:
+      type: object
+      required: [inquiryRef, parentId, studentId, studentName, classId, className, topic, urgency, receivedAt, rawText, labels, periodLabel, facts, draftJobCreated, jobId, jobPhase]
+      properties:
+        inquiryRef: {type: string, maxLength: 200}
+        parentId: {type: string, format: uuid}
+        studentId: {type: string, format: uuid}
+        studentName: {type: string, nullable: true}
+        classId: {type: string, format: uuid}
+        className: {type: string}
+        topic: {$ref: '#/components/schemas/CounselTopic'}
+        urgency: {$ref: '#/components/schemas/CounselUrgency'}
+        receivedAt: {type: string, format: date-time}
+        rawText: {type: string, description: 백엔드에 저장된 문의 원문. 화면 표시와 POST /counsel/drafts의 text 입력에 사용한다.}
+        labels: {type: array, items: {type: string}}
+        periodLabel: {type: string, maxLength: 120}
+        facts: {type: array, items: {$ref: '#/components/schemas/CounselFact'}, description: 저장된 상담 컨텍스트. 신규 학습 기록 projection을 뜻하지 않는다.}
+        draftJobCreated: {type: boolean}
+        jobId: {type: string, nullable: true}
+        jobPhase:
+          nullable: true
+          allOf: [{$ref: '#/components/schemas/CounselJobPhase'}]
     CounselCreateDraftRequest:
       type: object
       required: [studentId, classId, inquiryRef, topic, urgency, receivedAt, text, periodLabel, facts]

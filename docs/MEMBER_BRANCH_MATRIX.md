@@ -187,7 +187,7 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | 신규 시작 | 열린 attempt 없음 | **`201`** `AttemptInProgress` | 풀이 화면 |
 | 재개 | `status='IN_PROGRESS'` attempt 존재 | **`200`** 기존 attempt 그대로 | 🔴 답안·타이머 복원. 새로 만들지 않는다 |
 | 이미 제출 완료 | `status='SCORED'` 만 있음 | `409 ATTEMPT_ALREADY_SUBMITTED` + `details.attemptId` | 결과 화면으로 이동 |
-| 채점 불가 학습지 | `correctAnswerText` ↔ 보기 완전일치가 1개가 아님 | 🔴 `422 WORKSHEET_NOT_GRADABLE` + `details.itemIds[]` | "선생님께 문의" 안내. **attempt 를 만들지 않는다** |
+| 채점 불가 학습지 | 🔴 스냅샷의 `correctNo`·`areaTag`·`typeTag`·`skillNodeId` 중 **하나라도 null** | 🔴 `422 WORKSHEET_NOT_GRADABLE` + `details.itemIds[]` | "선생님께 문의" 안내. **attempt 를 만들지 않는다** |
 | 문항 0개 | 스냅샷이 비었음 | `422 WORKSHEET_NOT_GRADABLE` | 동일 |
 | 남의 학습지 / 없음 | | `404 RESOURCE_NOT_FOUND` | |
 | 강사 관계 종료 | `teacher_student_relationships` 가 `ENDED` | `404 RESOURCE_NOT_FOUND` | 🔴 403 이 아니다 |
@@ -195,6 +195,13 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | 대기 학생 | | `403 STUDENT_ACTIVATION_REQUIRED` | |
 
 🔴 `201` 과 `200` 을 프론트가 **구분하지 않아도** 되도록 body 는 동일 스키마다. 하지만 서버는 구분해서 반환한다(로그·지표용).
+
+🔴 **채점 가능 판정의 원본이 바뀌었다(2026-08-25 재측정).** 옛 판은 `correctAnswerText` 를 보기
+`content` 와 문자열 완전일치시켜 정답 번호를 **역산**했다. 지금은 `item_snapshot` 에
+`correctNo`·`areaTag`·`typeTag`·`skillNodeId` 가 **직접 들어 있다**
+(`ProblemStudioWorkflowRepository.snapshotSelectedItems`). 역산하지 않는다 —
+넷 중 하나라도 null 이면 `problem_assignment_responses` 의 NOT NULL 을 만족시킬 수 없어
+**답안을 기록할 수 없다.** 그래서 판정 시점은 제출이 아니라 **attempt 시작**이다.
 
 ### `GET /member/students/me/attempts/{attemptId}`
 
@@ -230,8 +237,8 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | 같은 key·다른 body | | `409 IDEMPOTENCY_CONFLICT` | 🔴 자동 재시도 금지. 재조회 안내 |
 | 이미 제출됨 | `status ∈ {SUBMITTED, SCORED}` | `409 ATTEMPT_ALREADY_SUBMITTED` | 결과 화면 |
 | 낙관락 충돌 | `baseVersion` 불일치 | `409 REVISION_CONFLICT` | 재조회 → 재제출 |
-| 미응답 문항 존재 | 정책이 "미응답 금지"일 때 **만** | `422 SUBMISSION_INCOMPLETE` + `details.itemIds[]` | 해당 문항 하이라이트. 🔴 정책은 MB-05 미확정 |
-| 채점 불가 문항 | 스냅샷 `correct_no` 가 null | `422 WORKSHEET_NOT_GRADABLE` | 문의 안내 |
+| 미응답 문항 존재 | 정책이 "미응답 금지"일 때 **만** | `422 SUBMISSION_INCOMPLETE` + `details.itemIds[]` | 해당 문항 하이라이트. 🔴 MB-05 확정: 기본 정책은 **허용** (`member.attempt.require-complete-submission=false`) — 이 코드는 현재 어떤 응답 경로에서도 나오지 않는다. enum 상수는 정책 반전 대비로 남긴다 |
+| 채점 불가 문항 | 스냅샷 `correct_no` 가 null | `422 WORKSHEET_NOT_GRADABLE` | 문의 안내. 🔴 판정은 **attempt 시작 시점**에 끝나므로 여기 도달하면 시작 이후 스냅샷이 바뀐 것이다 |
 | `learning_records` INSERT 실패 | 강사 관계가 그 사이 종료 → RLS 거절 | 🔴 **전체 롤백** → `409` + 관계 종료 안내 | 목록 복귀 |
 | 대기 학생 | | `403 STUDENT_ACTIVATION_REQUIRED` | |
 
@@ -318,7 +325,7 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | 정상 | | `201` `TeacherSummary` | 강사 목록 갱신 |
 | 이미 같은 강사와 연결 (내 계정) | 관계가 이미 ACTIVE | 🔴 **`200`** + 기존 `TeacherSummary` | 오류 아님. 완료 화면 (MB-04 멱등) |
 | 같은 코드를 내가 다시 제출 | `member_invitation_claims` 에 내 기록 존재 | 🔴 **`200`** + 기존 `TeacherSummary` | 동일 |
-| 🔴 **다른 계정이 이미 쓴 코드** | `max_claims=1` 소진 | `409 INVITE_ALREADY_CLAIMED` — 🔴 **판정 불가 · PR4 미구현.** `member_invitation_claims` 가 계정 소유 정책으로 격리돼 남의 claim 이 0으로 보이고, 총 claim 수를 막는 DB 제약이 없다. **MB-38** | 새 코드 요청 안내 |
+| 🔴 **다른 계정이 이미 쓴 코드** | `max_claims=1` 소진 | `409 INVITE_ALREADY_CLAIMED` — V40 이 `uq_member_invitation_claims_single_use` 를 넣어 DB 가 두 번째 INSERT 를 23505 로 막는다. `InvitationClaimService` 가 제약 이름으로 걸러 번역한다(MB-38 · CONFIRMED · V40) | 새 코드 요청 안내 |
 | 대기 학생 | `PENDING_PARENT_LINK` | `403 STUDENT_ACTIVATION_REQUIRED` | 활성화 대기 화면 (MB-02) |
 | 만료·폐기 | | `410 INVITE_EXPIRED` | |
 | 없는 코드 | | `404 RESOURCE_NOT_FOUND` | |
@@ -526,7 +533,7 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 1. **PR 구현 시**: 담당 엔드포인트의 표를 열고, 표의 모든 행에 대해 통합 테스트를 1:1 로 만든다. 표에 없는 분기를 코드가 만들면 **표를 먼저 고친다**.
 2. **프론트 구현 시**(PR10): 각 표의 "클라이언트" 열이 핸들러 명세다. MSW 픽스처는 표의 행 수만큼 만든다.
 3. **리뷰 시**: 이 표에 없는 오류 코드가 코드에 나타나면 반려.
-4. 🔴 **잠정 표시된 행**(MB-05 미응답 제출 · MB-08 관계 종료 후 열람 · MB-09 상담 취소·추가질문)은 확정 전까지 구현하지 말고, 확정되면 **표 → 코드 → 테스트** 순으로 고친다.
+4. 🔴 **잠정 표시된 행**(MB-08 관계 종료 후 열람 · MB-09 상담 취소·추가질문)은 확정 전까지 구현하지 말고, 확정되면 **표 → 코드 → 테스트** 순으로 고친다. (MB-05 는 2026-08-26 확정 — 미응답 제출은 **허용**)
 
 ## §7. 미확정이 걸린 분기 (구현 전 확정 필요)
 
@@ -534,7 +541,7 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 
 | 분기 | 미확정 ID | 잠정값 |
 |---|---|---|
-| 미응답 문항 있어도 제출 가능한가 | MB-05 | 허용(=`422 SUBMISSION_INCOMPLETE` 안 씀) |
+| 미응답 문항 있어도 제출 가능한가 | ✅ MB-05 확정 | **허용** (`member.attempt.require-complete-submission=false`, 2026-08-26) — `422 SUBMISSION_INCOMPLETE` 는 현재 응답 경로 없음. enum 상수는 정책 반전 대비로 남긴다 |
 | 관계 종료 후 과거 기록·보고서 열람 | MB-08 | 불가(404) |
 | 상담 취소 가능 시점 / 추가 질문 횟수 | MB-09 | §4 표의 잠정값 |
 | progress delta 상한 | MB-06 | 항목당 600초, 저장 주기 30초 |

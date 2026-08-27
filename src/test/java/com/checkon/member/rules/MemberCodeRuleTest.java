@@ -28,7 +28,23 @@ import org.junit.jupiter.api.Test;
 class MemberCodeRuleTest {
 
 	private static final Path MEMBER = Path.of("src/main/java/com/checkon/member");
+	private static final Path MEMBER_TESTS = Path.of("src/test/java/com/checkon/member");
 	private static final Path ERROR_CODE_DOCUMENT = Path.of("docs/MEMBER_ERROR_CODES.md");
+
+	/**
+	 * 🔴 <b>저장소 사본을 읽는다. 정본({@code docs/member-backend/member-api.yaml})이 아니다.</b>
+	 *
+	 * <p>정본은 {@code .gitignore} 의 {@code /docs/*} 로 <b>추적되지 않는다</b> — 실측:
+	 * {@code git ls-tree -r origin/dev -- docs/member-backend/} 가 <b>0건</b>이다.
+	 * 즉 CI 체크아웃에는 그 파일이 <b>존재하지 않는다.</b> 정본을 읽게 하면 이 게이트는
+	 * 로컬에서만 돌고 CI 에서는 {@code NoSuchFileException} 으로 죽는다.</p>
+	 *
+	 * <p>대신 <b>두 파일이 같다는 것을 §2-5 cmp 가 보증한다</b>(PR5 에서 계약 쌍을 그 목록에
+	 * 넷째로 추가했다). 그래서 사본을 읽어도 정본을 읽는 것과 같다 —
+	 * 🔴 <b>단 cmp 를 돌렸을 때만 그렇다.</b> 그 의존을 여기 적어 둔다.</p>
+	 */
+	private static final Path API_CONTRACT =
+		Path.of("src/main/resources/openapi/member-api.yaml");
 	private static final Path OPEN_ITEM_DOCUMENT = Path.of("docs/MEMBER_OPEN_ITEMS.md");
 	private static final Path MIGRATIONS = Path.of("src/main/resources/db/migration");
 	private static final Path ERROR_CODE_SOURCE =
@@ -68,6 +84,32 @@ class MemberCodeRuleTest {
 		}
 	}
 
+	/**
+	 * 🔴 <b>경로 판정은 OS 의 구분자와 무관해야 한다.</b>
+	 *
+	 * <p>이전 판은 {@code path.toString().contains("/domain/")} 였다. mac·CI(ubuntu)에서는 통하지만
+	 * Windows 는 {@code Path.toString()} 이 {@code \domain\} 을 내서 정상 파일도 위반으로 잡힌다 —
+	 * 승우님이 로컬 빌드에서 발견한 것(MB-42, G2·G3·G4·G5·G15 다섯 곳 전부).</p>
+	 *
+	 * <p>🔴 <b>문자열 치환({@code replace('\\','/')})은 쓰지 않는다.</b> 그 처방은 구분자 문제는
+	 * 지우지만, 경로 어딘가에 우연히 {@code domain} 이라는 이름의 폴더가 또 있으면 여전히 오판한다.
+	 * 물어야 할 질문은 「그 문자열이 들어 있나」가 아니라 <b>「어느 segment 인가」</b>다.</p>
+	 */
+	private static boolean inPackage(Path path, String segment) {
+		for (Path part : path) {
+			if (part.toString().equals(segment)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static List<Path> memberTestSources() throws IOException {
+		try (Stream<Path> walk = Files.walk(MEMBER_TESTS)) {
+			return walk.filter(path -> path.toString().endsWith(".java")).sorted().toList();
+		}
+	}
+
 	private static String readString(Path path) {
 		try {
 			return Files.readString(path);
@@ -100,7 +142,7 @@ class MemberCodeRuleTest {
 			"import com\\.checkon\\."
 				+ "(account|roster|learning|problem|counsel|engagement|dashboard|detection|global)\\.");
 		List<String> offenders = memberSources().stream()
-			.filter(path -> !path.toString().contains("/integration/"))
+			.filter(path -> !inPackage(path, "integration"))
 			.filter(path -> foreignImport.matcher(readString(path)).find())
 			.map(Path::toString)
 			.toList();
@@ -112,7 +154,7 @@ class MemberCodeRuleTest {
 	void presentationDoesNotTouchPersistence() throws IOException {
 		Pattern persistence = Pattern.compile("Repository|jakarta\\.persistence|JdbcTemplate");
 		List<String> offenders = memberSources().stream()
-			.filter(path -> path.toString().contains("/presentation/"))
+			.filter(path -> inPackage(path, "presentation"))
 			.filter(path -> persistence.matcher(readString(path)).find())
 			.map(Path::toString)
 			.toList();
@@ -124,7 +166,7 @@ class MemberCodeRuleTest {
 	void domainHasNoSpringAnnotations() throws IOException {
 		Pattern springAnnotation = Pattern.compile("import org\\.springframework\\.");
 		List<String> offenders = memberSources().stream()
-			.filter(path -> path.toString().contains("/domain/"))
+			.filter(path -> inPackage(path, "domain"))
 			.filter(path -> springAnnotation.matcher(readString(path)).find())
 			.map(Path::toString)
 			.toList();
@@ -136,7 +178,7 @@ class MemberCodeRuleTest {
 	void transactionalOnlyInApplication() throws IOException {
 		List<String> offenders = memberSources().stream()
 			.filter(path -> readString(path).contains("@Transactional"))
-			.filter(path -> !path.toString().contains("/application/"))
+			.filter(path -> !inPackage(path, "application"))
 			.map(Path::toString)
 			.toList();
 		assertThat(offenders).as("트랜잭션 경계는 application 이 소유한다").isEmpty();
@@ -229,6 +271,42 @@ class MemberCodeRuleTest {
 	}
 
 	@Test
+	@DisplayName("G16. 계약의 오류코드가 전부 어딘가의 응답에 실제로 붙어 있다")
+	void errorCodesAreReachableFromSomeOperation() throws IOException {
+		// 🔴 G13 은 **집합**만 본다 — enum 과 문서가 같기만 하면 통과한다.
+		//    "선언은 됐는데 어떤 엔드포인트도 낼 수 없는 코드"는 못 잡는다.
+		//    WORKSHEET_NOT_GRADABLE 이 정확히 그 상태였다(PR5 실측) — 계약의 enum 목록에만
+		//    있고 startStudentAttempt 의 응답에는 422 자체가 없었다.
+		//
+		// 🔴 이 판정은 **느슨하다.** "응답에 실제로 연결됐는가"가 아니라
+		//    "enum 선언 줄 말고 다른 곳에서도 한 번은 언급되는가"만 본다.
+		//    응답 코드와 코드 이름의 실제 결합까지 보려면 OpenAPI 를 파싱해
+		//    responses[*].description 을 훑어야 하는데, 그건 문구 규약에 의존한다.
+		//    느슨한 걸 엄격한 척하지 않는다 — 이 게이트는 "완전히 잊힌 코드"만 잡는다.
+		String contract = Files.readString(API_CONTRACT);
+		List<String> declared = Pattern.compile("^\\s*([A-Z][A-Z_]{3,})\\(", Pattern.MULTILINE)
+			.matcher(Files.readString(ERROR_CODE_SOURCE))
+			.results().map(result -> result.group(1)).toList();
+
+		List<String> unreachable = declared.stream()
+			.filter(code -> mentionsOutsideEnumList(contract, code))
+			.toList();
+		assertThat(unreachable)
+			.as("계약에 선언만 되고 어떤 응답에서도 언급되지 않는 오류코드가 있다")
+			.isEmpty();
+	}
+
+	/** 계약에서 그 코드가 <b>enum 나열 줄 말고</b> 다른 곳에 한 번도 안 나오면 true. */
+	private static boolean mentionsOutsideEnumList(String contract, String code) {
+		long elsewhere = contract.lines()
+			// enum 나열은 "        - CODE_NAME" 형태다. 그 줄은 세지 않는다.
+			.filter(line -> !line.strip().equals("- " + code))
+			.filter(line -> line.contains(code))
+			.count();
+		return elsewhere == 0;
+	}
+
+	@Test
 	@DisplayName("G14. 코드의 TODO(MB-nn) 번호가 MEMBER_OPEN_ITEMS.md 에 실재한다")
 	void todoIssueNumbersAreRegistered() throws IOException {
 		// 🔴 G9 는 TODO 의 **형식**만 본다 — 번호가 붙어 있으면 통과하고 실재는 안 본다.
@@ -256,7 +334,7 @@ class MemberCodeRuleTest {
 		//    서비스가 각각 다른 트랜잭션이라 "앞에서 열었으니 됐다"가 성립하지 않는다.
 		//    빠뜨리면 예외가 아니라 **0행**이라 조용하다 — PR3 에서 결함 3건이 여기서 나왔다.
 		List<String> offenders = memberSources().stream()
-			.filter(path -> path.toString().contains("/application/"))
+			.filter(path -> inPackage(path, "application"))
 			.filter(path -> path.getFileName().toString().endsWith("Service.java"))
 			.filter(path -> readString(path).contains("Repository"))
 			.filter(path -> !CONTEXT_OPENERS.matcher(readString(path)).find())
@@ -294,6 +372,57 @@ class MemberCodeRuleTest {
 					.doesNotContainAnyElementsOf(rlsTables);
 			}
 		}
+	}
+
+	@Test
+	@DisplayName("G17. member 통합 테스트는 승인된 @SpringBootTest properties 조합만 쓴다")
+	void springBootTestPropertiesAreOnTheApprovedList() throws IOException {
+		// 🔴 @SpringBootTest 의 properties 조합이 하나 늘 때마다 스프링이 한 번 더 뜬다.
+		//    PR5b 에서 통합 테스트가 늘어나는데, 조합이 늘면 CI 상한(15분)에 닿는다.
+		//    허용 조합을 여기 목록으로 두고, 새 조합을 쓰려면 이 목록을 먼저 고치게 한다.
+		// 🔴 이 판정은 느슨하다 — properties 문자열 집합만 본다.
+		//    @ContextConfiguration · @DynamicPropertySource · @ServiceConnection 등이 만드는
+		//    ContextCustomizer 는 이 게이트가 못 본다. 컨테이너·역할이 갈리면 여기가 통과해도
+		//    실제 컨텍스트는 여전히 갈릴 수 있다 — 그 한계를 여기 적어 둔다.
+		Set<Set<String>> approved = Set.of(
+			// 기본 통합 테스트 (MemberPostgresSupport · MembershipRlsEnforcedSupport ·
+			// MemberRlsEnforcedApplicationIntegrationTest 공용)
+			Set.of(
+				"checkon.security.test-authentication.enabled=true",
+				"checkon.auth.allowed-origins=http://localhost:3000",
+				"spring.datasource.hikari.maximum-pool-size=4"));
+
+		List<String> offenders = new java.util.ArrayList<>();
+		for (Path path : memberTestSources()) {
+			for (Set<String> combo : extractSpringBootTestPropertyCombos(readString(path))) {
+				if (!approved.contains(combo)) {
+					offenders.add(path + " :: " + new TreeSet<>(combo));
+				}
+			}
+		}
+		assertThat(offenders)
+			.as("승인 조합에 없는 @SpringBootTest properties 를 새로 쓸 때는 approved 에 먼저 넣는다")
+			.isEmpty();
+	}
+
+	private static final Pattern SPRING_BOOT_TEST_PROPERTIES =
+		Pattern.compile("@SpringBootTest\\s*\\(\\s*properties\\s*=\\s*\\{([^}]*)\\}\\s*\\)",
+			Pattern.DOTALL);
+
+	private static final Pattern QUOTED = Pattern.compile("\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"");
+
+	private static List<Set<String>> extractSpringBootTestPropertyCombos(String source) {
+		java.util.regex.Matcher matcher = SPRING_BOOT_TEST_PROPERTIES.matcher(source);
+		List<Set<String>> combos = new java.util.ArrayList<>();
+		while (matcher.find()) {
+			Set<String> combo = new TreeSet<>();
+			java.util.regex.Matcher quotes = QUOTED.matcher(matcher.group(1));
+			while (quotes.find()) {
+				combo.add(quotes.group(1));
+			}
+			combos.add(combo);
+		}
+		return combos;
 	}
 
 	private static long countLines(Path path) {

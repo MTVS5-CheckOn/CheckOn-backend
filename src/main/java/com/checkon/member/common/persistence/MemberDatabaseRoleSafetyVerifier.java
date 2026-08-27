@@ -25,7 +25,13 @@ public class MemberDatabaseRoleSafetyVerifier implements ApplicationRunner {
 	private static final List<String> RLS_REQUIRED = List.of(
 		"member_student_activation",
 		"member_invitation_claims",
-		"member_idempotency_records"
+		"member_idempotency_records",
+		// V40 · attempt 계열 — 학생 self · 학부모/강사 scope 로 격리한다.
+		"member_attempts",
+		"member_attempt_items",
+		"member_attempt_answers",
+		"member_attempt_events",
+		"member_learning_sessions"
 	);
 
 	/**

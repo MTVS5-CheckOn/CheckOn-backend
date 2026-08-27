@@ -179,6 +179,26 @@
   - `src/main/resources/db/migration/V33__support_student_parent_multi_tenancy.sql`
 - 마지막 검증일: 2026-08-24
 
+### Counsel Frontend Read Model
+
+#### COU-001 강사용 학부모·상담 조회 경계
+
+- 결정 상태: `CONFIRMED`
+- 구현 상태: `IMPLEMENTED`
+- 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
+- 테넌트 경계: 인증 principal의 `teacherProfileId`만 사용하고 application 읽기 트랜잭션 안에서 PostgreSQL tenant context를 설정한다. 학부모-강사, 학부모-학생, 강사-학생은 모두 현재 `ACTIVE`인 관계만 화면 조회에 포함한다. 없음과 다른 강사 접근은 같은 404로 숨긴다.
+- 화면 식별자: `parent_profiles.id`, `student_profiles.id`, `class_groups.id`, `inquiry_ref`, 백엔드 `job_id`만 반환한다. AI의 `guardian_ref`, `parent_ref`, `student_ref`, `class_ref`, `tenant_alias`는 화면 식별자로 노출하지 않는다.
+- 표시 이름: 학생은 저장된 `student_personal_information.real_name`만 사용하고 없으면 null이다. 강사가 학부모의 `member_display_names`를 읽을 수 있는 검증된 account scope 계약은 현재 없으므로 학부모 `displayName`은 null이며 계정 이메일이나 AI alias로 대체하지 않는다.
+- 상담 이력: 수신 문의와 `sent_text`·`sent_at`이 모두 저장된 실제 발송문만 합쳐 최신순으로 반환한다. 내부 AI 라벨 projection을 Controller에 직접 노출하지 않고 화면용 record ID와 실제 학생·문의·job 문맥을 별도 DTO로 제공한다.
+- 문의 시작 컨텍스트: `counsel_inquiries`에 이미 저장된 labels, periodLabel, facts를 조회해 기존 `POST /counsel/drafts` 입력으로 재사용한다. 이 facts는 백엔드 저장 컨텍스트이며 프론트가 학습 기록 원본에서 재조합하지 않는다.
+- OPEN: 신규 수신 문의에 대해 학습 기록에서 facts를 어떤 기간·집계 규칙으로 생성할지는 확정되지 않았다. 조회 API가 임의 projection을 만들지 않으며 별도 정책 결정 전까지 저장된 facts만 반환한다.
+- 코드 근거:
+  - `src/main/java/com/checkon/counsel/presentation/CounselFrontendQueryController.java`
+  - `src/main/java/com/checkon/counsel/application/CounselFrontendQueryService.java`
+  - `src/main/java/com/checkon/counsel/infrastructure/persistence/CounselFrontendQueryRepository.java`
+  - `src/main/resources/openapi/dashboard-api.yaml`
+- 마지막 검증일: 2026-08-26
+
 ### Guardian Labels
 
 #### GL-001 실제 학부모 단위 라벨 소유권과 테넌트 경계
@@ -726,7 +746,7 @@
 - 정책: 인증된 강사는 `Asia/Seoul` 기준 오늘 또는 과거 날짜의 저장된 브리핑 경보를 조회한다. 미래 날짜는 `FUTURE_DATE_NOT_ALLOWED`로 거절한다.
 - 테넌트·상태: 테넌트는 인증 주체의 `teacherProfileId`에서만 결정하며 PostgreSQL RLS를 함께 적용한다. 경보 상태는 `PENDING_REVIEW`, `APPROVED`, `REJECTED`를 별도 변환 없이 반환한다.
 - 개인정보: Alert와 Reminder의 `studentName`은 nullable이며, `student_personal_information.real_name` 미등록 시 JSON key를 유지한 채 null을 반환한다. `student_profiles.alias` 또는 AI alias로 대체하지 않는다. 실명 저장은 `PUT /api/v1/students/{studentId}/personal-information/name`이 담당한다(ROS-004).
-- 함께 제공하는 대시보드 데이터: `alerts`, 조회일까지 이월된 미완료 `todos`(ENG-004), 조회일 기준 대상 `reminders`(ENG-005)를 한 응답에서 제공한다. 주간 캘린더는 별도 `GET /api/v1/dashboard/calendar` 계약(DASH-002)이다.
+- 함께 제공하는 대시보드 데이터: `alerts`, 조회일까지 이월된 미완료 `todos`(ENG-004), 조회일 기준 대상 `reminders`(ENG-005)를 한 응답에서 제공한다. 기간 캘린더는 별도 `GET /api/v1/dashboard/calendar` 계약(DASH-002)이다.
 - 화면 복원 필드: `alerts[]`는 원천 Detection 실행을 상세 화면 진입 없이 추적할 수 있도록 `runId`를 제공한다. Evidence는 상세 조회와 동일하게 `id`, `sourceHint`, `recordId`, 하위 호환용 `summary`, `role`, `observed`, `sampleSize`, `occurredOn`을 제공하며 신규 수치 표시에 `summary`만 사용하지 않는다. `todos[]`는 연결 신호의 `displayLabel`과 Todo `createdAt`을 제공한다. 반 이름은 Alert가 가리키는 AI `class_ref`와 같은 강사 소유 반을 해석하며 찾을 수 없으면 nullable key로 반환한다.
 - 이번 범위가 아닌 것: `feedbackGiven`, observing, 통계. 상담 일정·문의·리포트 승인 대기 Todo와 Reminder 실제 알림 발송도 구현하지 않는다.
 - 코드 근거:
@@ -734,22 +754,22 @@
   - `src/main/java/com/checkon/dashboard/presentation/DashboardController.java`
 - 마지막 검증일: 2026-08-13
 
-#### DASH-002 주간 캘린더의 브리핑 경보 집계
+#### DASH-002 캘린더의 브리핑 경보 가변 범위 집계
 
 - 결정 상태: `CONFIRMED`
 - 구현 상태: `IMPLEMENTED`
 - 근거 수준: `CONVERSATION_CONFIRMED`, `CODE_CONFIRMED`
-- 주간 범위: 요청은 `startedAt`, `endedAt`을 모두 받는다. `startedAt`은 월요일, `endedAt`은 같은 주의 일요일이어야 하며 두 날짜를 포함한 정확히 7일만 조회한다.
+- 조회 범위: 요청은 `startedAt`, `endedAt`을 모두 받으며 `startedAt <= endedAt`이어야 한다. 두 날짜를 모두 포함하고 요일, 주 경계, 월 경계에 제한을 두지 않는다. `endedAt`은 응답에 포함되는 마지막 날짜(inclusive)다.
 - 집계 정책: `eventCount`는 해당 강사의 `detection_runs.analysis_date`에 연결된 `engagement_alerts` 수다. `PENDING_REVIEW`, `APPROVED`, `REJECTED`를 모두 포함하며 Evidence 행 수와 무관하게 경보 한 건을 한 번 센다.
-- 미래 정책: 미래 주 조회를 허용한다. 저장된 브리핑 경보가 없으면 미래 날짜도 0을 반환한다.
-- 빈 날짜: 이벤트가 없는 날짜를 포함해 월요일부터 일요일까지 날짜 오름차순으로 항상 7개를 반환한다.
+- 미래 정책: 미래 기간 조회를 허용한다. 저장된 브리핑 경보가 없으면 미래 날짜도 0을 반환한다.
+- 빈 날짜: 이벤트가 없는 날짜를 포함해 `startedAt`부터 `endedAt`까지 날짜 오름차순으로 반환한다. 응답 `items` 수는 두 날짜를 포함한 전체 일수다.
 - 날짜 기준: 서비스 날짜 기준은 `Asia/Seoul`이다. 현재 집계 키는 이미 서비스 논리 날짜인 PostgreSQL `DATE`의 `analysis_date`이므로 DB 서버 시간대나 경보 생성 `Instant`를 `LocalDate`로 변환하지 않는다.
 - 제외 범위: 활성 리마인드, 상담 일정, 오늘의 할 일, 문의, 리포트 승인 대기는 집계하지 않는다. 리마인드는 경보와의 중복 제거 정책이 없고 나머지는 현재 저장 모델이 없다.
 - 테넌트·보안: 인증 주체의 `teacherProfileId`만 사용하고 읽기 트랜잭션 안에서 RLS 컨텍스트를 설정한다. 요청에서 받은 강사·테넌트 식별자는 신뢰하지 않는다.
 - 코드 근거:
   - `src/main/java/com/checkon/dashboard/application/DashboardCalendarService.java`
   - `src/main/java/com/checkon/dashboard/presentation/DashboardController.java`
-- 마지막 검증일: 2026-08-05
+- 마지막 검증일: 2026-08-27
 
 #### SEC-004 개발 단계 보호 API 테스트 인증
 

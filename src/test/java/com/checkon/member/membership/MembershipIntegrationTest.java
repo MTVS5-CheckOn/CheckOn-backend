@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,20 +28,22 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.checkon.account.domain.AccountRole;
+import com.checkon.member.common.presentation.MemberRateLimiter;
 
 /**
  * membership 7개 오퍼레이션의 분기 검증. 🔴 <b>제한 DB 역할</b> 위에서 돈다
  * ({@link MembershipRlsEnforcedSupport}) — superuser 로 돌면 사전 조회가 남의 관계까지 보게 되어
  * unique index 경로가 실행되지 않고, 그러면 이 스위트는 실제 동작이 아닌 것을 검증한다.
+ *
+ * <p>🔴 상한을 <b>런타임에</b> 1000 으로 올린다. 리미터는 컨텍스트 싱글턴이고 MockMvc 요청은
+ * 전부 같은 IP(127.0.0.1)라 테스트끼리 카운터를 공유한다. 예전에는 컨텍스트 프로퍼티로 갈랐지만
+ * 그 조합마다 스프링이 새로 떠서(G17), 이제는 같은 컨텍스트에서 오버라이드로 처리한다.
+ * 429 분기는 {@link MembershipRateLimitIntegrationTest} 가 낮은 상한으로 따로 증명한다.</p>
  */
 @SpringBootTest(properties = {
 	"checkon.security.test-authentication.enabled=true",
 	"checkon.auth.allowed-origins=http://localhost:3000",
-	"spring.datasource.hikari.maximum-pool-size=4",
-	// 🔴 리미터는 컨텍스트 싱글턴이고 MockMvc 요청은 전부 같은 IP(127.0.0.1)라
-	//    테스트끼리 카운터를 공유한다. 여기서는 상한을 올려 리밋이 다른 단언을 가리지 않게 하고,
-	//    429 분기는 MembershipRateLimitIntegrationTest 가 낮은 상한으로 따로 증명한다.
-	"checkon.member.rate-limit.permits=1000"
+	"spring.datasource.hikari.maximum-pool-size=4"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")
@@ -58,6 +61,7 @@ class MembershipIntegrationTest extends MembershipRlsEnforcedSupport {
 	private static final String PARENT_CODE = "PARENT-CODE-1";
 
 	@Autowired MockMvc mockMvc;
+	@Autowired MemberRateLimiter rateLimiter;
 
 	private JdbcTemplate admin;
 	private OffsetDateTime now;
@@ -101,6 +105,15 @@ class MembershipIntegrationTest extends MembershipRlsEnforcedSupport {
 
 		teacherId = insertTeacher(admin, "teacher@example.com", "김강사", now);
 		otherTeacherId = insertTeacher(admin, "teacher2@example.com", "이강사", now);
+
+		// 🔴 공유 컨텍스트라 앞 테스트의 카운터·오버라이드가 남아 있을 수 있다 — 지우고 올린다.
+		rateLimiter.resetForTesting();
+		rateLimiter.overridePermitsForTesting(1000);
+	}
+
+	@AfterEach
+	void tearDown() {
+		rateLimiter.resetForTesting();
 	}
 
 	// ───────────────────────────── 전제 ─────────────────────────────
@@ -157,34 +170,54 @@ class MembershipIntegrationTest extends MembershipRlsEnforcedSupport {
 	}
 
 	@Test
-	@DisplayName("🔴 teachers 키는 응답에 아예 없다 — null 도 빈 배열도 아니다 (MB-36)")
-	void teachersKeyIsAbsentFromChildResponse() throws Exception {
+	@DisplayName("🔴 teachers 키가 존재하고 활성 강사가 배열로 담긴다 (MB-36 · V40)")
+	void teachersKeyIsPresentAndPopulated() throws Exception {
 		linkParentToChild(parentProfileId, childProfileId, "ACTIVE");
 		admin.update("INSERT INTO teacher_student_relationships (id, teacher_id, student_id,"
 			+ " status, started_at, created_at) VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
 			UUID.randomUUID(), teacherId, childProfileId, now, now);
+		// ENDED 관계는 배열에 없어야 한다.
+		admin.update("INSERT INTO teacher_student_relationships (id, teacher_id, student_id,"
+			+ " status, started_at, ended_at, created_at) VALUES (?, ?, ?, 'ENDED', ?, ?, ?)",
+			UUID.randomUUID(), otherTeacherId, childProfileId, now.minusDays(30), now, now);
 
-		MvcResult listed = mockMvc.perform(get(CHILDREN).with(parent()))
+		mockMvc.perform(get(CHILDREN).with(parent()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.items.length()").value(1))
-			.andReturn();
-
-		// 🔴 본문 문자열로 본다. jsonPath 의 doesNotExist() 는 값이 명시적 null 이어도 통과해서
-		//    "키가 없다"와 "키는 있고 값이 null"을 구분하지 못한다 — 이 단언의 전부가 그 구분이다.
-		assertThat(listed.getResponse().getContentAsString())
-			.as("계약의 teachers 는 nullable 이 아니라 null 로 내려보내면 계약 위반이다")
-			.doesNotContain("teachers");
+			.andExpect(jsonPath("$.data.items[0].teachers.length()").value(1))
+			.andExpect(jsonPath("$.data.items[0].teachers[0].teacherId")
+				.value(teacherId.toString()))
+			.andExpect(jsonPath("$.data.items[0].teachers[0].displayName").value("김강사"));
 	}
 
 	@Test
-	@DisplayName("🔴 자녀 등록 응답에도 teachers 키가 없다 — 목록과 같은 조립기를 쓴다")
-	void teachersKeyIsAbsentFromRegistrationResponse() throws Exception {
-		MvcResult created = mockMvc.perform(
-				registrationRequest("STU-CHILD1", UUID.randomUUID().toString()))
+	@DisplayName("🔴 자녀 등록 응답의 teachers 도 같은 조립기를 통해 존재한다 (MB-36 · V40)")
+	void teachersKeyIsPresentInRegistrationResponse() throws Exception {
+		// 등록 시점에는 아직 강사가 없다 — 빈 배열이지만 키는 존재해야 한다.
+		// jsonPath 는 "키가 존재하고 배열이며 길이가 0" 을 정확히 잰다. 문자열 대조는 공백 하나에 갈린다.
+		mockMvc.perform(registrationRequest("STU-CHILD1", UUID.randomUUID().toString()))
 			.andExpect(status().isCreated())
-			.andReturn();
+			.andExpect(jsonPath("$.data.child.teachers").isArray())
+			.andExpect(jsonPath("$.data.child.teachers.length()").value(0));
+	}
 
-		assertThat(created.getResponse().getContentAsString()).doesNotContain("teachers");
+	@Test
+	@DisplayName("🔴 남의 자녀 id 를 범위에 넣어도 그 자녀의 강사는 안 보인다 (MB-36 정책 격리)")
+	void teachersLookupIsScopedToVerifiedChild() throws Exception {
+		// 이 학부모는 childProfileId 하고만 연결돼 있다.
+		linkParentToChild(parentProfileId, childProfileId, "ACTIVE");
+		// otherChildProfileId 는 이 학부모의 자녀가 아니다. 강사 관계도 만들어 둔다.
+		admin.update("INSERT INTO teacher_student_relationships (id, teacher_id, student_id,"
+			+ " status, started_at, created_at) VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
+			UUID.randomUUID(), teacherId, otherChildProfileId, now, now);
+
+		// 목록에 남의 자녀는 안 나타나므로(정책이 이미 격리), 이 시나리오의 남단언은
+		// 「내 자녀 목록에 남의 자녀의 강사가 새어 나오지 않는다」이다.
+		mockMvc.perform(get(CHILDREN).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.items.length()").value(1))
+			.andExpect(jsonPath("$.data.items[0].studentId").value(childProfileId.toString()))
+			.andExpect(jsonPath("$.data.items[0].teachers.length()").value(0));
 	}
 
 	@Test
@@ -494,6 +527,37 @@ class MembershipIntegrationTest extends MembershipRlsEnforcedSupport {
 
 		// 어느 경로든 관계는 하나뿐이다 — MB-04 멱등.
 		assertThat(countTeacherStudentLinks(teacherId, studentProfileId)).isEqualTo(1);
+	}
+
+	@Test
+	@DisplayName("🔴 다른 계정이 이미 쓴 코드는 409 INVITE_ALREADY_CLAIMED 다 (MB-38 · V40)")
+	void secondAccountCannotClaimSameCode() throws Exception {
+		UUID invitationId = insertStudentInvitation(STUDENT_CODE, now.plusDays(7), null);
+
+		// 첫 학생이 코드를 소진한다 — pair unique 도 single_use unique 도 방금 채워진다.
+		mockMvc.perform(claimRequest(STUDENT_INVITATIONS, STUDENT_CODE,
+				UUID.randomUUID().toString(), student()))
+			.andExpect(status().isCreated());
+		assertThat(countClaims(invitationId)).isEqualTo(1);
+
+		// 두 번째 학생이 같은 코드를 쓰면 uq_member_invitation_claims_single_use 가 막는다.
+		// 🔴 RLS 로 남의 claim 이 안 보이는데도 DB 가 판정한다 — 유니크 인덱스가 정책을 우회한다.
+		UUID otherAccount = insertAccount(admin, "student2@example.com", "STUDENT", now);
+		UUID otherProfile = insertStudent(admin, otherAccount,
+			new StudentFixture("김두번", "김두번", 2, "STU-STUD02"), now);
+		activate(otherProfile);
+		var otherStudent = authentication(principalOf(otherAccount, AccountRole.STUDENT));
+
+		mockMvc.perform(claimRequest(STUDENT_INVITATIONS, STUDENT_CODE,
+				UUID.randomUUID().toString(), otherStudent))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.error.code").value("INVITE_ALREADY_CLAIMED"));
+
+		// 두 번째 학생의 관계는 만들어지지 않았다 — 롤백이 온전하다.
+		assertThat(countTeacherStudentLinks(teacherId, otherProfile)).isZero();
+		assertThat(countClaims(invitationId))
+			.as("두 번째 계정의 claim 이 남으면 single_use 를 뚫은 것이다")
+			.isEqualTo(1);
 	}
 
 	@Test

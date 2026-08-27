@@ -341,6 +341,21 @@ class MemberCodeRuleTest {
         assertThat(declared).isEqualTo(documented);   // 실패 시 양쪽 차집합이 그대로 보인다
     }
 
+    // G16. 🔴 계약의 오류코드가 전부 어딘가의 응답에 실제로 붙어 있는가
+    //      G13 은 **집합**만 본다 — enum 과 문서가 같기만 하면 통과한다.
+    //      "선언은 됐는데 어떤 엔드포인트도 낼 수 없는 코드"는 못 잡는다.
+    //      PR5 실측에서 둘이 걸렸다:
+    //        WORKSHEET_NOT_GRADABLE  분기표는 422 를 요구하는데 계약에 422 자체가 없었다
+    //        EMAIL_ALREADY_EXISTS    코드는 던지는데 계약의 409 가 generic $ref 라
+    //                                코드 이름이 어디에도 없었다 (프론트가 알 방법이 없다)
+    //
+    //      🔴 **이 판정은 느슨하다.** "응답에 실제로 연결됐는가"가 아니라
+    //         "enum 나열 줄 말고 다른 곳에서도 한 번은 언급되는가"만 본다.
+    //         엄밀히 하려면 OpenAPI 를 파싱해 responses[*].description 을 훑어야 하는데
+    //         그건 문구 규약에 의존한다. 느슨한 걸 엄격한 척하지 않는다 —
+    //         이 게이트가 잡는 것은 **완전히 잊힌 코드**뿐이다.
+    @Test void errorCodesAreReachableFromSomeOperation() throws IOException { ... }
+
     // G9. 안건 번호 없는 TODO 금지
     @Test void todosCarryOpenItemId() throws IOException {
         assertThat(grepFiles("TODO(?!\\(MB-\\d+\\)|\\(PR\\d+\\))")).isEmpty();
@@ -400,7 +415,7 @@ Spring 의 `JsonPathExpectationsHelper#doesNotExist` 는 정해진(definite) 경
 
 리뷰어가 이 순서로 본다. 🔴 는 **하나라도 걸리면 즉시 반려**.
 
-- [ ] 🔴 `MemberCodeRuleTest` 전부 green (G1~G15, G7·G15 는 -a/-b 포함 **17개**)
+- [ ] 🔴 `MemberCodeRuleTest` 전부 green (G1~G16, G7·G15 는 -a/-b 포함 **18개**)
 - [ ] 🔴 `scripts/member-no-regression.sh` PASS (R1~R8)
 - [ ] 🔴 `01_endpoint_branch_matrix.md` 표 행 수 = 테스트 수
 - [ ] 🔴 기존 패키지 파일 변경 0건 (`git diff --name-only`)
@@ -430,6 +445,7 @@ Spring 의 `JsonPathExpectationsHelper#doesNotExist` 는 정해진(definite) 경
 | 2026-08-26 | **G14 구현** | 문서에는 있는데 **테스트에 없었다** | PR3 에서 실측 — 문서가 「G1~G14 green」을 요구하는데 G14 테스트가 존재하지 않았다. §13 이 금지하는 「문서만 고치고 게이트를 안 둔」 상태였다 |
 | 2026-08-26 | **G15 신설** | RLS 테이블을 읽는 서비스가 자기 트랜잭션에서 컨텍스트를 여는가 | PR3 에서 결함 3건이 여기서 나왔다. 컨텍스트를 안 열면 **예외가 아니라 0행**이라 조용하다 — 규칙으로는 못 막는다 |
 | 2026-08-26 | **G15-b 신설** | G15 면제가 열거한 테이블이 정말 RLS 밖인가 | 면제를 이름 목록으로 두면 게이트가 무력해진다. 면제자가 **읽는 테이블을 적게** 하고 마이그레이션으로 반증한다 |
+| 2026-08-26 | **G16 신설** | 계약의 오류코드가 **도달 가능한가** (enum 나열 말고 응답에서도 언급되는가) | G13 은 집합만 봐서 「선언은 됐는데 아무도 못 내는 코드」를 놓친다. PR5 실측에서 `WORKSHEET_NOT_GRADABLE`(계약에 422 자체가 없었다) 과 `EMAIL_ALREADY_EXISTS`(409 가 generic $ref 라 이름이 없었다) 둘이 걸렸다. 🔴 판정은 **느슨하다** — 문자열 언급 수준이고 그 한계를 주석에 적었다 |
 
 🔴 **G13 이 이 문서에서 제일 중요한 게이트일 수 있다.** 지금까지 나온 반증 중 가장 자주 반복된 게 "같은 표가 문서마다 다르다"였다.
 

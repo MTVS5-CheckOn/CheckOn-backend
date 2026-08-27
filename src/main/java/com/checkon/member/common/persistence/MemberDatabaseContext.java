@@ -29,6 +29,7 @@ public class MemberDatabaseContext {
 
 	public static final String STUDENT_SCOPE = "checkon.scope_student_id";
 	public static final String ACCOUNT_SCOPE = "checkon.scope_account_id";
+	public static final String PROBLEM_SET_SCOPE = "checkon.scope_problem_set_id";
 
 	private static final String SET_CONFIG = "SELECT set_config(?, ?, true)";
 
@@ -51,6 +52,18 @@ public class MemberDatabaseContext {
 		JOIN parent_profiles parent ON parent.id = link.parent_id
 		JOIN student_profiles student ON student.id = link.student_id
 		WHERE parent.account_id = ? AND student.account_id = ? AND link.status = 'ACTIVE'
+		""";
+
+	/**
+	 * 🔴 학생↔학습지(problem_set) 소유 확인. {@code problem_assignments} 는 V38 의
+	 * {@code problem_assignments_member_student_select} 가 학생 self 로 격리하므로,
+	 * 호출자 컨텍스트가 학생일 때만 자기 assignment 가 보인다. 그 자기 assignment 에 붙은
+	 * {@code problem_set_id} 만 열람 허용이다.
+	 */
+	private static final String STUDENT_PROBLEM_SET_QUERY = """
+		SELECT problem_set_id FROM problem_assignments
+		WHERE student_id = ? AND problem_set_id = ?
+		LIMIT 1
 		""";
 
 	private final JdbcTemplate jdbcTemplate;
@@ -111,6 +124,28 @@ public class MemberDatabaseContext {
 		}
 		return withVerifiedScope(ACCOUNT_SCOPE, targetAccountId, action, CHILD_ACCOUNT_QUERY,
 			viewerAccountId, targetAccountId);
+	}
+
+	/**
+	 * 학생이 <b>자기 assignment 가 참조하는 학습지</b>를 열람하는 동안만 범위를 연다.
+	 *
+	 * <p>🔴 <b>세터를 두지 않는 이유</b>는 {@link #withVerifiedChildScope} 와 같다 — 호출부에서
+	 * "이미 확인했으니 그냥 넣자"가 되는 순간 RLS 를 스스로 뚫는 우회로가 된다. 소유는
+	 * {@code problem_assignments} 학생 self 정책(V38:154)이 이미 격리한 결과에서 온다.</p>
+	 *
+	 * <p>V38:176 의 {@code saved_problem_set_items_member_student_select} 가 요구하는
+	 * {@code current_checkon_scope_problem_set_id()} 를 세팅한다. 밖에서 부르면 예외가 아니라
+	 * <b>0행</b>이다(설계 §6-4-3). 확인에 실패하면 세션에 아무것도 들어가지 않는다.</p>
+	 *
+	 * <p>🔴 <b>목록형 조회는 행마다 이 메서드를 한 번씩 부른다</b>(MB-39) — 스코프 함수가 한 번에
+	 * 한 값이라 목록 전체를 한꺼번에 열어두는 방법이 없다. 반드시 <b>같은 트랜잭션 안에서</b>
+	 * 반복해야 왕복이 1회로 유지된다.</p>
+	 */
+	public <T> T withVerifiedProblemSetScope(
+		UUID studentId, UUID problemSetId, Supplier<T> action
+	) {
+		return withVerifiedScope(PROBLEM_SET_SCOPE, problemSetId, action,
+			STUDENT_PROBLEM_SET_QUERY, studentId, problemSetId);
 	}
 
 	private <T> T withVerifiedScope(
