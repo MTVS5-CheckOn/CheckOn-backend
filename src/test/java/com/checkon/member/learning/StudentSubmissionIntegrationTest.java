@@ -68,10 +68,9 @@ class StudentSubmissionIntegrationTest extends MembershipRlsEnforcedSupport {
 	@BeforeEach
 	void setUp() {
 		admin = adminJdbcTemplate();
-		// 이 스위트가 처음으로 승우님 결과 원장에 행을 쓴다. 공용 member fixture 정리는
-		// 그 FK를 아직 모르므로, 참조 대상 assignment를 지우기 전에 결과 행부터 정리한다.
-		admin.update("DELETE FROM problem_assignment_responses");
-		admin.update("DELETE FROM learning_records WHERE source_type LIKE 'member_attempt%'");
+		// 🔴 결과 원장 둘은 이제 clearFixtures 가 자식 → 부모 순서로 함께 지운다.
+		//    예전에는 여기서 `DELETE FROM problem_assignment_responses` 를 WHERE 없이
+		//    돌렸는데, 컨테이너를 공유하므로 그것이 옆 테스트의 픽스처까지 지웠다.
 		clearFixtures(admin);
 		OffsetDateTime now = OffsetDateTime.now();
 		UUID teacherId = insertTeacher(admin, "teacher@example.com", "김강사", now);
@@ -92,10 +91,13 @@ class StudentSubmissionIntegrationTest extends MembershipRlsEnforcedSupport {
 			admin, teacherId, requestId, setId, studentId, now);
 	}
 
+	/**
+	 * 🔴 이 스위트가 쓴 결과 원장을 <b>이 학생 범위로만</b> 되돌린다.
+	 * 정리 SQL 은 {@code MemberPostgresSupport} 한 곳에 있다.
+	 */
 	@AfterEach
 	void clearWrittenLedgers() {
-		admin.update("DELETE FROM problem_assignment_responses");
-		admin.update("DELETE FROM learning_records WHERE source_type LIKE 'member_attempt%'");
+		MemberPostgresSupport.deleteSubmissionLedgersForStudent(admin, studentId);
 	}
 
 	@Test

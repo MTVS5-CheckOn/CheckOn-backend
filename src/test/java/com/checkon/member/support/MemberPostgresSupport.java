@@ -116,6 +116,16 @@ public abstract class MemberPostgresSupport {
 			"member_attempt_events",
 			"member_attempt_items",
 			"member_attempts",
+			// 🔴 승우님 결과 원장 둘. member 제출 트랜잭션이 여기에 쓴다(MB-28) —
+			//    problem_assignment_responses 는 problem_assignments·saved_problem_set_items 를,
+			//    learning_records 는 student_profiles·teacher_profiles 를 참조하므로
+			//    그 부모들보다 **먼저** 지워야 정리가 통과한다.
+			//    🔴 예전에는 StudentSubmissionIntegrationTest 가 자기 @BeforeEach 에서
+			//       `DELETE FROM problem_assignment_responses` 를 WHERE 없이 돌렸다.
+			//       컨테이너를 공유하므로 그것이 옆 테스트의 픽스처까지 지웠다 —
+			//       PR7 집계가 바로 이 테이블을 원천으로 읽는다. 전체 정리는 여기 한 곳이다.
+			"problem_assignment_responses",
+			"learning_records",
 			"problem_assignments",
 			"saved_problem_set_items",
 			"saved_problem_sets",
@@ -177,6 +187,28 @@ public abstract class MemberPostgresSupport {
 	 * <p>🔴 자식 → 부모 순서다. V45 의 복합 FK 가 {@code RESTRICT} 라 순서를 어기면 조용히
 	 * 넘어가지 않고 정리 자체가 실패한다.</p>
 	 */
+	/**
+	 * 🔴 <b>한 학생</b>이 제출로 남긴 결과 원장만 지운다. 「제출 전」 상태를 다시 만드는 데 쓴다.
+	 *
+	 * <p>왜 헬퍼가 되나 — {@link #deleteLearningSessionsForStudent} ·
+	 * {@link #deletePublishedReport} 와 같은 이유다. 테스트 클래스가 자기 안에
+	 * {@code DELETE} 를 쓰면 정리 순서·FK 규약이 여러 곳으로 흩어진다.</p>
+	 *
+	 * <p>🔴 <b>범위를 {@code studentId} 로 좁힌 것이 요점이다.</b> 원래 코드는
+	 * {@code DELETE FROM problem_assignment_responses} 를 <b>WHERE 없이</b> 돌렸다.
+	 * member 통합 테스트는 컨테이너 하나를 공유하므로 그 삭제가 옆 테스트의 픽스처까지
+	 * 지운다 — 실행 순서에 따라 결과가 달라지는 flake 의 원인이고, PR7 월별 집계가 바로
+	 * 이 테이블을 원천으로 읽는다.</p>
+	 *
+	 * <p>🔴 {@code learning_records} 는 {@code source_type} 까지 좁힌다 — member 제출이 남긴
+	 * 행만 지우고 다른 경로가 남긴 행은 건드리지 않는다.</p>
+	 */
+	public static void deleteSubmissionLedgersForStudent(JdbcTemplate admin, UUID studentId) {
+		admin.update("DELETE FROM problem_assignment_responses WHERE student_id = ?", studentId);
+		admin.update("DELETE FROM learning_records WHERE student_id = ?"
+			+ " AND source_type LIKE 'member_attempt%'", studentId);
+	}
+
 	public static void deletePublishedReport(JdbcTemplate admin, UUID reportId) {
 		admin.update("DELETE FROM member_report_publication_outbox WHERE report_id = ?", reportId);
 		admin.update("DELETE FROM member_report_files WHERE report_id = ?", reportId);
