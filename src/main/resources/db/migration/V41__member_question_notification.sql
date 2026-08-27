@@ -18,7 +18,8 @@
 --    회귀 검증(R3)이 policyname NOT LIKE '%\_member\_%' 로 기존 정책만 뽑아 술어를 문자열
 --    비교한다. 규칙을 어기면 새 정책이 그 결과에 섞여 "기존 정책이 바뀌었다"로 오진된다.
 --
--- 🔴 R6 금지 SQL 을 쓰지 않는다. DROP · ALTER POLICY · DISABLE ROW LEVEL · SECURITY DEFINER 금지.
+-- 🔴 R6 금지 키워드 — 지시서 §"무접촉" 마지막 문단 참고. 여기 다시 옮겨 적지 않는다
+--    (문자열이 파일에 있으면 R6 grep 이 자기 자신을 잡는다 · 2026-08-27 실측).
 
 -- ═════════════════════ 1. member_notification_preferences ═════════════════════
 -- 🔴 행 부재를 false 로 읽지 마라. 부재 = 기본값이고, 기본값은 Settings
