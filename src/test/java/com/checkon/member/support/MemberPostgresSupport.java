@@ -86,6 +86,13 @@ public abstract class MemberPostgresSupport {
 	public static void clearMemberFixtures(JdbcTemplate admin) {
 		String[] ordered = {
 			"authentication_sessions",
+			// 🔴 V45 보고서 계열 — 자식 → 부모 순서. 셋 다 member_published_reports 를 복합 FK
+			//    (report_id, student_id) · (report_id, teacher_id) · (report_id, published_at)
+			//    로 참조하고, 부모는 student_profiles·teacher_profiles 를 참조한다.
+			"member_report_publication_outbox",
+			"member_report_files",
+			"member_published_report_sections",
+			"member_published_reports",
 			// V44 상담 계열 — 발행 메시지가 상담 원장을 복합 FK 로 참조한다.
 			"member_consultation_messages",
 			"member_consultations",
