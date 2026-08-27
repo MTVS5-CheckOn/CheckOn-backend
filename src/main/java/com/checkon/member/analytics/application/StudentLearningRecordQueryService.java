@@ -11,7 +11,10 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.checkon.member.analytics.application.dto.LearningRecordListPage;
 import com.checkon.member.analytics.application.dto.LearningRecordResponse;
@@ -42,22 +45,34 @@ public class StudentLearningRecordQueryService {
 	private final MetricRefreshOutboxDrainer drainer;
 	private final MemberDatabaseContext databaseContext;
 	private final MemberMetricsProperties properties;
+	private final TransactionTemplate readOnlyTransactionTemplate;
 
 	public StudentLearningRecordQueryService(
 		MemberLearningSessionRepository sessions,
 		MetricRefreshOutboxDrainer drainer,
 		MemberDatabaseContext databaseContext,
-		MemberMetricsProperties properties
+		MemberMetricsProperties properties,
+		PlatformTransactionManager transactionManager
 	) {
 		this.sessions = sessions;
 		this.drainer = drainer;
 		this.databaseContext = databaseContext;
 		this.properties = properties;
+		this.readOnlyTransactionTemplate = new TransactionTemplate(transactionManager);
+		// 🔴 drain 이후의 read 트랜잭션이라 REQUIRES_NEW. read-only 힌트로 커넥션에 반영한다.
+		this.readOnlyTransactionTemplate.setPropagationBehavior(
+			TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		this.readOnlyTransactionTemplate.setReadOnly(true);
 	}
 
 	/**
 	 * 목록. 🔴 진입에서 <b>자기 outbox 를 인라인 drain</b>한다(설계 §11-1). drain 은
 	 * {@link MetricRefreshOutboxDrainer} 자체 트랜잭션이라, 여기 read 트랜잭션과 분리된다.
+	 *
+	 * <p>🔴 <b>{@code @Transactional} 로 read 트랜잭션을 열지 않는다</b> — 그러면 drain 이
+	 * 이 read 트랜잭션에 합쳐져 write 를 read-only 커넥션이 삼킨다. 대신
+	 * {@link TransactionTemplate} 로 drain 이후에 별도 read 트랜잭션을 연다. 자기 호출로 어노테이션이
+	 * 무시되는 문제도 여기서 함께 없앤다(자기 호출은 프록시를 통과하지 않는다).</p>
 	 */
 	public LearningRecordListPage list(
 		MemberSubject subject, String month, String cursor, int limit
@@ -67,11 +82,11 @@ public class StudentLearningRecordQueryService {
 		int safeLimit = clamp(limit);
 		Cursor decoded = decodeCursor(cursor);
 		MonthWindow window = monthWindow(month);
-		return readList(subject.accountId(), studentId, window, decoded, safeLimit);
+		return readOnlyTransactionTemplate.execute(status ->
+			readList(subject.accountId(), studentId, window, decoded, safeLimit));
 	}
 
-	@Transactional(readOnly = true)
-	public LearningRecordListPage readList(
+	private LearningRecordListPage readList(
 		UUID accountId, UUID studentId, MonthWindow window, Cursor cursor, int limit
 	) {
 		databaseContext.setCurrentAccount(accountId);

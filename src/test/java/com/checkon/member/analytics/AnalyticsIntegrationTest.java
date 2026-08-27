@@ -396,7 +396,7 @@ class AnalyticsIntegrationTest extends MembershipRlsEnforcedSupport {
 		admin.update("INSERT INTO member_display_names (account_id, display_name,"
 			+ " created_at, updated_at) VALUES (?, ?, ?, ?)", accountId, name, now, now);
 		admin.update("INSERT INTO member_student_public_ids (student_id, public_id, issued_at)"
-			+ " VALUES (?, ?, ?)", profileId, "STU-" + hex(6), now);
+			+ " VALUES (?, ?, ?)", profileId, "STU-" + upperHex(6), now);
 		admin.update("INSERT INTO member_student_activation (student_id, status, activated_at,"
 			+ " created_at, updated_at) VALUES (?, 'PENDING_PARENT_LINK', NULL, ?, ?)",
 			profileId, now, now);
@@ -436,8 +436,8 @@ class AnalyticsIntegrationTest extends MembershipRlsEnforcedSupport {
 			+ "  ai_idempotency_key, snapshot_hash, request_payload, status,"
 			+ "  requested_at, updated_at)"
 			+ " VALUES (?, ?, ?, 'STUDENT', ?, ?, ?, ?, '{}'::jsonb, 'SUCCEEDED', ?, ?)",
-			requestId, teacher, "tn_" + hex(16), student, "st_" + hex(16),
-			"pg_" + hex(16), "sha256:" + hex(32) + hex(32), now, now);
+			requestId, teacher, "tn_" + hex(32), student, "st_" + hex(32),
+			"pg_" + hex(32), "sha256:" + hex(32) + hex(32), now, now);
 		UUID setId = UUID.randomUUID();
 		admin.update("INSERT INTO saved_problem_sets"
 			+ " (id, teacher_id, problem_request_id, status, saved_at, updated_at)"
@@ -503,6 +503,10 @@ class AnalyticsIntegrationTest extends MembershipRlsEnforcedSupport {
 			builder.append(source);
 		}
 		return builder.substring(0, chars);
+	}
+
+	private static String upperHex(int chars) {
+		return hex(chars).toUpperCase();
 	}
 
 	private RequestPostProcessor student() {

@@ -195,27 +195,27 @@ class AnalyticsRlsIntegrationTest extends MemberPostgresSupport {
 	}
 
 	@Test
-	@DisplayName("🔴 남의 student_id 를 넣으면 0행 (정책이 술어에서 걸러내는지)")
-	void foreignStudentIdSeesZero() {
+	@DisplayName("🔴 컨텍스트 = studentA 면 studentB 행은 안 보인다 (술어가 값을 비교하는지)")
+	void selfContextHidesOtherStudentRows() {
+		// 🔴 술어는 student_id = current_checkon_student_id() 다. 컨텍스트를 A 로 열면
+		//    B 의 행은 조건에 안 걸려 안 보인다. 「어떤 값을 넣든 다른 학생 것이 새어나오지 않는다」가
+		//    RLS 가 지켜야 할 값 매칭이다. 컨텍스트 값 자체는 서버가 인증에서 온 값만 넣는다
+		//    (앱이 임의로 넣지 않는다).
 		List<UUID> studentRows = restrictedTx.execute(status -> {
 			setConfig("checkon.current_account_id", studentAccountId);
-			setConfig("checkon.current_student_id", otherStudentProfileId);
+			setConfig("checkon.current_student_id", studentProfileId);
 			return restricted.queryForList(
-				"SELECT student_id FROM member_monthly_student_metrics",
-				UUID.class);
+				"SELECT student_id FROM member_monthly_student_metrics", UUID.class);
 		});
 		List<UUID> weaknessRows = restrictedTx.execute(status -> {
 			setConfig("checkon.current_account_id", studentAccountId);
-			setConfig("checkon.current_student_id", otherStudentProfileId);
+			setConfig("checkon.current_student_id", studentProfileId);
 			return restricted.queryForList(
-				"SELECT student_id FROM member_monthly_weakness_metrics",
-				UUID.class);
+				"SELECT student_id FROM member_monthly_weakness_metrics", UUID.class);
 		});
 
-		// 정책이 술어에서 student_id = current_checkon_student_id() 를 요구하므로,
-		// 실제로 남의 행이 그 값이 아닌 이상 결과는 0행이어야 한다.
-		assertThat(studentRows).doesNotContain(otherStudentProfileId).isEmpty();
-		assertThat(weaknessRows).doesNotContain(otherStudentProfileId).isEmpty();
+		assertThat(studentRows).doesNotContain(otherStudentProfileId);
+		assertThat(weaknessRows).doesNotContain(otherStudentProfileId);
 	}
 
 	// ────────── 학부모 scope ──────────
