@@ -73,9 +73,9 @@ public class ParentHomeController {
 		homeService.requireChildAccess(subject, studentId, teacherId);
 		return MemberResponse.of(new ParentHomeResponse(
 			child(subject, studentId),
-			homeService.metrics(subject, studentId),
+			homeService.metrics(subject, studentId, teacherId),
 			latestReport(subject, studentId, teacherId),
-			homeService.recentRecords(subject, studentId)));
+			homeService.recentRecords(subject, studentId, teacherId)));
 	}
 
 	/**

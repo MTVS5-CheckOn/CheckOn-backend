@@ -61,17 +61,42 @@ public class ParentAnalysisService {
 
 	@Transactional(readOnly = true)
 	public AnalysisResponse getAnalysis(MemberSubject subject, UUID studentId, String month) {
+		return getAnalysis(subject, studentId, month, null);
+	}
+
+	/**
+	 * @param teacherFilter 🔴 <b>권한이 아니라 필터</b>다(계약 {@code TeacherIdFilter} ·
+	 *                      member-api.yaml:1538-1540). {@code null} 이면 「활성 강사 전체를
+	 *                      합산」이고, 값이 있으면 그 강사 셀만 합산한다.
+	 *                      🔴 <b>합산 방식은 그대로다 — 먹이는 행을 좁힐 뿐이다.</b>
+	 *                      산식을 갈래로 나누면 홈과 분석 화면의 같은 달 값이 갈린다.
+	 *                      관계 교집합 재검증은 호출자가 이미 했다는 전제다.
+	 */
+	@Transactional(readOnly = true)
+	public AnalysisResponse getAnalysis(
+		MemberSubject subject, UUID studentId, String month, UUID teacherFilter
+	) {
 		validate(month);
 		UUID parentId = subject.requireParentProfileId();
 		databaseContext.setCurrentAccount(subject.accountId());
 		databaseContext.setCurrentParent(parentId);
 		return databaseContext.withVerifiedChildScope(parentId, studentId,
-			() -> buildAnalysis(studentId, month));
+			() -> buildAnalysis(studentId, month, teacherFilter));
 	}
 
-	private AnalysisResponse buildAnalysis(UUID studentId, String month) {
-		List<MonthlyStudentMetric> studentRows = metrics.findStudentByMonth(studentId, month);
-		List<MonthlyWeaknessMetric> weaknessRows = metrics.findWeaknessByMonth(studentId, month);
+	private AnalysisResponse buildAnalysis(UUID studentId, String month, UUID teacherFilter) {
+		// 🔴 학생 총계는 teacher_id 가 다른 여러 행의 합이다. 필터가 있으면 그 강사 행 하나만
+		//    남기고, 없으면 전부 남긴다 — 아래 buildOverall 의 합산 코드는 한 벌 그대로다.
+		List<MonthlyStudentMetric> studentRows = teacherFilter == null
+			? metrics.findStudentByMonth(studentId, month)
+			: metrics.findStudentByMonthAndTeacher(studentId, month, teacherFilter)
+				.map(List::of).orElseGet(List::of);
+		// 🔴 약점 셀에는 (student, month, teacher) 전용 조회가 없다. 한 학생·한 달의 셀 수는
+		//    한 자릿수라 읽고 나서 좁힌다 — 조회를 새로 만들면 같은 뜻의 SQL 이 두 벌이 된다.
+		List<MonthlyWeaknessMetric> weaknessRows =
+			metrics.findWeaknessByMonth(studentId, month).stream()
+				.filter(row -> teacherFilter == null || teacherFilter.equals(row.teacherId()))
+				.toList();
 		YearMonth thisMonth = YearMonth.parse(month);
 		YearMonth prevMonth = thisMonth.minusMonths(1);
 		String prevKey = prevMonth.toString();

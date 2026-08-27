@@ -255,6 +255,81 @@ class ParentHomeIntegrationTest extends MembershipRlsEnforcedSupport {
 			.andExpect(jsonPath("$.data.latestReport.status").value("PUBLISHED"));
 	}
 
+	/**
+	 * 🔴 <b>「200 이 나온다」로 끝내면 필터가 안 걸려도 통과한다.</b> 두 강사에게 서로 다른
+	 * 집계·세션을 심어 두고, {@code teacherId} 를 준 것과 안 준 것이 <b>실제로 다른 값</b>을
+	 * 내는지 본다 — 계약 {@code TeacherIdFilter}(member-api.yaml:1538-1540)
+	 * 「생략하면 활성 강사 전체를 합산한다」의 뒤집힌 절반이다.
+	 */
+	@Test
+	@DisplayName("🔴 teacherId 필터가 지표·최근기록에 실제로 걸린다 (합산이 좁아진다)")
+	void teacherFilterNarrowsMetricsAndRecords() throws Exception {
+		UUID secondTeacher = insertTeacher(admin, "second@example.com", "이강사", now);
+		teacherLink(secondTeacher, studentProfileId);
+		parentTeacherLink(parentProfileId, secondTeacher);
+		// 🔴 세 값(A · B · 합산)이 개수도 정확도도 서로 다르고, 셋 다 나누어떨어지게 고른다 —
+		//    떨어지지 않으면 scale 10 반올림과 double 비교가 어긋나 무엇을 재는지 흐려진다.
+		//    A: 30문항 15정답 = 0.5 / B: 10문항 9정답 = 0.9 / 합산: 40문항 24정답 = 0.6
+		insertStudentMetric(linkedTeacherId, 30, 15, 1800);
+		insertStudentMetric(secondTeacher, 10, 9, 600);
+
+		// 필터 없음 = 전체 합산.
+		mockMvc.perform(get(HOME, studentProfileId).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.metrics[1].value").value(40))
+			.andExpect(jsonPath("$.data.metrics[0].value").value(0.6));
+
+		// 🔴 강사 A 만 = 30문항 0.5. 전체(40 · 0.6)와 달라야 필터가 걸린 것이다.
+		mockMvc.perform(get(HOME, studentProfileId)
+			.param("teacherId", linkedTeacherId.toString()).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.metrics[1].value").value(30))
+			.andExpect(jsonPath("$.data.metrics[0].value").value(0.5));
+
+		// 🔴 강사 B 만 = 10문항 0.9. 세 값이 서로 달라야 「우연히 같아서 통과」가 아니다.
+		mockMvc.perform(get(HOME, studentProfileId)
+			.param("teacherId", secondTeacher.toString()).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.metrics[1].value").value(10))
+			.andExpect(jsonPath("$.data.metrics[0].value").value(0.9));
+	}
+
+	@Test
+	@DisplayName("🔴 그 강사 데이터가 0건이면 NO_DATA + null — 0 으로 채우지 않는다")
+	void teacherFilterWithoutDataIsNoData() throws Exception {
+		UUID secondTeacher = insertTeacher(admin, "second@example.com", "이강사", now);
+		teacherLink(secondTeacher, studentProfileId);
+		parentTeacherLink(parentProfileId, secondTeacher);
+		insertStudentMetric(linkedTeacherId, 20, 15, 1200);
+
+		MvcResult result = mockMvc.perform(get(HOME, studentProfileId)
+			.param("teacherId", secondTeacher.toString()).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.metrics[0].status").value("NO_DATA"))
+			.andExpect(jsonPath("$.data.metrics[1].status").value("NO_DATA"))
+			.andReturn();
+		assertThat(result.getResponse().getContentAsString())
+			.as("데이터가 없는데 0 으로 채웠다").doesNotContain("\"value\":0");
+	}
+
+	@Test
+	@DisplayName("🔴 teacherId 필터가 최근 기록도 좁힌다")
+	void teacherFilterNarrowsRecentRecords() throws Exception {
+		UUID secondTeacher = insertTeacher(admin, "second@example.com", "이강사", now);
+		teacherLink(secondTeacher, studentProfileId);
+		parentTeacherLink(parentProfileId, secondTeacher);
+		insertLearningSession(linkedTeacherId);
+		insertLearningSession(secondTeacher);
+
+		mockMvc.perform(get(HOME, studentProfileId).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.recentRecords.length()").value(2));
+		mockMvc.perform(get(HOME, studentProfileId)
+			.param("teacherId", linkedTeacherId.toString()).with(parent()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.data.recentRecords.length()").value(1));
+	}
+
 	@Test
 	@DisplayName("🔴 남의 학부모는 이 자녀의 홈을 못 본다 → 404")
 	void otherParentCannotReadHome() throws Exception {
@@ -317,13 +392,17 @@ class ParentHomeIntegrationTest extends MembershipRlsEnforcedSupport {
 	}
 
 	private void insertStudentMetric(int scored, int correct, int totalSec) {
+		insertStudentMetric(linkedTeacherId, scored, correct, totalSec);
+	}
+
+	private void insertStudentMetric(UUID teacherId, int scored, int correct, int totalSec) {
 		// 🔴 컬럼 집합은 AnalyticsIntegrationTest 와 같다. 이 테이블에는 created_at·updated_at
 		//    이 없다 — 있을 것이라고 짐작하고 쓰면 bad SQL grammar 로 죽는다(실측).
 		admin.update("INSERT INTO member_monthly_student_metrics"
 			+ " (teacher_id, student_id, month, month_zone, scored_count, correct_count,"
 			+ "  total_active_sec, calculation_version, calculated_at)"
 			+ " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			linkedTeacherId, studentProfileId, currentMonth, ZONE,
+			teacherId, studentProfileId, currentMonth, ZONE,
 			scored, correct, totalSec, VERSION, now);
 	}
 
@@ -336,6 +415,48 @@ class ParentHomeIntegrationTest extends MembershipRlsEnforcedSupport {
 			id, studentProfileId, linkedTeacherId, currentMonth, ZONE, revision, status,
 			now, now, publishedAt);
 		return id;
+	}
+
+	/**
+	 * 🔴 강사별 세션 한 건. {@code member_learning_sessions.teacher_id} 가 필터 대상이라
+	 * 강사마다 <b>자기 assignment</b>까지 제대로 만든다 — 세션의 강사와 assignment 의 강사를
+	 * 어긋나게 두면 픽스처가 실제 데이터와 달라져 무엇을 재는지 흐려진다.
+	 */
+	private void insertLearningSession(UUID teacherId) {
+		UUID requestId = UUID.randomUUID();
+		admin.update("INSERT INTO problem_generation_requests"
+			+ " (id, teacher_id, tenant_alias, target_kind, student_id, target_ref,"
+			+ "  ai_idempotency_key, snapshot_hash, request_payload, status,"
+			+ "  requested_at, updated_at)"
+			+ " VALUES (?, ?, ?, 'STUDENT', ?, ?, ?, ?, '{}'::jsonb, 'SUCCEEDED', ?, ?)",
+			requestId, teacherId, "tn_" + hex(), studentProfileId, "st_" + hex(),
+			"pg_" + hex(), "sha256:" + hex() + hex(), now, now);
+		UUID setId = UUID.randomUUID();
+		admin.update("INSERT INTO saved_problem_sets"
+			+ " (id, teacher_id, problem_request_id, status, saved_at, updated_at)"
+			+ " VALUES (?, ?, ?, 'SAVED', ?, ?)", setId, teacherId, requestId, now, now);
+		UUID assignment = UUID.randomUUID();
+		admin.update("INSERT INTO problem_assignments"
+			+ " (id, teacher_id, problem_request_id, problem_set_id, student_id, status,"
+			+ "  published_at) VALUES (?, ?, ?, ?, ?, 'PUBLISHED', ?)",
+			assignment, teacherId, requestId, setId, studentProfileId, now);
+		UUID attemptId = UUID.randomUUID();
+		admin.update("INSERT INTO member_attempts"
+			+ " (id, student_id, assignment_id, teacher_id, status, version, snapshot_hash,"
+			+ "  item_count, active_elapsed_sec, last_client_sequence, started_at,"
+			+ "  last_progress_at, submitted_at, scored_at)"
+			+ " VALUES (?, ?, ?, ?, 'SCORED', 0, ?, 2, 60, NULL, ?, ?, ?, ?)",
+			attemptId, studentProfileId, assignment, teacherId,
+			"sha256:" + hex() + hex(), now, now, now, now);
+		admin.update("INSERT INTO member_learning_sessions"
+			+ " (id, attempt_id, student_id, teacher_id, assignment_id, title_text,"
+			+ "  item_count, correct_count, active_elapsed_sec, submit_record_id, occurred_at)"
+			+ " VALUES (?, ?, ?, ?, ?, '학습지', 2, 1, 60, NULL, ?)",
+			UUID.randomUUID(), attemptId, studentProfileId, teacherId, assignment, now);
+	}
+
+	private static String hex() {
+		return UUID.randomUUID().toString().replace("-", "");
 	}
 
 	private RequestPostProcessor parent() {

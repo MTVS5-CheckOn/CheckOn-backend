@@ -51,7 +51,11 @@ public class ParentLearningRecordController {
 		@RequestParam(value = "cursor", required = false) String cursor,
 		@RequestParam(value = "limit", defaultValue = "20") int limit
 	) {
-		return MemberResponse.of(recordService.list(subject, studentId, month, cursor, limit));
+		// 🔴 계약(member-api.yaml:927)은 이 경로에도 TeacherIdFilter 를 두는데 여기서는
+		//    아직 받지 않는다 — 분기표에 그 행이 없어서 「표를 먼저 고친다」 규칙에 걸린다.
+		//    MB-60 에 등재했다. 지금은 「생략」과 같은 뜻인 null 을 명시적으로 넘긴다.
+		return MemberResponse.of(
+			recordService.list(subject, studentId, null, month, cursor, limit));
 	}
 
 	@GetMapping("/learning-records/{recordId}")

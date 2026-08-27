@@ -101,8 +101,9 @@ public class StudentLearningRecordQueryService {
 		Instant to = window == null ? null : window.to();
 		Instant cursorAt = cursor == null ? null : cursor.occurredAt();
 		UUID cursorId = cursor == null ? null : cursor.id();
+		// 🔴 학생 화면에는 강사 필터가 없다(계약에 파라미터 자체가 없다) — null 을 명시한다.
 		List<MemberLearningSession> rows = sessions.findPage(
-			studentId, from, to, cursorAt, cursorId, limit);
+			studentId, null, from, to, cursorAt, cursorId, limit);
 		String next = rows.size() < limit
 			? null : encodeCursor(rows.get(rows.size() - 1));
 		return new LearningRecordListPage(

@@ -58,8 +58,15 @@ public class ParentLearningRecordQueryService {
 	}
 
 	@Transactional(readOnly = true)
+	/**
+	 * @param teacherId 🔴 <b>권한이 아니라 필터</b>다(계약 {@code TeacherIdFilter} ·
+	 *                  member-api.yaml:1538-1540). {@code null} 이면 활성 강사 전체다.
+	 *                  관계 교집합 재검증은 호출자가 이미 했다는 전제다 —
+	 *                  {@code ParentChildAccessGuard.allowsTeacherFilter}
+	 */
 	public LearningRecordListPage list(
-		MemberSubject subject, UUID studentId, String month, String cursor, int limit
+		MemberSubject subject, UUID studentId, UUID teacherId,
+		String month, String cursor, int limit
 	) {
 		UUID parentId = subject.requireParentProfileId();
 		databaseContext.setCurrentAccount(subject.accountId());
@@ -68,18 +75,18 @@ public class ParentLearningRecordQueryService {
 		Cursor decoded = StudentLearningRecordQueryService.decodeCursor(cursor);
 		MonthWindow window = monthWindow(month);
 		return databaseContext.withVerifiedChildScope(parentId, studentId,
-			() -> fetchList(studentId, window, decoded, safeLimit));
+			() -> fetchList(studentId, teacherId, window, decoded, safeLimit));
 	}
 
 	private LearningRecordListPage fetchList(
-		UUID studentId, MonthWindow window, Cursor cursor, int limit
+		UUID studentId, UUID teacherId, MonthWindow window, Cursor cursor, int limit
 	) {
 		Instant from = window == null ? null : window.from();
 		Instant to = window == null ? null : window.to();
 		Instant cursorAt = cursor == null ? null : cursor.occurredAt();
 		UUID cursorId = cursor == null ? null : cursor.id();
 		List<MemberLearningSession> rows = sessions.findPage(
-			studentId, from, to, cursorAt, cursorId, limit);
+			studentId, teacherId, from, to, cursorAt, cursorId, limit);
 		String next = rows.size() < limit
 			? null
 			: StudentLearningRecordQueryService.encodeCursor(rows.get(rows.size() - 1));

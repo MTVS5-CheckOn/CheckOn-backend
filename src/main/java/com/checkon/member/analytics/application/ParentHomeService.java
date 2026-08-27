@@ -80,11 +80,14 @@ public class ParentHomeService {
 	/**
 	 * 지표 4종. 달은 <b>서버가</b> 주입된 {@code Clock} 과 설정 zone 으로 정한다 —
 	 * 홈에는 month 파라미터가 없다(계약 {@code getParentChildHome}).
+	 *
+	 * <p>🔴 {@code teacherId} 가 있으면 <b>그 강사 셀만</b> 합산한다. 없으면 활성 강사 전체다 —
+	 * 계약 {@code TeacherIdFilter}(member-api.yaml:1538-1540) 그대로. 합산 산식은 한 벌이다.</p>
 	 */
 	@Transactional(readOnly = true)
-	public List<HomeMetric> metrics(MemberSubject subject, UUID studentId) {
+	public List<HomeMetric> metrics(MemberSubject subject, UUID studentId, UUID teacherId) {
 		AnalysisResponse analysis =
-			analysisService.getAnalysis(subject, studentId, currentMonth());
+			analysisService.getAnalysis(subject, studentId, currentMonth(), teacherId);
 		Overall overall = analysis.overall();
 		WeaknessCellPayload primary = analysis.primaryWeakness();
 		Improvement improvement = primary == null ? null : primary.improvement();
@@ -99,9 +102,12 @@ public class ParentHomeService {
 	 * 최근 기록. 🔴 개수는 설정({@code home-recent-record-limit})이다 — 상수를 코드에 박지 않는다.
 	 * 기록이 없으면 <b>빈 배열</b>이고 오류가 아니다.
 	 */
-	public List<LearningRecordResponse> recentRecords(MemberSubject subject, UUID studentId) {
+	public List<LearningRecordResponse> recentRecords(
+		MemberSubject subject, UUID studentId, UUID teacherId
+	) {
 		return recordQueryService
-			.list(subject, studentId, null, null, properties.homeRecentRecordLimit())
+			.list(subject, studentId, teacherId, null, null,
+				properties.homeRecentRecordLimit())
 			.items();
 	}
 
