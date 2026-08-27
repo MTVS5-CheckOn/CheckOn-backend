@@ -2,12 +2,16 @@ package com.checkon.member.contract;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -45,6 +49,22 @@ class MemberImplementedApiOpenApiContractTest {
 	/** PR0 가 확정한 member 계약의 오퍼레이션 수(경로 44 · 오퍼레이션 46). */
 	private static final int CONTRACT_OPERATION_COUNT = 46;
 
+	private static final Path OPEN_ITEM_DOCUMENT = Path.of("docs/MEMBER_OPEN_ITEMS.md");
+
+	/**
+	 * 🔴 <b>의도적으로 구현하지 않은 오퍼레이션과 그 사유 안건 번호.</b>
+	 *
+	 * <p>🔴 번호 없는 예외를 만들지 마라. 그러면 이 게이트가 쓰레기통이 된다 —
+	 * 「예외 목록에 있으니까 괜찮다」가 「왜 없는지 아무도 모른다」와 같은 뜻이 된다.
+	 * 각 번호는 {@code MEMBER_OPEN_ITEMS.md} 에 실재해야 하고
+	 * {@code #unimplementedExceptionsCarryRegisteredOpenItems} 가 그것을 확인한다.</p>
+	 */
+	private static final Map<String, String> UNIMPLEMENTED_BY_DECISION = Map.of(
+		// 상담 취소 가능 시점이 미확정이라 V44 에 학부모 UPDATE 정책을 넣지 않았다.
+		// 정책 없이 엔드포인트만 만들면 조용히 0행 UPDATE 로 끝난다.
+		"POST /member/parents/me/children/{studentId}/consultations/{consultationId}/cancellation",
+		"MB-09");
+
 	@Test
 	@DisplayName("🔴 구현된 member 오퍼레이션은 전부 member-api.yaml 에 있다")
 	void everyImplementedMemberOperationIsDocumented() {
@@ -56,6 +76,52 @@ class MemberImplementedApiOpenApiContractTest {
 		assertThat(undocumented)
 			.as("계약에 없는 member 경로가 생겼다. member-api.yaml 을 먼저 고쳐라")
 			.isEmpty();
+	}
+
+	/**
+	 * 🔴 <b>반대 방향 — 문서 ⊆ 구현.</b> 계약에 있는 오퍼레이션에 컨트롤러 매핑이 있는가.
+	 *
+	 * <p>🔴 <b>이 게이트가 없어서 자녀 홈이 여섯 PR 동안 빠져 있었다.</b>
+	 * {@code GET /member/parents/me/children/{studentId}/home} 은 계약에도 분기표에도 있었지만
+	 * 컨트롤러가 없었다 — 위 「구현 ⊆ 문서」는 <b>구현이 없는 것을 볼 수 없다.</b>
+	 * 분기표 커버리지 게이트도 「행마다 테스트」만 보고 <b>엔드포인트 존재</b>는 안 본다.
+	 * 두 게이트 사이의 구멍이었다.</p>
+	 *
+	 * <p>🔴 <b>예외는 목록으로 좁게 관리하고 각 항목에 MB 번호를 단다.</b> 번호 없는 예외를
+	 * 허용하면 이 게이트가 쓰레기통이 되고, 다음 사람이 모든 미구현을 「예정된 것」으로 읽는다.
+	 * 목록을 늘려서 red 를 없애는 것은 반려다 — 늘리기 전에 <b>왜 빠졌는지</b>를 먼저 답해야 한다.</p>
+	 */
+	@Test
+	@DisplayName("🔴 계약에 있는 member 오퍼레이션은 전부 구현돼 있다 (예외는 MB 번호 필수)")
+	void everyDocumentedMemberOperationIsImplemented() {
+		Set<String> missing = new TreeSet<>(documentedOperations());
+		missing.removeAll(implementedMemberOperations());
+		missing.removeAll(UNIMPLEMENTED_BY_DECISION.keySet());
+
+		assertThat(missing)
+			.as("계약에 있는데 컨트롤러가 없다. 🔴 예외 목록을 늘리지 말고 왜 빠졌는지 먼저 답해라")
+			.isEmpty();
+	}
+
+	@Test
+	@DisplayName("🔴 미구현 예외는 전부 MEMBER_OPEN_ITEMS.md 에 실재하는 안건이다")
+	void unimplementedExceptionsCarryRegisteredOpenItems() throws IOException {
+		// 🔴 「번호를 달아라」만으로는 부족하다 — 없는 번호를 달면 그만이다.
+		//    코드 규칙 G14 와 같은 방식으로 실재를 확인한다.
+		Set<String> registered = Pattern.compile("MB-\\d+")
+			.matcher(Files.readString(OPEN_ITEM_DOCUMENT))
+			.results().map(java.util.regex.MatchResult::group)
+			.collect(java.util.stream.Collectors.toCollection(TreeSet::new));
+
+		assertThat(UNIMPLEMENTED_BY_DECISION).isNotEmpty();
+		assertThat(UNIMPLEMENTED_BY_DECISION.values())
+			.as("미구현 예외의 MB 번호가 MEMBER_OPEN_ITEMS.md 에 없다")
+			.allSatisfy(item -> assertThat(registered).contains(item));
+
+		// 🔴 이미 구현된 것이 예외 목록에 남아 있으면 목록이 썩은 것이다.
+		Set<String> stale = new TreeSet<>(UNIMPLEMENTED_BY_DECISION.keySet());
+		stale.retainAll(implementedMemberOperations());
+		assertThat(stale).as("구현됐는데 예외 목록에 남아 있다 — 목록에서 빼라").isEmpty();
 	}
 
 	@Test
