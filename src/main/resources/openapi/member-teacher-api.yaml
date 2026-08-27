@@ -21,6 +21,12 @@ info:
     실패 종류에 따라 두 가지 봉투를 낸다.
     🔴 다만 **오류 코드 어휘는 member 그대로** 쓴다(`docs/MEMBER_ERROR_CODES.md`).
 
+    🔴 **dev 프로파일에서는 인증 없이도 열린다(MB-67).** 이 경로가 승우님 체인 위에 있어
+    `DevelopmentTestAuthenticationFilter` 를 그대로 받는다 — Authorization 헤더가 없으면
+    고정 강사 인증이 심어진다(실측: 인증 없는 `GET` 이 401 이 아니라 **200**).
+    기본값은 꺼져 있고(`application.yaml`) `dev` 만 켜므로 운영 구멍은 아니지만,
+    dev 서버를 외부에 노출하면 **상담 원문까지 보인다.**
+
     🔴 **AI 초안 조회 엔드포인트가 없다.** AI 초안 *본문* 을 담는 컬럼이 스키마에 없다
     (`member_consultations` 에는 `ai_status`·`ai_job_id` 뿐이고, 계약이
     「AI raw 초안은 저장하지 않는다」로 정했다). 없는 것을 돌려주는 엔드포인트를 만들면
