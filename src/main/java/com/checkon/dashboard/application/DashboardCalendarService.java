@@ -1,6 +1,5 @@
 package com.checkon.dashboard.application;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
@@ -17,8 +16,6 @@ import com.checkon.global.persistence.TeacherTenantDatabaseContext;
 
 @Service
 public class DashboardCalendarService {
-	private static final long DAYS_IN_WEEK = 7L;
-
 	private final JdbcTemplate jdbcTemplate;
 	private final TeacherTenantDatabaseContext tenantContext;
 
@@ -84,13 +81,6 @@ public class DashboardCalendarService {
 		if (startedAt.isAfter(endedAt)) {
 			throw new InvalidDashboardCalendarRangeException(
 				"startedAt must not be after endedAt."
-			);
-		}
-		if (startedAt.getDayOfWeek() != DayOfWeek.MONDAY
-			|| endedAt.getDayOfWeek() != DayOfWeek.SUNDAY
-			|| !endedAt.equals(startedAt.plusDays(DAYS_IN_WEEK - 1))) {
-			throw new InvalidDashboardCalendarRangeException(
-				"The calendar range must be one Monday-through-Sunday week."
 			);
 		}
 	}
