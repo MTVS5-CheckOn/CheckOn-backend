@@ -35,6 +35,7 @@ import com.checkon.account.domain.AccountRole;
 import com.checkon.member.common.presentation.MemberRateLimiter;
 import com.checkon.member.membership.MembershipRlsEnforcedSupport;
 import com.checkon.member.report.domain.ReportFileTokenCodec;
+import com.checkon.member.support.MemberPostgresSupport;
 
 /**
  * 분기표 §4 의 보고서·PDF 행을 1:1 로 덮는다. 정본은
@@ -173,11 +174,10 @@ class ReportIntegrationTest extends MembershipRlsEnforcedSupport {
 	@Test
 	@DisplayName("목록 — 발행 보고서 0건 → 200 + items:[]")
 	void listWithNoPublishedReportsIsEmpty() throws Exception {
-		admin.update("DELETE FROM member_report_files WHERE report_id = ?", publishedReportId);
-		admin.update("DELETE FROM member_published_report_sections WHERE report_id = ?",
-			publishedReportId);
-		admin.update("DELETE FROM member_published_reports WHERE status = 'PUBLISHED'"
-			+ " AND student_id = ?", studentProfileId);
+		// 🔴 정리는 MemberPostgresSupport 한 곳이다. 테스트 클래스에 DELETE 를 적지 않는다.
+		//    범위는 reportId 하나 — 이 학생의 다른 강사 보고서(unlinkedTeacherReportId)는
+		//    남는다. 그래도 목록이 0건인 것은 그 강사가 허용 집합 밖이기 때문이다.
+		MemberPostgresSupport.deletePublishedReport(admin, publishedReportId);
 		mockMvc.perform(get(REPORTS, studentProfileId).with(parent()))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.data.items.length()").value(0))
