@@ -84,6 +84,26 @@ class MemberCodeRuleTest {
 		}
 	}
 
+	/**
+	 * 🔴 <b>경로 판정은 OS 의 구분자와 무관해야 한다.</b>
+	 *
+	 * <p>이전 판은 {@code path.toString().contains("/domain/")} 였다. mac·CI(ubuntu)에서는 통하지만
+	 * Windows 는 {@code Path.toString()} 이 {@code \domain\} 을 내서 정상 파일도 위반으로 잡힌다 —
+	 * 승우님이 로컬 빌드에서 발견한 것(MB-42, G2·G3·G4·G5·G15 다섯 곳 전부).</p>
+	 *
+	 * <p>🔴 <b>문자열 치환({@code replace('\\','/')})은 쓰지 않는다.</b> 그 처방은 구분자 문제는
+	 * 지우지만, 경로 어딘가에 우연히 {@code domain} 이라는 이름의 폴더가 또 있으면 여전히 오판한다.
+	 * 물어야 할 질문은 「그 문자열이 들어 있나」가 아니라 <b>「어느 segment 인가」</b>다.</p>
+	 */
+	private static boolean inPackage(Path path, String segment) {
+		for (Path part : path) {
+			if (part.toString().equals(segment)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private static List<Path> memberTestSources() throws IOException {
 		try (Stream<Path> walk = Files.walk(MEMBER_TESTS)) {
 			return walk.filter(path -> path.toString().endsWith(".java")).sorted().toList();
@@ -122,7 +142,7 @@ class MemberCodeRuleTest {
 			"import com\\.checkon\\."
 				+ "(account|roster|learning|problem|counsel|engagement|dashboard|detection|global)\\.");
 		List<String> offenders = memberSources().stream()
-			.filter(path -> !path.toString().contains("/integration/"))
+			.filter(path -> !inPackage(path, "integration"))
 			.filter(path -> foreignImport.matcher(readString(path)).find())
 			.map(Path::toString)
 			.toList();
@@ -134,7 +154,7 @@ class MemberCodeRuleTest {
 	void presentationDoesNotTouchPersistence() throws IOException {
 		Pattern persistence = Pattern.compile("Repository|jakarta\\.persistence|JdbcTemplate");
 		List<String> offenders = memberSources().stream()
-			.filter(path -> path.toString().contains("/presentation/"))
+			.filter(path -> inPackage(path, "presentation"))
 			.filter(path -> persistence.matcher(readString(path)).find())
 			.map(Path::toString)
 			.toList();
@@ -146,7 +166,7 @@ class MemberCodeRuleTest {
 	void domainHasNoSpringAnnotations() throws IOException {
 		Pattern springAnnotation = Pattern.compile("import org\\.springframework\\.");
 		List<String> offenders = memberSources().stream()
-			.filter(path -> path.toString().contains("/domain/"))
+			.filter(path -> inPackage(path, "domain"))
 			.filter(path -> springAnnotation.matcher(readString(path)).find())
 			.map(Path::toString)
 			.toList();
@@ -158,7 +178,7 @@ class MemberCodeRuleTest {
 	void transactionalOnlyInApplication() throws IOException {
 		List<String> offenders = memberSources().stream()
 			.filter(path -> readString(path).contains("@Transactional"))
-			.filter(path -> !path.toString().contains("/application/"))
+			.filter(path -> !inPackage(path, "application"))
 			.map(Path::toString)
 			.toList();
 		assertThat(offenders).as("트랜잭션 경계는 application 이 소유한다").isEmpty();
@@ -314,7 +334,7 @@ class MemberCodeRuleTest {
 		//    서비스가 각각 다른 트랜잭션이라 "앞에서 열었으니 됐다"가 성립하지 않는다.
 		//    빠뜨리면 예외가 아니라 **0행**이라 조용하다 — PR3 에서 결함 3건이 여기서 나왔다.
 		List<String> offenders = memberSources().stream()
-			.filter(path -> path.toString().contains("/application/"))
+			.filter(path -> inPackage(path, "application"))
 			.filter(path -> path.getFileName().toString().endsWith("Service.java"))
 			.filter(path -> readString(path).contains("Repository"))
 			.filter(path -> !CONTEXT_OPENERS.matcher(readString(path)).find())
