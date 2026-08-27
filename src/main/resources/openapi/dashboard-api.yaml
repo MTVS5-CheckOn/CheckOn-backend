@@ -451,10 +451,11 @@ paths:
     get:
       tags: [Dashboard]
       operationId: getDashboardCalendar
-      summary: 주간 대시보드 캘린더 조회
+      summary: 대시보드 캘린더 기간 조회
       description: |
-        startedAt 월요일부터 같은 주 endedAt 일요일까지 정확히 7일을 날짜 오름차순으로 반환한다.
-        미래 주도 허용하며 빈 날짜는 eventCount 0이다. eventCount는 detection_runs.analysis_date에
+        startedAt과 endedAt을 모두 포함한 임의 기간을 날짜 오름차순으로 반환한다.
+        endedAt은 응답에 포함되는 마지막 날짜이며 요일, 주 경계, 월 경계에 제한이 없다.
+        미래 기간도 허용하며 빈 날짜는 eventCount 0이다. eventCount는 detection_runs.analysis_date에
         연결된 Alert 수로, 상태와 Evidence 수에 무관하게 Alert 한 건을 한 번 센다. Todo, Reminder,
         상담 일정 등은 포함하지 않는다.
       parameters:
@@ -462,30 +463,27 @@ paths:
         - $ref: '#/components/parameters/EndedAt'
       responses:
         '200':
-          description: 7일 캘린더 조회 성공
+          description: 캘린더 기간 조회 성공
           content:
             application/json:
               schema: {$ref: '#/components/schemas/DashboardCalendar'}
               example:
-                startedAt: '2026-08-03'
-                endedAt: '2026-08-09'
+                startedAt: '2026-08-30'
+                endedAt: '2026-09-02'
                 items:
-                  - {date: '2026-08-03', eventCount: 2}
-                  - {date: '2026-08-04', eventCount: 0}
-                  - {date: '2026-08-05', eventCount: 1}
-                  - {date: '2026-08-06', eventCount: 0}
-                  - {date: '2026-08-07', eventCount: 0}
-                  - {date: '2026-08-08', eventCount: 0}
-                  - {date: '2026-08-09', eventCount: 0}
+                  - {date: '2026-08-30', eventCount: 2}
+                  - {date: '2026-08-31', eventCount: 0}
+                  - {date: '2026-09-01', eventCount: 1}
+                  - {date: '2026-09-02', eventCount: 0}
         '400':
-          description: 누락, 날짜 형식 오류 또는 잘못된 주간 범위
+          description: 누락, 날짜 형식 오류 또는 역방향 날짜 범위
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
               examples:
                 missing: {value: {code: MISSING_REQUEST_PARAMETER, message: 필수 요청 파라미터를 확인해 주세요.}}
                 format: {value: {code: INVALID_DATE_FORMAT, message: 날짜는 yyyy-MM-dd 형식이어야 합니다.}}
-                range: {value: {code: INVALID_CALENDAR_RANGE, message: The calendar range must be one Monday-through-Sunday week.}}
+                range: {value: {code: INVALID_CALENDAR_RANGE, message: startedAt must not be after endedAt.}}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
   /engagement/alerts:
@@ -1368,8 +1366,8 @@ components:
       description: 실제 쿠키 이름은 서버의 REFRESH_COOKIE_NAME 설정으로 변경할 수 있다.
   parameters:
     BriefingDate: {name: date, in: query, required: true, schema: {type: string, format: date}, example: '2026-08-05'}
-    StartedAt: {name: startedAt, in: query, required: true, description: 월요일, schema: {type: string, format: date}, example: '2026-08-03'}
-    EndedAt: {name: endedAt, in: query, required: true, description: 같은 주 일요일, schema: {type: string, format: date}, example: '2026-08-09'}
+    StartedAt: {name: startedAt, in: query, required: true, description: 응답에 포함되는 첫 날짜, schema: {type: string, format: date}, example: '2026-08-13'}
+    EndedAt: {name: endedAt, in: query, required: true, description: 응답에 포함되는 마지막 날짜(inclusive), schema: {type: string, format: date}, example: '2026-09-10'}
     AlertId: {name: alertId, in: path, required: true, schema: {type: string, format: uuid}}
     InterventionId: {name: interventionId, in: path, required: true, schema: {type: string, format: uuid}}
     ReminderId: {name: reminderId, in: path, required: true, schema: {type: string, format: uuid}}
@@ -1852,7 +1850,7 @@ components:
       properties:
         startedAt: {type: string, format: date}
         endedAt: {type: string, format: date}
-        items: {type: array, minItems: 7, maxItems: 7, items: {$ref: '#/components/schemas/DashboardCalendarItem'}}
+        items: {type: array, minItems: 1, items: {$ref: '#/components/schemas/DashboardCalendarItem'}}
     DashboardCalendarItem:
       type: object
       required: [date, eventCount]

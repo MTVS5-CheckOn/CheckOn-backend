@@ -230,22 +230,25 @@ class DashboardControllerIntegrationTest {
 	}
 
 	@Test
-	void teacherCanQuerySevenOrderedDaysIncludingEmptyDatesAndAllAlertStatuses() throws Exception {
+	void teacherCanQueryFlexibleOrderedDatesAcrossWeekBoundaries() throws Exception {
+		LocalDate startedAt = WEEK_START.minusDays(1);
+		LocalDate endedAt = WEEK_END.plusDays(1);
 		mvc.perform(get("/api/v1/dashboard/calendar")
-				.param("startedAt", WEEK_START.toString())
-				.param("endedAt", WEEK_END.toString())
+				.param("startedAt", startedAt.toString())
+				.param("endedAt", endedAt.toString())
 				.with(teacherAuthentication(TEACHER)))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.startedAt").value(WEEK_START.toString()))
-			.andExpect(jsonPath("$.endedAt").value(WEEK_END.toString()))
-			.andExpect(jsonPath("$.items.length()").value(7))
-			.andExpect(jsonPath("$.items[0].date").value(WEEK_START.toString()))
-			.andExpect(jsonPath("$.items[0].eventCount").value(3))
-			.andExpect(jsonPath("$.items[1].eventCount").value(0))
-			.andExpect(jsonPath("$.items[2].date").value(TODAY.toString()))
-			.andExpect(jsonPath("$.items[2].eventCount").value(3))
-			.andExpect(jsonPath("$.items[6].date").value(WEEK_END.toString()))
-			.andExpect(jsonPath("$.items[6].eventCount").value(0));
+			.andExpect(jsonPath("$.startedAt").value(startedAt.toString()))
+			.andExpect(jsonPath("$.endedAt").value(endedAt.toString()))
+			.andExpect(jsonPath("$.items.length()").value(9))
+			.andExpect(jsonPath("$.items[0].date").value(startedAt.toString()))
+			.andExpect(jsonPath("$.items[0].eventCount").value(0))
+			.andExpect(jsonPath("$.items[1].date").value(WEEK_START.toString()))
+			.andExpect(jsonPath("$.items[1].eventCount").value(3))
+			.andExpect(jsonPath("$.items[3].date").value(TODAY.toString()))
+			.andExpect(jsonPath("$.items[3].eventCount").value(3))
+			.andExpect(jsonPath("$.items[8].date").value(endedAt.toString()))
+			.andExpect(jsonPath("$.items[8].eventCount").value(0));
 	}
 
 	@Test
@@ -272,16 +275,18 @@ class DashboardControllerIntegrationTest {
 	}
 
 	@Test
-	void calendarAllowsFutureWeeksAndKeepsTheEmptyResponseShape() throws Exception {
-		LocalDate futureStart = WEEK_START.plusWeeks(4);
+	void calendarAllowsFutureRangeAcrossMonthBoundaryAndIncludesEndedAt() throws Exception {
+		LocalDate futureStart = LocalDate.of(2026, 8, 13);
+		LocalDate futureEnd = LocalDate.of(2026, 9, 10);
 		mvc.perform(get("/api/v1/dashboard/calendar")
 				.param("startedAt", futureStart.toString())
-				.param("endedAt", futureStart.plusDays(6).toString())
+				.param("endedAt", futureEnd.toString())
 				.with(teacherAuthentication(TEACHER)))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.items.length()").value(7))
+			.andExpect(jsonPath("$.items.length()").value(29))
 			.andExpect(jsonPath("$.items[0].eventCount").value(0))
-			.andExpect(jsonPath("$.items[6].eventCount").value(0));
+			.andExpect(jsonPath("$.items[28].date").value(futureEnd.toString()))
+			.andExpect(jsonPath("$.items[28].eventCount").value(0));
 	}
 
 	@Test
@@ -300,12 +305,6 @@ class DashboardControllerIntegrationTest {
 		mvc.perform(get("/api/v1/dashboard/calendar")
 				.param("startedAt", WEEK_START.toString())
 				.param("endedAt", WEEK_START.minusDays(1).toString())
-				.with(teacherAuthentication(TEACHER)))
-			.andExpect(status().isBadRequest())
-			.andExpect(jsonPath("$.code").value("INVALID_CALENDAR_RANGE"));
-		mvc.perform(get("/api/v1/dashboard/calendar")
-				.param("startedAt", WEEK_START.toString())
-				.param("endedAt", WEEK_END.plusDays(7).toString())
 				.with(teacherAuthentication(TEACHER)))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.code").value("INVALID_CALENDAR_RANGE"));

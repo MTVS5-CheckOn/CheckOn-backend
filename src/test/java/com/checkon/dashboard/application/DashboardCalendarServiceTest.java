@@ -7,29 +7,24 @@ import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 
 class DashboardCalendarServiceTest {
-	private static final LocalDate MONDAY = LocalDate.of(2026, 8, 3);
-	private static final LocalDate SUNDAY = LocalDate.of(2026, 8, 9);
+	private static final LocalDate STARTED_AT = LocalDate.of(2026, 8, 13);
+	private static final LocalDate ENDED_AT = LocalDate.of(2026, 9, 10);
 
 	@Test
-	void acceptsExactlyOneMondayThroughSundayWeek() {
-		DashboardCalendarService.validateRange(MONDAY, SUNDAY);
+	void acceptsFlexibleRangeAcrossWeekAndMonthBoundaries() {
+		DashboardCalendarService.validateRange(STARTED_AT, ENDED_AT);
+	}
+
+	@Test
+	void acceptsSameDateBecauseEndedAtIsInclusive() {
+		DashboardCalendarService.validateRange(STARTED_AT, STARTED_AT);
 	}
 
 	@Test
 	void rejectsStartAfterEnd() {
 		assertThatThrownBy(() -> DashboardCalendarService.validateRange(
-			MONDAY, MONDAY.minusDays(1)
+			STARTED_AT, STARTED_AT.minusDays(1)
 		)).isInstanceOf(InvalidDashboardCalendarRangeException.class)
 			.hasMessage("startedAt must not be after endedAt.");
-	}
-
-	@Test
-	void rejectsRangesThatAreNotExactlyMondayThroughSunday() {
-		assertThatThrownBy(() -> DashboardCalendarService.validateRange(
-			MONDAY.plusDays(1), SUNDAY
-		)).isInstanceOf(InvalidDashboardCalendarRangeException.class);
-		assertThatThrownBy(() -> DashboardCalendarService.validateRange(
-			MONDAY, SUNDAY.plusDays(7)
-		)).isInstanceOf(InvalidDashboardCalendarRangeException.class);
 	}
 }
