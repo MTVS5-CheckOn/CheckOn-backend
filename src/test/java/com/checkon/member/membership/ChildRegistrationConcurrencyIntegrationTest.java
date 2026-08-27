@@ -24,6 +24,7 @@ import org.springframework.test.context.ActiveProfiles;
 import com.checkon.member.auth.domain.MemberActivationStatus;
 import com.checkon.member.common.error.MemberException;
 import com.checkon.member.common.persistence.IdempotentOutcome;
+import com.checkon.member.common.presentation.MemberRateLimiter;
 import com.checkon.member.common.security.MemberRole;
 import com.checkon.member.common.security.MemberSubject;
 import com.checkon.member.membership.application.ChildRegistrationCommand;
@@ -38,18 +39,22 @@ import com.checkon.member.membership.application.ChildRegistrationService;
  *
  * <p>🔴 어느 스레드가 이기는지는 단언하지 않는다. 단언 대상은 <b>결과 집합</b>과
  * <b>최종 행 수</b>다.</p>
+ *
+ * <p>🔴 이 스위트는 컨트롤러를 우회해 서비스를 직접 부르므로 리미터를 타지 않는다. 상한 조정이
+ * 필요 없지만, 공유 컨텍스트라 앞 클래스가 남긴 오버라이드가 살아 있을 수 있어 {@code @BeforeEach}
+ * 에서 초기 상태로 되돌린다.</p>
  */
 @SpringBootTest(properties = {
 	"checkon.security.test-authentication.enabled=true",
 	"checkon.auth.allowed-origins=http://localhost:3000",
-	"spring.datasource.hikari.maximum-pool-size=4",
-	"checkon.member.rate-limit.permits=1000"
+	"spring.datasource.hikari.maximum-pool-size=4"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")
 class ChildRegistrationConcurrencyIntegrationTest extends MembershipRlsEnforcedSupport {
 
 	@Autowired ChildRegistrationService childRegistrationService;
+	@Autowired MemberRateLimiter rateLimiter;
 
 	private JdbcTemplate admin;
 	private UUID childProfileId;
@@ -68,6 +73,9 @@ class ChildRegistrationConcurrencyIntegrationTest extends MembershipRlsEnforcedS
 
 		firstParent = parentSubject(admin, "parent1@example.com", "박학부모", now);
 		secondParent = parentSubject(admin, "parent2@example.com", "최학부모", now);
+
+		// 🔴 공유 컨텍스트라 앞 클래스가 남긴 오버라이드가 살아 있을 수 있다 — 기본값으로 되돌린다.
+		rateLimiter.resetForTesting();
 	}
 
 	@RepeatedTest(value = 5, name = "동시 2요청 {currentRepetition}/{totalRepetitions}")

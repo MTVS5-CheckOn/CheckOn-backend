@@ -134,7 +134,7 @@ CREATE INDEX idx_problem_response_diagnosis
 
 이득: 강사 대시보드·진단이 학생 제출을 **바로** 본다. 데이터가 두 벌로 갈리지 않는다.
 
-🔴 **미확정 `MB-28`**: `learning_records`(detection 이 사용)와 `problem_assignment_responses`(diagnosis 가 사용) **둘 다** 써야 하는가, 하나면 되는가. 지금은 **둘 다 쓴다**로 가되(기존 강사 위험탐지가 `learning_records` 에 의존), 승우님께 물어 확정한다.
+🔴 ✅ **CONFIRMED `MB-28` · 둘 다 쓴다** (2026-08-26). 두 테이블은 **대체 불가**다 — 스키마 실측: `learning_records`(V8) 는 **사건 단위**(`record_type ∈ {SOLVE, SUBMIT}`) 이고 `item_id`·`chosen_no` 컬럼이 아예 없다(`correct` nullable). `problem_assignment_responses`(V34) 는 **문항 단위** · `record_type` 없음 · `area_tag`·`type_tag`·`skill_node_id` 전부 NOT NULL(정규식·enum CHECK) · `correct = (chosen_no = correct_no)` CHECK · 오답이면 `misconception_tag` 필수. 한쪽만으로는 강사 위험탐지도 학생 진단도 만들 수 없다. 제출 트랜잭션은 문항당 1행씩 `problem_assignment_responses` INSERT + `learning_records` SOLVE 전량 + SUBMIT 1행을 **같은 트랜잭션**에서 한다. `LearningRecordWriter` 클래스 주석에 근거 못 박음.
 
 #### ⑥ `WORKSHEET_NOT_GRADABLE` — 조건이 바뀐다
 
@@ -1237,7 +1237,8 @@ at-least-once. consumer는 `event_id`로 dedupe하고 **업무 상태 변경과 
 2. ~~대기 학생 허용 API 범위~~ → ✅ **MB-02 CONFIRMED**: 세션 · 활성화상태(+공개 ID) · 로그아웃 **3개만**. 초대 등록과 학습 기능은 활성화 후. §4-4 참조
 3. 학부모 한 계정이 여러 자녀를 등록할 수 있나. (실측: `V33:96-98`은 학생당 학부모 1명만 제한. 학부모당 자녀 수 제한은 **없다** → 다자녀 가능)
 4. ~~초대 코드 사용 정책~~ → ✅ **MB-04 CONFIRMED**: 역할이 지정된 **한 계정만** 쓰는 1회용(`max_claims=1`), 발급 후 **7일**. 동일 강사 재등록은 새 관계를 만들지 않고 **기존 연결을 200 으로 반환**(멱등). 학생용·학부모용 코드는 별도 발급
-5. 미응답 문항이 있어도 제출 가능한가.
+5. ~~미응답 문항이 있어도 제출 가능한가~~ → ✅ **MB-05 CONFIRMED**: 허용한다.
+   `SUBMISSION_INCOMPLETE` 응답 경로는 현재 비활성이고, 미응답에 가짜 보기 번호를 기록하지 않는다.
 6. progress autosave 주기와 시간 이상치 상한(기본 제안: 30초 주기, 단일 delta 600초).
 7. 월별 최소 표본 수(제안 10)와 월 경계 timezone(제안 `Asia/Seoul`).
 8. 관계 종료 후 과거 학습기록·보고서를 학부모가 계속 볼 수 있나.
@@ -1245,6 +1246,9 @@ at-least-once. consumer는 `event_id`로 dedupe하고 **업무 상태 변경과 
 10. PDF 보존 기간, 공유 링크, 정정 보고서 정책.
 11. 월별 보고서 AI 생성 transport와 운영 영속 저장 계약. (AI `/v1/reports`는 인메모리 — 그대로는 운영 원장 불가)
 12. `member_*` 테이블을 `TenantDatabaseRoleSafetyVerifier` 목록에 합칠지, 별도 verifier로 둘지. (본 설계는 **별도** 권장 — 팀원 파일 무접촉)
+13. **MB-42** 게이트가 OS 경로 구분자에 의존한다. G2·G3·G4·G5·G15의
+    `path.toString().contains("/…/")`를 `Path` segment 단위 검사로 바꾼다. 문자열 치환은
+    경로에 같은 이름이 우연히 들어가면 다시 오판한다. 🔴 이번 S4에서는 수정하지 않는다.
 
 ---
 

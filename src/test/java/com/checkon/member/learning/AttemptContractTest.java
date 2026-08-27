@@ -60,8 +60,10 @@ class AttemptContractTest {
 		List<PublishedItemSnapshot> snapshots = fixtureSnapshots();
 		return AttemptProjections.toInProgress(
 			UUID.randomUUID(), UUID.randomUUID(), "IN_PROGRESS",
-			0, snapshots.size(), 0,
-			Instant.parse("2026-08-26T00:00:00Z"), null,
+			0,
+			"sha256:0000000000000000000000000000000000000000000000000000000000000000",
+			null, 0,
+			Instant.parse("2026-08-26T00:00:00Z"),
 			snapshots,
 			List.of(new AttemptAnswerSnapshot(snapshots.get(0).itemId(), null, 0, 0)));
 	}

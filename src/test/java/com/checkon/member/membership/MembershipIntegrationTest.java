@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,20 +28,22 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.checkon.account.domain.AccountRole;
+import com.checkon.member.common.presentation.MemberRateLimiter;
 
 /**
  * membership 7개 오퍼레이션의 분기 검증. 🔴 <b>제한 DB 역할</b> 위에서 돈다
  * ({@link MembershipRlsEnforcedSupport}) — superuser 로 돌면 사전 조회가 남의 관계까지 보게 되어
  * unique index 경로가 실행되지 않고, 그러면 이 스위트는 실제 동작이 아닌 것을 검증한다.
+ *
+ * <p>🔴 상한을 <b>런타임에</b> 1000 으로 올린다. 리미터는 컨텍스트 싱글턴이고 MockMvc 요청은
+ * 전부 같은 IP(127.0.0.1)라 테스트끼리 카운터를 공유한다. 예전에는 컨텍스트 프로퍼티로 갈랐지만
+ * 그 조합마다 스프링이 새로 떠서(G17), 이제는 같은 컨텍스트에서 오버라이드로 처리한다.
+ * 429 분기는 {@link MembershipRateLimitIntegrationTest} 가 낮은 상한으로 따로 증명한다.</p>
  */
 @SpringBootTest(properties = {
 	"checkon.security.test-authentication.enabled=true",
 	"checkon.auth.allowed-origins=http://localhost:3000",
-	"spring.datasource.hikari.maximum-pool-size=4",
-	// 🔴 리미터는 컨텍스트 싱글턴이고 MockMvc 요청은 전부 같은 IP(127.0.0.1)라
-	//    테스트끼리 카운터를 공유한다. 여기서는 상한을 올려 리밋이 다른 단언을 가리지 않게 하고,
-	//    429 분기는 MembershipRateLimitIntegrationTest 가 낮은 상한으로 따로 증명한다.
-	"checkon.member.rate-limit.permits=1000"
+	"spring.datasource.hikari.maximum-pool-size=4"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")
@@ -58,6 +61,7 @@ class MembershipIntegrationTest extends MembershipRlsEnforcedSupport {
 	private static final String PARENT_CODE = "PARENT-CODE-1";
 
 	@Autowired MockMvc mockMvc;
+	@Autowired MemberRateLimiter rateLimiter;
 
 	private JdbcTemplate admin;
 	private OffsetDateTime now;
@@ -101,6 +105,15 @@ class MembershipIntegrationTest extends MembershipRlsEnforcedSupport {
 
 		teacherId = insertTeacher(admin, "teacher@example.com", "김강사", now);
 		otherTeacherId = insertTeacher(admin, "teacher2@example.com", "이강사", now);
+
+		// 🔴 공유 컨텍스트라 앞 테스트의 카운터·오버라이드가 남아 있을 수 있다 — 지우고 올린다.
+		rateLimiter.resetForTesting();
+		rateLimiter.overridePermitsForTesting(1000);
+	}
+
+	@AfterEach
+	void tearDown() {
+		rateLimiter.resetForTesting();
 	}
 
 	// ───────────────────────────── 전제 ─────────────────────────────
