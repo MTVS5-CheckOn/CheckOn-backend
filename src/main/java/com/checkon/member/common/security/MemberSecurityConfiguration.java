@@ -34,6 +34,20 @@ public class MemberSecurityConfiguration {
 	private static final String STUDENT_LOGIN = "/api/v1/member/auth/students/login";
 	private static final String ACTIVATION_STATUS =
 		"/api/v1/member/auth/students/activation-status";
+	/**
+	 * 🔴 <b>세션 없는 공개 경로.</b> 브라우저의 PDF 뷰어·새 탭 열기는
+	 * {@code Authorization} 헤더를 붙일 방법이 없다. 헤더를 요구하면 학부모가 PDF 를 볼 수
+	 * 없으므로 인증을 URL 안으로 옮겼다 — 보안은 <b>HMAC 서명 + 짧은 TTL + 다운로드 시점
+	 * 관계 재검증</b> 셋이 진다({@code ReportFileDownloadService}).
+	 *
+	 * <p>🔴 {@code PARENT_PATHS}({@code /member/parents/**}) 밖이라 별도 한 줄이 필요하다.
+	 * 이 줄이 없으면 {@code anyRequest().authenticated()} 로 떨어져 토큰만 들고 온 요청이
+	 * 401 을 받는다 — {@code ACTIVATION_STATUS} 와 같은 이유의 별도 줄이다.</p>
+	 *
+	 * <p>🔴 {@code permitAll} 은 <b>이 파일에만</b> 넣는다.
+	 * {@code global/config/AccountSecurityConfiguration} 은 팀원 소유라 열지 않는다.</p>
+	 */
+	private static final String REPORT_FILE_DOWNLOAD = "/api/v1/member/files/reports/*";
 
 	@Bean
 	@Order(0)
@@ -53,6 +67,8 @@ public class MemberSecurityConfiguration {
 			.formLogin(form -> form.disable())
 			.authorizeHttpRequests(auth -> auth
 				.requestMatchers(HttpMethod.POST, STUDENT_SIGN_UP, PARENT_SIGN_UP, STUDENT_LOGIN)
+				.permitAll()
+				.requestMatchers(HttpMethod.GET, REPORT_FILE_DOWNLOAD)
 				.permitAll()
 				// 🔴 STUDENT_PATHS(/member/students/**) 밖이라 별도 한 줄이 필요하다.
 				//    이 줄이 없으면 anyRequest().authenticated() 로 떨어져 학부모도 통과한다.

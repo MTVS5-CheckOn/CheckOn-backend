@@ -86,6 +86,13 @@ public abstract class MemberPostgresSupport {
 	public static void clearMemberFixtures(JdbcTemplate admin) {
 		String[] ordered = {
 			"authentication_sessions",
+			// 🔴 V45 보고서 계열 — 자식 → 부모 순서. 셋 다 member_published_reports 를 복합 FK
+			//    (report_id, student_id) · (report_id, teacher_id) · (report_id, published_at)
+			//    로 참조하고, 부모는 student_profiles·teacher_profiles 를 참조한다.
+			"member_report_publication_outbox",
+			"member_report_files",
+			"member_published_report_sections",
+			"member_published_reports",
 			// V44 상담 계열 — 발행 메시지가 상담 원장을 복합 FK 로 참조한다.
 			"member_consultation_messages",
 			"member_consultations",
@@ -154,6 +161,27 @@ public abstract class MemberPostgresSupport {
 	 */
 	public static void deleteLearningSessionsForStudent(JdbcTemplate admin, UUID studentId) {
 		admin.update("DELETE FROM member_learning_sessions WHERE student_id = ?", studentId);
+	}
+
+	/**
+	 * 🔴 <b>보고서 한 건</b>과 그 자식 행만 지운다. 「발행 보고서 0건」 분기를 만드는 데 쓴다.
+	 *
+	 * <p>왜 헬퍼가 되나 — {@link #deleteLearningSessionsForStudent} 와 같은 이유다. 테스트
+	 * 클래스가 자기 안에 {@code DELETE} 를 쓰면 정리 순서·FK 규약이 여러 곳으로 흩어진다.</p>
+	 *
+	 * <p>🔴 <b>범위를 {@code reportId} 하나로 좁힌 것이 요점이다.</b> 처음엔 테스트 안에서
+	 * {@code WHERE status = 'PUBLISHED' AND student_id = ?} 로 지웠는데, 그러면 그 학생의
+	 * <b>다른 강사 보고서까지</b> 함께 사라진다. 컨테이너를 여러 클래스가 공유하므로 그런 넓은
+	 * 삭제는 언젠가 옆 테스트의 픽스처를 지운다 — 실행 순서에 따라 결과가 달라진다.</p>
+	 *
+	 * <p>🔴 자식 → 부모 순서다. V45 의 복합 FK 가 {@code RESTRICT} 라 순서를 어기면 조용히
+	 * 넘어가지 않고 정리 자체가 실패한다.</p>
+	 */
+	public static void deletePublishedReport(JdbcTemplate admin, UUID reportId) {
+		admin.update("DELETE FROM member_report_publication_outbox WHERE report_id = ?", reportId);
+		admin.update("DELETE FROM member_report_files WHERE report_id = ?", reportId);
+		admin.update("DELETE FROM member_published_report_sections WHERE report_id = ?", reportId);
+		admin.update("DELETE FROM member_published_reports WHERE id = ?", reportId);
 	}
 
 	/**

@@ -425,6 +425,8 @@ POST /api/v1/auth/logout                         (member 밖 · 기존 API)
 | 연결 안 된 강사의 보고서 | | `404 RESOURCE_NOT_FOUND` |
 | 섹션 미산출 | 전국 백분위 등 | `200` + `sections[].status: NOT_PRODUCED` + `unproducedReason` |
 | PDF 없음 | | `200` + `hasPdf: false` |
+| 🔴 `teacherId` 필터가 **연결 안 된 강사** | 목록만 해당 | `200` + `items: []`. 🔴 404 가 아니다 — 목록은 「그 강사의 보고서가 있는지」 자체를 알려주지 않으므로 404 와 정보량이 같고, 필터 값 하나 때문에 화면 전체를 오류로 만들지 않는다. **상세는 그대로 404** (PR9 에서 추가) |
+| 자녀 관계 없음 | `studentId` 가 내 자녀가 아님 | `404 RESOURCE_NOT_FOUND` (§0 ④ — 목록·상세 공통. 관계 검증이 먼저다) |
 
 ### `POST .../reports/{reportId}/file-access` — PDF URL 발급
 
